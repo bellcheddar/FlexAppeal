@@ -64,6 +64,19 @@ have shipped silently.
 - **Three brand accent colours failed the chart-palette checks** (lightness band
   and contrast floor) and were re-stepped for data visualisation.
 
+### Licensing
+
+- **MIT**, with third-party notices in `LICENSE`. Compatible with everything
+  FlexAppeal depends on: the two libraries this repository redistributes
+  (Plotly.js and Mol\*) are both MIT and their notices are retained, while
+  MDTraj (LGPL-2.1+) and gemmi (MPL-2.0) are imported unmodified through their
+  published interfaces, which both licences permit.
+- **MDAnalysis removed.** It was declared in `requirements.txt`, the development
+  environment and every generated bundle, and nothing ever imported it. MDTraj
+  covers every metric FlexAppeal computes and owns the trajectory formats, so
+  carrying MDAnalysis cost the droplet an install and every bundle an extra
+  dependency in its environment solve, for nothing.
+
 ### Known limitations
 
 Metal cofactors are refused. Ligand protonation comes from the CCD's fixed state.

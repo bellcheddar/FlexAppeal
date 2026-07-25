@@ -36,11 +36,11 @@ ambertools = "*"
 {% endif %}
 {% endif %}
 
-# Analysis. Both are needed: MDTraj is faster for the geometric time series and
-# owns the trajectory formats, MDAnalysis has the better selection language and
-# the membrane analyses.
+# Analysis. MDTraj alone: it owns the trajectory formats and covers every metric
+# analyse.py computes, including the membrane ones. MDAnalysis was listed here
+# originally and never imported, which cost every bundle a dependency in its
+# environment solve for nothing.
 mdtraj = "*"
-mdanalysis = "*"
 scipy = "*"
 
 [tasks]

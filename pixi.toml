@@ -36,7 +36,6 @@ openff-toolkit = "*"
 
 # --- Analysis ---
 mdtraj = "*"
-mdanalysis = "*"
 numpy = "*"
 scipy = "*"
 

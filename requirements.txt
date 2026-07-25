@@ -20,7 +20,11 @@ gemmi>=0.6.5
 numpy>=1.26
 
 # Bounded server-side re-analysis of an already-decimated trajectory (the
-# /reanalyse route). Both ship manylinux wheels. The atom-by-frame budget in
-# analysis.py is what keeps these from being able to exhaust the box.
+# /reanalyse route). The atom-by-frame budget in analysis.py, and the MemoryMax
+# on the systemd unit, are what keep this from being able to exhaust the box.
+#
+# MDAnalysis is deliberately absent. It was listed here originally, but nothing
+# ever imported it: MDTraj covers every metric FlexAppeal computes and owns the
+# trajectory formats. Carrying it meant a dependency in the droplet's install
+# and in every generated bundle's environment solve, for nothing.
 mdtraj>=1.10
-MDAnalysis>=2.7

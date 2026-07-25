@@ -2,11 +2,11 @@
 
 > **Turn the whole OpenMM option surface into a form, run the simulation on your own machine, and explore what comes back.**
 
-![python](https://img.shields.io/badge/python-3.11-3776AB?logo=python&logoColor=white) ![OpenMM](https://img.shields.io/badge/OpenMM-8.5-467FF7) ![MDTraj](https://img.shields.io/badge/analysis-MDTraj%20%2B%20MDAnalysis-00897B) ![Mol*](https://img.shields.io/badge/viewer-Mol*%205.11-9b51e0) ![tests](https://img.shields.io/badge/tests-349-00897B) ![status](https://img.shields.io/badge/status-in%20development-fcb900) ![author](https://img.shields.io/badge/author-Marc%20C.%20Deller%2C%20D.Phil.-1C244B)
+[![live](https://img.shields.io/badge/live-flexappeal.mdeller.com-00897B?logo=icloud&logoColor=white)](https://flexappeal.mdeller.com) ![python](https://img.shields.io/badge/python-3.11-3776AB?logo=python&logoColor=white) ![OpenMM](https://img.shields.io/badge/OpenMM-8.5-467FF7) ![MDTraj](https://img.shields.io/badge/analysis-MDTraj-00897B) ![Mol*](https://img.shields.io/badge/viewer-Mol*%205.11-9b51e0) ![tests](https://img.shields.io/badge/tests-351-00897B) ![licence](https://img.shields.io/badge/licence-MIT-467FF7) ![author](https://img.shields.io/badge/author-Marc%20C.%20Deller%2C%20D.Phil.-1C244B)
 
 <table>
 <tr>
-<td>🌐 <b>Website</b></td><td><a href="https://marcdeller.com" target="_blank" rel="noopener noreferrer">marcdeller.com</a></td>
+<td>🌐 <b>Website</b></td><td><a href="https://flexappeal.mdeller.com" target="_blank" rel="noopener noreferrer">flexappeal.mdeller.com</a></td>
 <td>✉️ <b>Contact</b></td><td><a href="mailto:marc@marcdeller.com">marc@marcdeller.com</a></td>
 <td>🐙 <b>GitHub</b></td><td><a href="https://github.com/bellcheddar/FlexAppeal" target="_blank" rel="noopener noreferrer">bellcheddar/FlexAppeal</a></td>
 </tr>
@@ -157,7 +157,7 @@ Stated plainly, because each is a real limit rather than a rough edge:
 | Layer | Choice |
 |---|---|
 | Simulation | OpenMM 8.5, PDBFixer, openmmforcefields, OpenFF toolkit |
-| Analysis | MDTraj, MDAnalysis, NumPy, SciPy |
+| Analysis | MDTraj, NumPy, SciPy |
 | Web | Flask, Jinja, vanilla JavaScript (no framework, no build step) |
 | Visualisation | Plotly 2.35, Mol\* 5.11 (both vendored) |
 | Structure parsing | gemmi |
@@ -191,12 +191,12 @@ The values duplicated across Python, nginx, gunicorn and systemd are annotated "
 
 Roadmap, newest ideas at the top. Suggestions welcome.
 
-- [ ] Add DNS for `flexappeal.mdeller.com` and run the first provision
 - [ ] Espaloma charges as a faster alternative to AM1-BCC, which takes minutes per ligand
 - [ ] Replicate comparison in the Analysis tab: overlay several `.fxa` files on one panel
 - [ ] Trajectory concatenation, so an extended run analyses as one piece
 - [ ] Umbrella-sampling and steered-MD protocols (currently out of scope by design)
 - [ ] A "reproduce this" button that rebuilds a bundle from an uploaded `.fxa`
+- [x] **Deployed to [flexappeal.mdeller.com](https://flexappeal.mdeller.com).** Port 8004 on the shared droplet, behind nginx with a Let's Encrypt certificate and HTTP/2. Verified in production rather than merely health-checked: a structure upload renders all 115 options and finds lysozyme's four disulfides, a bundle builds and its generated scripts compile, and a results file renders eleven panels. Each application on the box serves its own certificate, which is the failure the unconditional-certbot rule exists to prevent.
 - [x] **Server-side re-analysis.** The Analysis tab can compute a metric the run did not, or restrict one to part of the molecule, against the trajectory packed in the results file. Bounded by an atom-by-frame budget, a separate ceiling on quadratic pairwise work, one job at a time via an expiring lock, and a cgroup memory limit. The work runs in a detached subprocess so MDTraj never blocks a worker.
 - [x] **Membrane systems.** `Modeller.addMembrane` with seven lipids, pre-oriented structures from OPM, the membrane barostat, and area-per-lipid, thickness and deuterium order parameter panels.
 - [x] **Ligands and cofactors.** Chemistry from the RCSB Chemical Component Dictionary transferred onto the deposited coordinates, parameterised with OpenFF Sage, GAFF2 or espaloma, with ligand RMSD and per-residue contact occupancy.
@@ -206,7 +206,23 @@ Roadmap, newest ideas at the top. Suggestions welcome.
 
 ## 📝 Licence
 
-Add your licence here.
+MIT. See [`LICENSE`](LICENSE) for the full text and for the third-party notices.
+
+MIT is compatible with everything FlexAppeal depends on. The two libraries this
+repository actually redistributes, Plotly.js and Mol\*, are both MIT, and their
+copyright notices are retained as that licence requires. MDTraj (LGPL-2.1+) and
+gemmi (MPL-2.0) are imported unmodified through their published interfaces,
+which both licences permit from differently licensed code.
+
+OpenMM, PDBFixer, openmmforcefields, the OpenFF toolkit and AmberTools are never
+distributed as part of FlexAppeal. A generated bundle installs them into its own
+environment on your machine, and the run script calls them there.
+
+**Cite what you use.** Force-field parameters (AMBER, CHARMM36, OpenFF, GAFF),
+chemical definitions from the RCSB Chemical Component Dictionary, and structures
+from the RCSB PDB, OPM or the AlphaFold Database each carry their own terms and
+citation expectations. FlexAppeal records the accession and the force field in
+every results file's manifest so the provenance is there when you write it up.
 
 ---
 
