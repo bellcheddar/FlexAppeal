@@ -1,0 +1,229 @@
+{% extends "base.html" %}
+{% block title %}Prepare a run{% endblock %}
+
+{% macro field(opt) %}
+  {% set value = cfg[opt.id] %}
+  <div class="md-field {% if opt.advanced %}is-advanced{% endif %}"
+       data-option="{{ opt.id }}"
+       {% if opt.requires %}data-requires="{{ opt.requires }}"{% endif %}>
+    <label for="f-{{ opt.id }}">
+      {{ opt.label }}
+      {% if opt.units %}<span class="md-units">{{ opt.units }}</span>{% endif %}
+      {% if opt.experimental %}<span class="md-badge md-badge-warn" title="Works, but read the note">experimental</span>{% endif %}
+      {% if opt.openmm %}<code class="md-symbol" title="Maps to {{ opt.openmm }}">{{ opt.openmm.split('.')[-1] }}</code>{% endif %}
+    </label>
+
+    {% if opt.widget == 'checkbox' %}
+      <label class="md-switch">
+        <input type="checkbox" id="f-{{ opt.id }}" name="{{ opt.id }}" value="1" {% if value %}checked{% endif %}>
+        <span class="md-switch-track"></span>
+      </label>
+
+    {% elif opt.widget == 'select' %}
+      <select id="f-{{ opt.id }}" name="{{ opt.id }}">
+        {% for c in active_choices(opt, cfg) %}
+          <option value="{{ c.value }}" {% if c.value == value %}selected{% endif %}
+                  {% if c.help %}title="{{ c.help }}"{% endif %}>
+            {{ c.label }}{% if c.experimental %} (experimental){% endif %}
+          </option>
+        {% endfor %}
+      </select>
+      {% for c in active_choices(opt, cfg) %}
+        {% if c.value == value and c.help %}<p class="md-choice-help">{{ c.help }}</p>{% endif %}
+      {% endfor %}
+
+    {% elif opt.widget == 'multiselect' %}
+      {% set choices = dynamic.get(opt.id) if opt.dynamic else active_choices(opt, cfg) %}
+      <div class="md-checkgroup">
+        {% if opt.dynamic and not choices %}
+          <p class="md-empty">Load a structure to see what is available.</p>
+        {% endif %}
+        {% for c in choices or [] %}
+          {% set cv = c.value if c.value is defined else c['value'] %}
+          {% set cl = c.label if c.label is defined else c['label'] %}
+          {% set ch = c.help if c.help is defined else c['help'] %}
+          <label class="md-check">
+            <input type="checkbox" name="{{ opt.id }}" value="{{ cv }}"
+                   {% if cv in value %}checked{% endif %}>
+            <span>{{ cl }}{% if ch %}<em>{{ ch }}</em>{% endif %}</span>
+          </label>
+        {% endfor %}
+      </div>
+
+    {% elif opt.widget == 'textarea' %}
+      <textarea id="f-{{ opt.id }}" name="{{ opt.id }}" rows="3"
+                {% if opt.placeholder %}placeholder="{{ opt.placeholder }}"{% endif %}>{{ value }}</textarea>
+
+    {% elif opt.widget == 'file' %}
+      <input type="file" id="f-{{ opt.id }}" name="{{ opt.id }}" accept=".pdb,.ent,.cif,.mmcif">
+
+    {% elif opt.widget in ('number', 'int') %}
+      <input type="number" id="f-{{ opt.id }}" name="{{ opt.id }}" value="{{ value }}"
+             {% if opt.minimum is not none %}min="{{ opt.minimum }}"{% endif %}
+             {% if opt.maximum is not none %}max="{{ opt.maximum }}"{% endif %}
+             step="{{ opt.step if opt.step else (1 if opt.widget == 'int' else 'any') }}">
+
+    {% else %}
+      <input type="text" id="f-{{ opt.id }}" name="{{ opt.id }}" value="{{ value }}"
+             {% if opt.placeholder %}placeholder="{{ opt.placeholder }}"{% endif %}
+             {% if opt.widget == 'pdbid' %}maxlength="4" class="md-pdbid"{% endif %}>
+    {% endif %}
+
+    <p class="md-help">{{ opt.help }}</p>
+    <p class="md-field-error" data-error-for="{{ opt.id }}" hidden></p>
+  </div>
+{% endmacro %}
+
+{% block content %}
+
+{% if issues %}
+  <div class="md-issues">
+    {% for i in issues %}
+      <div class="md-issue md-issue-{{ i.level }}">
+        <strong>{{ '✕' if i.level == 'error' else '⚠' }}</strong>
+        <span>{% if i.option_id %}<code>{{ i.option_id }}</code> — {% endif %}{{ i.message }}</span>
+      </div>
+    {% endfor %}
+  </div>
+{% endif %}
+
+{% if not report %}
+  {# ---------- Step 1: acquire a structure ---------- #}
+  <section class="md-card md-intro">
+    <h2>Start with a structure</h2>
+    <p>
+      FlexAppeal turns the OpenMM option surface into a form, then hands you a single
+      self-contained file to run on your own machine. Nothing is simulated on this
+      server — your trajectory never leaves your laptop.
+    </p>
+
+    <form method="post" action="{{ url_for('prepare.load_structure') }}"
+          enctype="multipart/form-data" class="md-source-form">
+      <div class="md-source-tabs" role="tablist">
+        {% for c in by_group['input'][0].choices %}
+          <label class="md-source-tab">
+            <input type="radio" name="input_source" value="{{ c.value }}"
+                   {% if c.value == cfg.input_source %}checked{% endif %}>
+            <span><strong>{{ c.label }}</strong><em>{{ c.help }}</em></span>
+          </label>
+        {% endfor %}
+      </div>
+
+      <div class="md-source-inputs">
+        <div data-source="upload">
+          <label for="f-input_file">PDB or mmCIF file</label>
+          <input type="file" id="f-input_file" name="input_file" accept=".pdb,.ent,.cif,.mmcif">
+        </div>
+        <div data-source="rcsb opm" hidden>
+          <label for="f-pdb_id">PDB ID</label>
+          <input type="text" id="f-pdb_id" name="pdb_id" maxlength="4"
+                 class="md-pdbid" placeholder="1AKI" value="{{ cfg.pdb_id }}">
+        </div>
+        <div data-source="alphafold" hidden>
+          <label for="f-uniprot_id">UniProt accession</label>
+          <input type="text" id="f-uniprot_id" name="uniprot_id"
+                 placeholder="P00698" value="{{ cfg.uniprot_id }}">
+        </div>
+      </div>
+
+      <button type="submit" class="md-button md-button-primary">Load structure →</button>
+    </form>
+  </section>
+
+{% else %}
+  {# ---------- Step 2: configure ---------- #}
+  <div class="md-layout">
+    <form method="post" action="{{ url_for('prepare.build') }}" id="prepare-form" class="md-form">
+      <input type="hidden" name="_token" value="{{ token }}">
+      <input type="hidden" name="input_source" value="{{ cfg.input_source }}">
+
+      <section class="md-card md-structure-summary">
+        <h2>{{ report.title or report.name }}</h2>
+        <p class="md-meta">
+          {% if report.method %}{{ report.method }}{% endif %}
+          {% if report.resolution %} · {{ report.resolution }} Å{% endif %}
+          · {{ report.chains | selectattr('kind', 'equalto', 'protein') | list | length }} protein chain(s)
+          · {{ report.solute_atoms }} solute atoms
+          {% if citation %} · <span class="md-citation">{{ citation }}</span>{% endif %}
+        </p>
+
+        <div class="md-chips">
+          {% for c in report.chains if c.kind != 'water' %}
+            <span class="md-chip md-chip-{{ c.kind }}">
+              {{ c.id }} <em>{{ c.observed_residues }} res</em>
+              {% if c.residues > c.observed_residues %}
+                <b title="missing residues">−{{ c.residues - c.observed_residues }}</b>
+              {% endif %}
+            </span>
+          {% endfor %}
+          {% for d in report.disulfides %}
+            <span class="md-chip md-chip-ss">SS {{ d.chain_a }}{{ d.resid_a }}–{{ d.chain_b }}{{ d.resid_b }}</span>
+          {% endfor %}
+        </div>
+
+        {% if source_warning %}<p class="md-note">{{ source_warning }}</p>{% endif %}
+        {% for w in report.warnings %}<p class="md-note">{{ w }}</p>{% endfor %}
+      </section>
+
+      {% for g in groups %}
+        {% set fields = by_group[g.id] %}
+        {% set visible = fields | selectattr('advanced', 'equalto', false) | list %}
+        <details class="md-group" {% if g.id in ('job', 'input', 'forcefield', 'protocol') %}open{% endif %}>
+          <summary>
+            <span class="md-group-icon">{{ g.icon }}</span>
+            <span class="md-group-title">{{ g.title }}</span>
+            <span class="md-group-blurb">{{ g.blurb }}</span>
+          </summary>
+          <div class="md-group-body">
+            {% for opt in visible %}{{ field(opt) }}{% endfor %}
+            {% set advanced = fields | selectattr('advanced') | list %}
+            {% if advanced %}
+              <details class="md-advanced">
+                <summary>Advanced ({{ advanced | length }})</summary>
+                <div class="md-group-body">
+                  {% for opt in advanced %}{{ field(opt) }}{% endfor %}
+                </div>
+              </details>
+            {% endif %}
+          </div>
+        </details>
+      {% endfor %}
+
+      <div class="md-submit">
+        <button type="submit" class="md-button md-button-primary">Build the run bundle ↓</button>
+        <p>You will get one file. Double-click it on your Mac to install, benchmark and run.</p>
+      </div>
+    </form>
+
+    {# ---------- Live readouts ---------- #}
+    <aside class="md-readout" id="readout"
+           data-estimated-atoms="{{ cfg._estimated_atoms }}"
+           data-solute-atoms="{{ cfg._solute_atoms }}">
+      <h3>This run</h3>
+      <dl>
+        <div><dt>System size</dt><dd data-readout="atoms">{{ '{:,}'.format(estimate.total_atoms) if estimate else '—' }} atoms</dd></div>
+        <div><dt>Water</dt><dd data-readout="waters">{{ '{:,}'.format(estimate.water_molecules) if estimate else '—' }} molecules</dd></div>
+        <div><dt>Box</dt><dd data-readout="box">{{ estimate.basis if estimate else '—' }}</dd></div>
+        <div><dt>Simulated time</dt><dd data-readout="ns">{{ '%.0f' % derived.total_ns }} ns</dd></div>
+        <div><dt>Steps</dt><dd data-readout="steps">{{ '{:,}'.format(derived.total_steps) }}</dd></div>
+        <div><dt>Frames</dt><dd data-readout="frames">{{ '{:,}'.format(derived.traj_frames) }}</dd></div>
+        <div><dt>Trajectory</dt><dd data-readout="size">{{ derived.traj_size_human }}</dd></div>
+        <div class="md-readout-time">
+          <dt>Wall time</dt>
+          <dd data-readout="wall">{{ wall.human }}</dd>
+        </div>
+      </dl>
+      <p class="md-readout-note" data-readout="basis">
+        Rough estimate — the bundle benchmarks your hardware before it starts and
+        replaces this with a real figure.
+      </p>
+      <div class="md-readout-issues" data-readout="issues"></div>
+    </aside>
+  </div>
+{% endif %}
+
+{% endblock %}
+
+{% block scripts %}
+<script src="{{ asset('app.js') }}" defer></script>
+{% endblock %}

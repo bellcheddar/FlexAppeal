@@ -1,0 +1,64 @@
+[workspace]
+name = "flexappeal"
+version = "0.1.0"
+description = "Prepare OpenMM molecular dynamics runs, analyse what comes back"
+channels = ["conda-forge"]
+platforms = ["osx-arm64", "linux-64"]
+
+# This is the DEVELOPMENT environment for FlexAppeal itself, not the environment
+# a generated bundle uses. Those are two different things and conflating them
+# would be a mistake:
+#
+#   * this file    -- everything needed to develop and test the app on a Mac,
+#                     including a real OpenMM so tests/test_openmm_symbols.py can
+#                     resolve every `openmm=` reference in the option registry
+#   * runtime/pixi.toml.j2 -- rendered per-bundle, pinned, osx-arm64 only, and
+#                     containing only what that specific run actually needs
+#
+# The droplet uses neither: it installs requirements.txt with plain pip, because
+# nothing it does needs OpenMM at all.
+#
+# python = 3.11: openff-toolkit and openmmforcefields both lag the current Python
+# release on conda-forge, and 3.11 is the newest both have builds for across
+# osx-arm64 and linux-64. Check `pixi search openff-toolkit` before raising it.
+
+[dependencies]
+python = "3.11.*"
+
+# --- The MD stack (needed to test generated scripts, not to serve the app) ---
+openmm = ">=8.2"
+pdbfixer = "*"
+# Provides the GAFF/OpenFF/espaloma template generators used for ligands. Pulls
+# ambertools, which is large (~1 GB) but is what AM1-BCC charging actually needs;
+# there is no lighter route to correct ligand charges.
+openmmforcefields = "*"
+openff-toolkit = "*"
+
+# --- Analysis ---
+mdtraj = "*"
+mdanalysis = "*"
+numpy = "*"
+scipy = "*"
+
+# --- Web app (mirrors requirements.txt so local and droplet behave alike) ---
+flask = ">=3.0"
+gunicorn = ">=21.2"
+jinja2 = ">=3.1"
+gemmi = ">=0.6.5"
+python-dotenv = "*"
+
+# --- Development ---
+pytest = ">=8.0"
+
+[tasks]
+test = "python -m pytest tests/ -q"
+serve = "python FlexAppeal.py serve"
+docs = "python FlexAppeal.py docs"
+bundle = "python FlexAppeal.py bundle"
+
+[activation.env]
+# conda-forge's scientific stack and any pip-installed package that bundles its
+# own libomp will both try to initialise OpenMP in one process, which aborts with
+# "OMP: Error #15 ... already initialized" on macOS. Same mitigation as
+# BoltzMaker's pixi.toml, and for the same reason.
+KMP_DUPLICATE_LIB_OK = "TRUE"

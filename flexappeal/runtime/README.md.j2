@@ -1,0 +1,101 @@
+# {{ cfg.job_name }}
+
+{% if cfg.job_description %}
+{{ cfg.job_description }}
+
+{% endif %}
+A FlexAppeal run bundle, generated {{ generated_at }} by FlexAppeal {{ version }}.
+{% if cfg.job_author %}Prepared by {{ cfg.job_author }}.{% endif %}
+
+## Running it
+
+```bash
+chmod +x {{ bundle_filename }}
+./{{ bundle_filename }}
+```
+
+The `chmod` is required: a file downloaded from a browser arrives without the
+executable bit, so double-clicking will not work until you have run it.
+
+The first run installs pixi (if you do not already have it) and solves this
+bundle's environment, which is several gigabytes and takes 5 to 15 minutes.
+Later runs skip straight to the simulation.
+
+Re-running resumes from the last checkpoint. To start over, delete
+`{{ cfg.output_dir }}/`.
+
+## What it will do
+
+| Stage | Setting |
+|---|---|
+| Structure | {{ structure_display | default(structure_filename) }}{% if citation %} — {{ citation }}{% endif %} |
+| Force field | {{ ff_files | join(', ') }} |
+| Solvent | {{ solvent_summary }} |
+{% if cfg.minimize %}
+| Minimisation | to {{ cfg.minimize_tolerance }} kJ/mol/nm |
+{% endif %}
+{% if derived.heat_steps %}
+| Heating | {{ cfg.heat_start_temp }} → {{ cfg.temperature }} K over {{ cfg.heat_duration }} ps, {{ cfg.heat_stages }} stages |
+{% endif %}
+{% if derived.equilibration_steps %}
+| Equilibration | {{ cfg.equilibration_duration }} ps{% if cfg.use_positional_restraints %}, restraints released {{ restraint_schedule | join(' → ') }} kJ/mol/nm²{% endif %} |
+{% endif %}
+| Production | {{ cfg.production_duration }} ns at {{ cfg.temperature }} K{% if cfg.barostat != 'none' %}, {{ cfg.pressure }} bar{% endif %} |
+| Integrator | {{ cfg.integrator }}, {{ cfg.timestep }} fs{% if cfg.use_hmr %}, hydrogen mass repartitioned to {{ cfg.hydrogen_mass }} amu{% endif %} |
+| Constraints | {{ cfg.constraints }} |
+| Trajectory | {{ cfg.traj_format | upper }} every {{ cfg.traj_interval }} ps, {{ traj_selection }} — about {{ derived.traj_frames }} frames, {{ derived.traj_size_human }} |
+{% if derived.replicates > 1 %}
+| Replicates | {{ derived.replicates }} |
+{% endif %}
+| Platform | {% if cfg.platform == 'auto' %}benchmarked at start-up{% else %}{{ cfg.platform }}{% endif %} |
+
+Rough estimate: **{{ wall_estimate }}**. The bundle benchmarks your hardware
+before it starts and prints a real figure.
+
+## What you get
+
+Everything lands in `{{ cfg.output_dir }}/`:
+
+| File | What it is |
+|---|---|
+| `{{ cfg.job_name }}.fxa` | **The results file.** Upload this to the Analysis tab. |
+| `prepared.pdb` | after repair, before solvation |
+{% if cfg.save_solvated_pdb %}
+| `solvated.pdb` | the complete system as simulated |
+{% endif %}
+| `topology.pdb` | first frame, matched to the trajectory's atom subset |
+| `trajectory.{{ traj_extension }}` | the full trajectory — stays here, never uploaded |
+| `state_data.csv` | energies, temperature, pressure, density over time |
+| `state.chk` | checkpoint, for resuming |
+{% if cfg.save_system_xml %}
+| `system.xml`, `integrator.xml`, `final_state.xml` | full serialisation, for exact reproduction or extension |
+{% endif %}
+| `run_manifest.json` | versions, platform, achieved ns/day, wall time |
+
+The `.fxa` carries the metrics computed against your **full** trajectory plus a
+decimated copy for viewing ({{ cfg.payload_tier }} tier). The full trajectory
+never leaves your machine.
+
+## Changing something
+
+`run.py` is a plain, readable OpenMM script with every value written out
+literally — edit it and re-run if you want to change something small. For
+anything structural, go back to {{ site_url }} and build a new bundle.
+
+`config.json` holds the same settings in machine-readable form and is copied
+into the results manifest, so a `.fxa` always knows exactly how it was made.
+
+## If something goes wrong
+
+| Symptom | Likely cause |
+|---|---|
+| `pixi: command not found` after install | Run `source ~/.zshrc`, then re-run the bundle. |
+| Environment fails to solve | Network, usually. Try again; the solve is cached. |
+| `No template found for residue X` | A heteroatom was kept that has no parameters. Rebuild the bundle without it, or supply parameters. |
+| Energy rises steadily through the run | The timestep is too long for the constraints in use. |
+| Everything is much slower than the benchmark | Something else is competing for CPU, or the machine is swapping. |
+| `Particle coordinate is NaN` | The system blew up: almost always a clash minimisation did not resolve, or too long a timestep. |
+
+---
+
+Built by [Marc C. Deller, D.Phil.](https://marcdeller.com) · [marc@marcdeller.com](mailto:marc@marcdeller.com)

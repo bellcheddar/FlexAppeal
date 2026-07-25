@@ -1,0 +1,7 @@
+# Development and test dependencies, on top of requirements.txt.
+#
+# Just pytest. There is no HTTP-mocking library here for the same reason
+# BoltzMaker has none: the code under test takes injectable clients and reads
+# real fixture files, so the suite runs fully offline in well under a second.
+
+pytest>=8.0

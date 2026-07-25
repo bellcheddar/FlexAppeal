@@ -1,0 +1,66 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="author" content="Marc C. Deller, D.Phil.">
+  <meta name="description" content="{% block description %}Prepare OpenMM molecular dynamics runs and analyse the results. Build a self-contained run script, simulate locally, upload the results for interactive analysis.{% endblock %}">
+  <title>{% block title %}FlexAppeal{% endblock %} | Marc C. Deller</title>
+  <link rel="stylesheet" href="{{ asset('brand.css') }}">
+  {% block head %}{% endblock %}
+</head>
+<body>
+
+<header class="md-header">
+  <div class="md-header-inner">
+    <div class="md-header-brand">
+      <a href="https://marcdeller.com" target="_blank" rel="noopener noreferrer">
+        <span class="md-logo-dot"></span>
+        <span class="md-logo-text">Marc C. Deller, D.Phil.</span>
+      </a>
+    </div>
+    <div class="md-header-title">
+      <h1>FlexAppeal <span class="md-header-sub">molecular dynamics, prepared and analysed</span></h1>
+    </div>
+    <div class="md-header-links">
+      <a href="https://marcdeller.com" target="_blank" rel="noopener noreferrer">🌐 marcdeller.com</a>
+      <a href="mailto:marc@marcdeller.com">✉️ marc@marcdeller.com</a>
+    </div>
+  </div>
+</header>
+
+<nav class="md-tabs" aria-label="Main">
+  <div class="md-tabs-inner">
+    <a href="{{ url_for('prepare.index') }}"
+       class="md-tab {% if active == 'prepare' %}is-active{% endif %}"
+       {% if active == 'prepare' %}aria-current="page"{% endif %}>
+      <span class="md-tab-num">1</span> Prepare
+      <span class="md-tab-hint">configure a run, download the bundle</span>
+    </a>
+    <a href="{{ url_for('analysis.analysis') }}"
+       class="md-tab {% if active == 'analysis' %}is-active{% endif %}"
+       {% if active == 'analysis' %}aria-current="page"{% endif %}>
+      <span class="md-tab-num">2</span> Analysis
+      <span class="md-tab-hint">upload results, explore the trajectory</span>
+    </a>
+  </div>
+</nav>
+
+<main class="md-main">
+  {% block content %}{% endblock %}
+</main>
+
+<footer class="md-footer">
+  <p>
+    Built by <a href="https://marcdeller.com" target="_blank" rel="noopener noreferrer">Marc C. Deller, D.Phil.</a>
+    · <a href="mailto:marc@marcdeller.com">marc@marcdeller.com</a>
+  </p>
+  <p class="md-footer-meta">
+    FlexAppeal v{{ FLEXAPPEAL_VERSION }} · generated scripts target OpenMM {{ OPENMM_VERSION }}
+    · simulations run on your machine, never on this server
+  </p>
+</footer>
+
+{% block scripts %}{% endblock %}
+</body>
+</html>

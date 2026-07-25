@@ -1,0 +1,152 @@
+#!/usr/bin/env bash
+# =============================================================================
+#  FlexAppeal run bundle -- {{ cfg.job_name }}
+#  Generated {{ generated_at }} by FlexAppeal {{ version }}
+#
+#  This one file contains everything needed to run the simulation:
+#  the prepared structure, a pinned environment specification, the OpenMM run
+#  script, the analysis script, and this installer.
+#
+#  Usage:
+#      chmod +x {{ bundle_filename }}
+#      ./{{ bundle_filename }}
+#
+#  A file downloaded from a browser arrives without the executable bit, so the
+#  chmod is required -- double-clicking will not work until you have run it.
+#
+#  Re-running resumes from the last checkpoint. Everything is written under
+#  {{ cfg.output_dir }}/ next to this file; delete that directory for a fresh start.
+# =============================================================================
+set -euo pipefail
+
+BLUE=$'\033[38;2;30;115;190m'
+GREEN=$'\033[38;2;0;208;132m'
+AMBER=$'\033[38;2;252;185;0m'
+RED=$'\033[38;2;214;54;56m'
+BOLD=$'\033[1m'
+RESET=$'\033[0m'
+
+info()  { printf "%s\n" "${BLUE}ℹ${RESET} $1"; }
+ok()    { printf "%s\n" "${GREEN}✓${RESET} $1"; }
+step()  { printf "%s\n" "${BLUE}→${RESET} $1"; }
+warn()  { printf "%s\n" "${AMBER}⚠${RESET} $1"; }
+die()   { printf "%s\n" "${RED}✗${RESET} $1" >&2; exit 1; }
+
+printf "\n${BOLD}${BLUE}   ____ _         ___                       __${RESET}\n"
+printf "${BOLD}${BLUE}  / __// /___ __ / _ | ___  ___  ___ ___ _ / /${RESET}\n"
+printf "${BOLD}${BLUE} / _/ / // -_) \\\\ \\\\/ __ |/ _ \\\\/ _ \\\\/ -_) _ \`// /${RESET}\n"
+printf "${BOLD}${BLUE}/_/  /_/ \\\\__/_\\\\_\\\\/_/ |_/ .__/ .__/\\\\__/\\\\_,_//_/${RESET}\n"
+printf "${BOLD}${BLUE}                      /_/  /_/${RESET}\n\n"
+printf "  ${BOLD}{{ cfg.job_name }}${RESET}\n"
+printf "  ${BLUE}{{ summary_line }}${RESET}\n\n"
+
+HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+WORKDIR="${HERE}/{{ cfg.job_name }}_flexappeal"
+
+# ---------------------------------------------------------------------------
+#  Platform checks
+# ---------------------------------------------------------------------------
+
+case "$(uname -s)" in
+    Darwin)
+        if [ "$(uname -m)" != "arm64" ]; then
+            warn "this bundle's environment is pinned for Apple Silicon (osx-arm64); on Intel the solve may fail."
+        fi
+        ;;
+    Linux) warn "this bundle was built for macOS; the pinned environment may not solve on Linux." ;;
+    *)     warn "unrecognised platform '$(uname -s)'." ;;
+esac
+
+# Writing a multi-gigabyte trajectory into an iCloud-synced folder is a genuine
+# disaster: the sync daemon fights the writer for I/O, and "Optimise Mac Storage"
+# can evict files mid-run. Worth one loud warning.
+case "$HERE" in
+    *"/Library/Mobile Documents/"*|*"/Documents/"*)
+        if [ -d "$HOME/Library/Mobile Documents/com~apple~CloudDocs" ] \
+           && [ "${HERE#$HOME/Library/Mobile Documents}" != "$HERE" ]; then
+            warn "this bundle is inside an iCloud-synced folder."
+            warn "iCloud can evict files mid-run and its sync daemon competes for disk I/O."
+            info "Move the bundle somewhere local (~/Simulations, say) before running it."
+            printf "  continue anyway? [y/N] "
+            read -r reply < /dev/tty || reply="n"
+            case "$reply" in [yY]*) ;; *) die "stopped." ;; esac
+        fi
+        ;;
+esac
+
+AVAILABLE_GB=$(df -g "$HERE" | awk 'NR==2 {print $4}')
+if [ -n "${AVAILABLE_GB:-}" ] && [ "$AVAILABLE_GB" -lt {{ required_gb }} ]; then
+    warn "only ${AVAILABLE_GB} GB free here; this run needs roughly {{ required_gb }} GB"
+    warn "(environment ~3 GB, trajectory ~{{ traj_gb }} GB)"
+fi
+
+# ---------------------------------------------------------------------------
+#  Extract
+# ---------------------------------------------------------------------------
+
+if [ -d "$WORKDIR" ]; then
+    info "reusing existing working directory ${WORKDIR##*/}/"
+else
+    step "extracting the bundle"
+    mkdir -p "$WORKDIR"
+fi
+
+PAYLOAD_LINE=$(awk '/^__FLEXAPPEAL_PAYLOAD__$/ { print NR + 1; exit 0; }' "${BASH_SOURCE[0]}")
+[ -n "$PAYLOAD_LINE" ] || die "this file is corrupt -- the payload marker is missing. Download it again."
+
+# `base64 -d` works on modern macOS and GNU coreutils; `-D` is the older BSD
+# spelling, kept as a fallback rather than assumed away.
+if base64 -d </dev/null >/dev/null 2>&1; then B64="base64 -d"; else B64="base64 -D"; fi
+tail -n +"$PAYLOAD_LINE" "${BASH_SOURCE[0]}" | $B64 | tar xzf - -C "$WORKDIR" \
+    || die "extraction failed -- the download may be truncated. Check the file size and try again."
+
+cd "$WORKDIR"
+ok "extracted to ${WORKDIR##*/}/"
+
+# ---------------------------------------------------------------------------
+#  Environment
+# ---------------------------------------------------------------------------
+
+if ! command -v pixi >/dev/null 2>&1; then
+    if [ -x "$HOME/.pixi/bin/pixi" ]; then
+        export PATH="$HOME/.pixi/bin:$PATH"
+    else
+        step "installing pixi (https://pixi.sh) -- one-time, into ~/.pixi"
+        curl -fsSL https://pixi.sh/install.sh | sh
+        export PATH="$HOME/.pixi/bin:$PATH"
+        command -v pixi >/dev/null 2>&1 || die "pixi installed but is not on PATH. Run 'source ~/.zshrc' and try again."
+    fi
+else
+    ok "pixi already installed ($(pixi --version))"
+fi
+
+if [ ! -d ".pixi" ]; then
+    step "installing OpenMM and dependencies -- several GB, one-time, 5-15 minutes"
+    info "later runs of this bundle skip straight to the simulation"
+fi
+pixi install || die "the environment failed to solve. Check your network connection and try again."
+ok "environment ready"
+
+# ---------------------------------------------------------------------------
+#  Run
+# ---------------------------------------------------------------------------
+
+printf "\n${BOLD}Simulation${RESET}\n"
+pixi run python run.py || die "the simulation failed -- see the output above."
+
+printf "\n${BOLD}Analysis${RESET}\n"
+pixi run python analyse.py || die "the analysis failed -- the trajectory is still in {{ cfg.output_dir }}/."
+
+printf "\n"
+ok "done."
+FXA=$(find "{{ cfg.output_dir }}" -name '*.fxa' -maxdepth 2 2>/dev/null | head -1)
+if [ -n "$FXA" ]; then
+    # output_dir is user-supplied and typically starts "./", which would leave a
+    # "/./" in the middle of the path printed back to them.
+    info "results file: ${WORKDIR}/${FXA#./}"
+    info "upload it to the Analysis tab at {{ site_url }}/analysis"
+fi
+printf "\n"
+exit 0
+
+__FLEXAPPEAL_PAYLOAD__

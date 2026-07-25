@@ -1,0 +1,26 @@
+# FlexAppeal web app -- the droplet's dependency set.
+#
+# Deliberately pip-installable with no compiled toolchain: every package here
+# publishes manylinux wheels, so `pip install -r requirements.txt` on a fresh
+# Ubuntu box needs no build-essential and no conda. The heavy scientific stack
+# (OpenMM, PDBFixer, OpenFF, AmberTools) is NOT here on purpose -- it belongs in
+# the bundle that runs on the user's own machine, and installing it on a 3.8 GB
+# droplet shared with four other apps would be both pointless and dangerous.
+
+flask>=3.0
+gunicorn>=21.2
+jinja2>=3.1
+python-dotenv>=1.0
+
+# Structure introspection for the Prepare tab: chains, heteroatoms, gaps,
+# disulfides. gemmi parses both PDB and mmCIF, is fast, and is a single wheel --
+# the reason it is here rather than Biopython, which would pull more for less.
+gemmi>=0.6.5
+
+numpy>=1.26
+
+# Bounded server-side re-analysis of an already-decimated trajectory (the
+# /reanalyse route). Both ship manylinux wheels. The atom-by-frame budget in
+# analysis.py is what keeps these from being able to exhaust the box.
+mdtraj>=1.10
+MDAnalysis>=2.7

@@ -1,0 +1,34 @@
+# Environments
+.venv/
+.venv-dev/
+.pixi/
+__pycache__/
+*.pyc
+*.egg-info/
+
+# Deployment secrets and per-machine config
+.env
+
+# Per-request working directories (web app)
+web_scratch/
+
+# Generated README artefacts (produced by marcs-vibe-coding readme_forge.py)
+README.polished.md
+README.html
+README.preview.html
+elementor-widget-markdown.css
+
+# Simulation output -- these are large and regenerable.
+# The negations keep the small checked-in example outputs tracked, so the
+# analysis tab always has something real to render in tests.
+*.fxa
+*.xtc
+*.dcd
+*.chk
+flexappeal_output/
+*.command
+!examples/*/*.fxa
+!examples/*/*.command
+
+# macOS
+.DS_Store
