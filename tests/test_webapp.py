@@ -500,3 +500,82 @@ def test_reanalysis_status_reports_a_finished_job(client, app):
     assert payload["metrics"]["rgyr_nm"]
     # The status route builds the figures, so the browser only draws.
     assert any(p["id"] == "re-rgyr" for p in payload["figures"])
+
+
+# ---------------------------------------------------------------------------
+#  Browser-side validity of the number inputs
+# ---------------------------------------------------------------------------
+
+
+def _number_inputs(html):
+    """Every rendered number input as a dict of its attributes."""
+    import re
+
+    found = {}
+    for tag in re.findall(r'<input type="number"[^>]*>', html):
+        name = re.search(r'name="([^"]+)"', tag)
+        if not name:
+            continue
+        attrs = dict(re.findall(r'(\w[\w-]*)="([^"]*)"', tag))
+        found[name.group(1)] = attrs
+    return found
+
+
+def test_the_browser_accepts_every_default(client):
+    """HTML5 validates a number input as `value == min + n*step`, anchored at min.
+
+    A step that does not divide (default - min) makes the browser reject the
+    form's own default with "Enter a valid value". Nine options did exactly
+    that: production_duration had min 0.001 and step 1, so both the 100 ns
+    default and a typed 10 ns were refused, and the form could not be submitted
+    at all.
+    """
+    _, _, html = _upload(client)
+    offenders = []
+    for name, attrs in _number_inputs(html).items():
+        step = attrs.get("step", "any")
+        if step == "any":
+            continue
+        low = float(attrs.get("min", 0))
+        n = (float(attrs["value"]) - low) / float(step)
+        if abs(n - round(n)) > 1e-9:
+            offenders.append(f"{name} (min={low}, step={step}, value={attrs['value']})")
+    assert not offenders, "the browser would reject these defaults: " + "; ".join(offenders)
+
+
+def test_float_inputs_do_not_constrain_to_a_grid(client):
+    """schema.py accepts any value between minimum and maximum.
+
+    The browser must not be stricter than the server, or a legitimate value is
+    refused before it can even be submitted.
+    """
+    _, _, html = _upload(client)
+    inputs = _number_inputs(html)
+    for opt in opts.OPTIONS:
+        if opt.widget == "number" and opt.id in inputs:
+            assert inputs[opt.id].get("step") == "any", (
+                f"{opt.id} pins the browser to a grid, but schema.py accepts any "
+                f"value in range"
+            )
+
+
+def test_integer_inputs_step_by_one_from_a_whole_number(client):
+    """step=1 is only exact if the minimum is itself an integer."""
+    _, _, html = _upload(client)
+    inputs = _number_inputs(html)
+    for opt in opts.OPTIONS:
+        if opt.widget == "int" and opt.id in inputs:
+            assert inputs[opt.id].get("step") == "1"
+            low = float(inputs[opt.id].get("min", 0))
+            assert low == int(low), f"{opt.id} has a fractional minimum with step=1"
+
+
+@pytest.mark.parametrize("value", ["10", "0.5", "137.4", "1", "100"])
+def test_a_typed_production_time_is_accepted_end_to_end(client, value):
+    """The reported bug: typing 10 into Production and being told it is invalid."""
+    _, token, _ = _upload(client)
+    response = client.post("/prepare/build",
+                           data=_form_from_defaults(token, production_duration=value))
+    assert response.mimetype == "application/octet-stream", \
+        f"production_duration={value} was rejected: " \
+        f"{response.get_data(as_text=True)[:200]}"

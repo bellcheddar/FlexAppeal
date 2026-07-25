@@ -61,7 +61,20 @@
       <input type="number" id="f-{{ opt.id }}" name="{{ opt.id }}" value="{{ value }}"
              {% if opt.minimum is not none %}min="{{ opt.minimum }}"{% endif %}
              {% if opt.maximum is not none %}max="{{ opt.maximum }}"{% endif %}
-             step="{{ opt.step if opt.step else (1 if opt.widget == 'int' else 'any') }}">
+             {# HTML5 validates a number input as `value == min + n*step`, anchored at
+                min. The registry's `step` means "how much a spinner click should
+                move", which is a different thing, and treating one as the other
+                made the browser reject the form's own defaults: production_duration
+                has min 0.001 and step 1, so 100 (the default) and 10 (what a user
+                types) were both "Enter a valid value". Nine options were affected.
+
+                schema.py accepts any value between minimum and maximum, so the
+                browser must too: step="any" for floats. Integers keep step="1",
+                which is exact because every int option's minimum is a whole
+                number. The registry step survives as documentation and as the
+                spinner hint below. #}
+             step="{{ 1 if opt.widget == 'int' else 'any' }}"
+             {% if opt.step %}data-step="{{ opt.step }}"{% endif %}>
 
     {% else %}
       <input type="text" id="f-{{ opt.id }}" name="{{ opt.id }}" value="{{ value }}"
