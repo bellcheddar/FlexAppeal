@@ -1,0 +1,37 @@
+# systemd unit for the FlexAppeal web app (gunicorn behind nginx).
+# Installed to /etc/systemd/system/flexappeal-web.service by provision.sh.
+[Unit]
+Description=FlexAppeal web app (gunicorn)
+After=network.target
+
+[Service]
+Type=simple
+User=flexappeal
+Group=flexappeal
+WorkingDirectory=/opt/flexappeal
+EnvironmentFile=-/opt/flexappeal/.env
+ExecStart=/opt/flexappeal/.venv/bin/gunicorn --config /opt/flexappeal/deploy/gunicorn.conf.py wsgi:app
+Restart=on-failure
+RestartSec=3
+
+# Hardening
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+ProtectHome=true
+ReadWritePaths=/opt/flexappeal
+
+# A cgroup backstop, because this app runs MDTraj. The re-analysis route already
+# refuses work above its own atom x frame budget, but a budget is an estimate and
+# this is the thing that actually holds: FlexAppeal cannot take the box down with
+# it and leave AlphaFraud, chem_sage, chatPDB and BoltzMaker in the wreckage.
+#
+# MUST stay consistent with BUDGET_ATOM_FRAMES in flexappeal/analysis.py. That
+# budget is chosen so the largest permitted job fits comfortably inside this
+# limit including MDTraj's intermediate copies; raising one without the other
+# means either wasted headroom or an OOM kill mid-analysis.
+MemoryMax=1200M
+CPUQuota=150%
+
+[Install]
+WantedBy=multi-user.target

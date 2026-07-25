@@ -1,0 +1,162 @@
+"""The deploy kit, checked from the repo rather than from the droplet.
+
+Two things worth testing without a server: that the shell scripts parse, and
+that the values duplicated across Python, nginx, gunicorn and systemd actually
+agree. Every one of those pairs is annotated "MUST stay in sync" in both files,
+which is a convention -- this is the part that enforces it.
+"""
+
+from __future__ import annotations
+
+import re
+import subprocess
+
+import pytest
+
+from conftest import REPO_ROOT
+
+DEPLOY = REPO_ROOT / "deploy"
+
+
+def _read(name: str) -> str:
+    return (DEPLOY / name).read_text()
+
+
+# ---------------------------------------------------------------------------
+#  The kit is complete and runnable
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("name", [
+    "deploy.sh", "provision.sh", "gunicorn.conf.py",
+    "flexappeal-web.service", "flexappeal-scratch-clean.service",
+    "flexappeal-scratch-clean.timer", "nginx-flexappeal.conf",
+    "nginx-flexappeal-limits.conf", ".env.example",
+])
+def test_the_kit_is_complete(name):
+    assert (DEPLOY / name).is_file(), f"deploy/{name} is missing"
+
+
+@pytest.mark.parametrize("script", ["deploy.sh", "provision.sh"])
+def test_shell_scripts_parse(script):
+    """`bash -n` catches the quoting mistakes that only bite at deploy time."""
+    result = subprocess.run(["bash", "-n", str(DEPLOY / script)],
+                            capture_output=True, text=True)
+    assert result.returncode == 0, f"{script} has a syntax error:\n{result.stderr}"
+
+
+@pytest.mark.parametrize("script", ["deploy.sh", "provision.sh"])
+def test_shell_scripts_are_strict(script):
+    assert "set -euo pipefail" in _read(script), \
+        f"{script} would carry on after a failed step"
+
+
+# ---------------------------------------------------------------------------
+#  Cross-file invariants
+# ---------------------------------------------------------------------------
+
+
+def test_upload_cap_matches_nginx():
+    """nginx rejects an oversized body before Python sees it; Flask catches the
+    rest. A mismatch means one of them produces an unhelpful error."""
+    from flexappeal.webapp import MAX_CONTENT_LENGTH
+
+    nginx_mb = int(re.search(r"client_max_body_size (\d+)m",
+                             _read("nginx-flexappeal.conf")).group(1))
+    assert MAX_CONTENT_LENGTH // (1024 * 1024) == nginx_mb
+
+
+def test_gunicorn_and_nginx_timeouts_match():
+    gunicorn = int(re.search(r"^timeout = (\d+)", _read("gunicorn.conf.py"),
+                             re.M).group(1))
+    nginx = int(re.search(r"proxy_read_timeout (\d+)s",
+                          _read("nginx-flexappeal.conf")).group(1))
+    assert gunicorn == nginx
+
+
+def test_the_port_is_consistent_everywhere():
+    """8004 on a droplet that also runs four other apps."""
+    gunicorn = re.search(r"127\.0\.0\.1:(\d+)", _read("gunicorn.conf.py")).group(1)
+    env = re.search(r"BIND_ADDR=127\.0\.0\.1:(\d+)", _read(".env.example")).group(1)
+    assert gunicorn == env == "8004"
+
+
+def test_the_port_does_not_collide_with_a_sibling_app():
+    taken = {"8000": "AlphaFraud", "8001": "chem_sage",
+             "8002": "chatPDB", "8003": "BoltzMaker"}
+    port = re.search(r"127\.0\.0\.1:(\d+)", _read("gunicorn.conf.py")).group(1)
+    assert port not in taken, f"port {port} already belongs to {taken.get(port)}"
+
+
+def test_the_analysis_budget_fits_inside_the_cgroup_limit():
+    """MemoryMax is the thing that actually holds when the budget's estimate is
+    optimistic; the budget has to be chosen to fit inside it."""
+    from flexappeal.analysis import BUDGET_ATOM_FRAMES
+
+    memory_mb = int(re.search(r"MemoryMax=(\d+)M",
+                              _read("flexappeal-web.service")).group(1))
+    # 12 bytes per atom-frame for coordinates, and MDTraj's atom_slice and
+    # superpose each take a copy -- so allow for several times the raw array.
+    coordinates_mb = BUDGET_ATOM_FRAMES * 12 / 1e6
+    assert coordinates_mb * 4 < memory_mb, (
+        f"a maximum-size job is {coordinates_mb:.0f} MB of coordinates; with "
+        f"MDTraj's copies that does not fit in {memory_mb} MB"
+    )
+
+
+def test_the_service_user_matches_across_the_kit():
+    for name in ("flexappeal-web.service", "flexappeal-scratch-clean.service"):
+        assert "User=flexappeal" in _read(name)
+    assert "chown flexappeal:flexappeal" in _read("deploy.sh")
+    assert 'useradd --system' in _read("provision.sh")
+
+
+def test_static_path_matches_where_the_files_actually_are():
+    alias = re.search(r"alias ([^;]+);", _read("nginx-flexappeal.conf")).group(1)
+    assert alias == "/opt/flexappeal/flexappeal/static/"
+    # And that path must exist relative to the repo, or nginx serves nothing.
+    assert (REPO_ROOT / "flexappeal" / "static").is_dir()
+    assert (REPO_ROOT / "flexappeal" / "static" / "vendor" / "plotly.min.js").is_file()
+
+
+# ---------------------------------------------------------------------------
+#  Lessons the sibling projects paid for
+# ---------------------------------------------------------------------------
+
+
+def test_certbot_runs_unconditionally():
+    """Skipping certbot when a certificate exists leaves the re-templated vhost
+    with no TLS block, and nginx then answers HTTPS from another app's cert.
+    boltzmaker.mdeller.com once served AlphaFraud's."""
+    text = _read("provision.sh")
+    assert "certbot --nginx" in text
+    assert "for attempt in 1 2 3" in text, "certbot's own timer can hold the lock"
+
+
+def test_http2_is_patched_in():
+    """certbot does not enable HTTP/2 on nginx 1.24."""
+    assert "http2" in _read("provision.sh")
+
+
+def test_deploy_chowns_on_every_run_not_only_provisioning():
+    """rsync from a Mac preserves 0600 dellboy:staff, and the service user then
+    fails at runtime rather than at deploy time."""
+    text = _read("deploy.sh")
+    assert "chown flexappeal:flexappeal" in text
+    assert "-prune" in text, "the venv and live scratch must be pruned from the chown"
+
+
+def test_deploy_excludes_local_only_directories():
+    text = _read("deploy.sh")
+    for excluded in (".pixi/", ".venv/", "web_scratch/", ".env"):
+        assert f"--exclude '{excluded}'" in text, f"{excluded} would be synced"
+
+
+def test_deploy_does_not_exclude_the_vendored_javascript():
+    """nginx serves it from disk, so it genuinely has to be on the server."""
+    assert "--exclude 'flexappeal/static" not in _read("deploy.sh")
+
+
+def test_provision_warns_when_dns_is_missing():
+    """certbot proves domain control over HTTP; without the A record it fails."""
+    assert "does not resolve" in _read("provision.sh")

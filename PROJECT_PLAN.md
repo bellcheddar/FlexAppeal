@@ -124,17 +124,20 @@ to the performance cores. The defaults reflect that, and the help text says so.
 | Phase | Deliverable | State |
 |---|---|---|
 | 0 | Repo skeleton, option registry, validation, pytest scaffolding | done |
-| 1 | Structure introspection and the Prepare tab | next |
-| 2 | Bundle generator and runtime templates | |
-| 3 | Local analysis pass and the `.fxa` contract | |
-| 4 | Analysis tab: Plotly panels and the Mol\* viewer | |
-| 5 | Ligand parameterisation | |
-| 6 | Membrane construction | |
-| 7 | Hybrid server-side re-analysis | |
-| 8 | Deployment to flexappeal.mdeller.com | |
+| 1 | Structure introspection and the Prepare tab | done |
+| 2 | Bundle generator and runtime templates | done |
+| 3 | Local analysis pass and the `.fxa` contract | done |
+| 4 | Analysis tab: Plotly panels and the Mol\* viewer | done |
+| 5 | Ligand parameterisation | done |
+| 6 | Membrane construction | done |
+| 7 | Hybrid server-side re-analysis | done |
+| 8 | Deployment to flexappeal.mdeller.com | kit ready, blocked on DNS |
 
-Phases 1 to 4 are the minimum viable product. Phases 5 to 7 are additive and each
-ships independently.
+All eight phases are built and tested. Deployment is blocked on one external
+step: `flexappeal.mdeller.com` has no DNS record, and certbot proves domain
+control over HTTP, so the TLS step cannot succeed until an A record points at
+the droplet. `deploy/provision.sh` detects this and says so rather than leaving
+the site serving another application's certificate.
 
 ## Deployment shape
 

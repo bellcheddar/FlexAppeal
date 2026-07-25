@@ -1,0 +1,12 @@
+# Sweeps abandoned preparation and analysis sessions out of the scratch
+# directory. The app sweeps on start-up too, but a long-lived process needs
+# something that runs while it is up.
+[Unit]
+Description=Remove expired FlexAppeal scratch sessions
+
+[Service]
+Type=oneshot
+User=flexappeal
+Group=flexappeal
+WorkingDirectory=/opt/flexappeal
+ExecStart=/opt/flexappeal/.venv/bin/python /opt/flexappeal/FlexAppeal.py sweep

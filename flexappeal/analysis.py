@@ -28,10 +28,16 @@ from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any
 
-# An atom x frame product above this is refused. 20 million is roughly 2000
-# frames of 10,000 atoms: comfortably more than any `full` tier packs, and far
-# below what would trouble the box.
-BUDGET_ATOM_FRAMES = 20_000_000
+# An atom x frame product above this is refused. 10 million is 2000 frames of
+# 5,000 atoms -- comfortably more than any `full` tier packs for a typical
+# protein.
+#
+# MUST stay consistent with MemoryMax in deploy/flexappeal-web.service. The
+# coordinate array alone is 12 bytes per atom-frame (120 MB here), and MDTraj's
+# atom_slice and superpose each take a copy, so the real ceiling is several
+# times that. The number is chosen so the largest permitted job fits inside the
+# 1200M cgroup limit rather than being OOM-killed halfway through.
+BUDGET_ATOM_FRAMES = 10_000_000
 
 # Pairwise work scales with the square of the residue count, so it gets its own
 # ceiling rather than riding on the atom budget.
