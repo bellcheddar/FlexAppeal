@@ -100,6 +100,17 @@ class ChainInfo:
         return max(0, self.residues - self.observed_residues)
 
 
+# Elements no fixed-charge small-molecule force field can parameterise. A ligand
+# containing one of these cannot go through GAFF, OpenFF or espaloma at all --
+# they are organic force fields, and a transition metal centre needs either
+# bespoke bonded parameters or a QM treatment. Detected so the app can refuse
+# clearly at build time rather than failing inside the user's run.
+_UNPARAMETERISABLE_METALS = {
+    "FE", "CU", "ZN", "MN", "CO", "NI", "MO", "W", "V", "CR", "CD", "HG",
+    "PT", "PD", "RU", "RH", "IR", "AU", "AG", "TI", "SN", "PB", "AS", "SB",
+}
+
+
 @dataclass
 class HeteroInfo:
     name: str
@@ -109,6 +120,16 @@ class HeteroInfo:
     category: str  # cofactor | ligand | ion | water | additive
     description: str = ""
     formula: str = ""
+    elements: list[str] = field(default_factory=list)
+
+    @property
+    def metals(self) -> list[str]:
+        return sorted({e for e in self.elements if e.upper() in _UNPARAMETERISABLE_METALS})
+
+    @property
+    def parameterisable(self) -> bool:
+        """Whether a small-molecule force field could handle this at all."""
+        return self.category in ("ligand", "cofactor", "additive") and not self.metals
 
 
 @dataclass
@@ -354,10 +375,12 @@ def analyse(data: bytes, filename: str = "structure.pdb",
                 entry = hetero_counts.setdefault(residue.name, {
                     "count": 0, "chains": set(), "atoms": 0,
                     "category": category, "description": description,
+                    "elements": set(),
                 })
                 entry["count"] += 1
                 entry["chains"].add(chain.name)
                 entry["atoms"] += len(residue)
+                entry["elements"].update(a.element.name.upper() for a in residue)
 
         sequence = polymer.make_one_letter_sequence() if len(polymer) else ""
 
@@ -386,6 +409,7 @@ def analyse(data: bytes, filename: str = "structure.pdb",
             atoms=info["atoms"],
             category=info["category"],
             description=info["description"],
+            elements=sorted(info["elements"]),
         )
         for name, info in sorted(hetero_counts.items())
     ]
@@ -442,13 +466,26 @@ def analyse(data: bytes, filename: str = "structure.pdb",
             f"Each one you keep needs small-molecule parameters, which adds a few "
             f"minutes to the bundle's first run."
         )
-    metals = [h for h in heteroatoms if h.category == "ion" and h.name.upper() not in
-              ("NA", "K", "CL", "BR", "F", "IOD", "CS", "RB", "LI")]
-    if metals:
+    metal_ligands = [h for h in heteroatoms
+                     if h.metals and h.category in ("ligand", "cofactor")]
+    if metal_ligands:
         warnings.append(
-            f"structural metal(s) present ({', '.join(h.name for h in metals)}). "
-            f"Standard force fields treat these as non-bonded point charges, which "
-            f"handles a loosely bound ion adequately and a catalytic metal centre badly."
+            "metal-containing cofactor(s) found ("
+            + ", ".join(f"{h.name}: {', '.join(h.metals)}" for h in metal_ligands)
+            + "). No fixed-charge small-molecule force field can parameterise a "
+            "transition-metal centre, so these cannot be kept. Simulating the apo "
+            "protein is the supported option; a metalloprotein needs bespoke bonded "
+            "parameters or a QM/MM treatment."
+        )
+
+    metal_ions = [h for h in heteroatoms if h.metals and h.category == "ion"]
+    if metal_ions:
+        warnings.append(
+            "structural metal ion(s) present ("
+            + ", ".join(h.name for h in metal_ions)
+            + "). Standard force fields treat these as non-bonded point charges, "
+            "which handles a loosely bound ion adequately and a catalytic metal "
+            "centre badly."
         )
 
     return StructureReport(

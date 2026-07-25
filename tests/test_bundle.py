@@ -383,3 +383,114 @@ def test_readme_describes_the_actual_run(structure):
 def test_readme_lists_replicates_only_when_there_are_several(structure):
     assert "Replicates" in bundle.unpack(_build(structure, replicates=3).content)["README.md"].decode()
     assert "Replicates" not in bundle.unpack(_build(structure).content)["README.md"].decode()
+
+
+# ---------------------------------------------------------------------------
+#  Ligands
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture(scope="module")
+def trypsin():
+    return (FIXTURES / "3ptb.pdb").read_bytes()
+
+
+def _report(raw, name):
+    from flexappeal import structure as structure_mod
+    return structure_mod.analyse(raw, name).to_dict()
+
+
+def _fake_ccd(name):
+    """A stand-in for the RCSB fetch, so the suite stays offline."""
+    from flexappeal import sources
+    return sources.FetchResult(b"fake sdf\n", f"{name}.sdf", "ccd", "", f"CCD {name}")
+
+
+def test_a_metal_cofactor_is_refused_with_the_real_reason(structure):
+    """HEM cannot go through any organic force field, and saying so early matters.
+
+    Left to run, this fails minutes in with a message about a missing residue
+    template, which does not tell the user that the problem is the iron.
+    """
+    report = _report(structure, "1aki.pdb")
+    report["heteroatoms"] = [{"name": "HEM", "category": "cofactor",
+                              "elements": ["C", "FE", "N", "O"], "count": 1}]
+    with pytest.raises(BundleError, match="transition-metal"):
+        bundle.collect_ligands({"keep_heteroatoms": ["HEM"]}, report, fetch=_fake_ccd)
+
+
+def test_an_organic_ligand_is_accepted(trypsin):
+    files, warnings = bundle.collect_ligands(
+        {"keep_heteroatoms": ["BEN"], "ph": 7.4}, _report(trypsin, "3ptb.pdb"),
+        fetch=_fake_ccd)
+    assert "BEN.sdf" in files
+    assert any("protonation" in w for w in warnings), \
+        "the CCD's fixed protonation state is a real caveat and must be surfaced"
+
+
+def test_monatomic_ions_need_no_chemical_definition(structure):
+    """The protein force field already has ion parameters."""
+    report = _report(structure, "1aki.pdb")
+    report["heteroatoms"] = [{"name": "NA", "category": "ion",
+                              "elements": ["NA"], "count": 1}]
+    files, _ = bundle.collect_ligands({"keep_heteroatoms": ["NA"]}, report,
+                                      fetch=_fake_ccd)
+    assert files == {}
+
+
+def test_a_ligand_bundle_carries_its_chemistry(trypsin):
+    files, _ = bundle.collect_ligands({"keep_heteroatoms": ["BEN"]},
+                                      _report(trypsin, "3ptb.pdb"), fetch=_fake_ccd)
+    result = bundle.build(_cfg(keep_heteroatoms=["BEN"], has_ligands=True),
+                          trypsin, "3ptb.pdb", ligands=files)
+    unpacked = bundle.unpack(result.content)
+    assert "ligands/BEN.sdf" in unpacked
+
+
+def test_ligand_run_script_stamps_residue_metadata_on_new_hydrogens(structure):
+    """Chem.AddHs leaves the new hydrogens without residue info.
+
+    They then land in a separate UNK residue: `resname BEN` selects 9 atoms
+    instead of 17, and a residue with zero heavy atoms breaks MDTraj's
+    closest-heavy contact analysis. Caught by running it, so it gets a test.
+    """
+    code = _code(structure, keep_heteroatoms=["BEN"], has_ligands=True)
+    assert "AtomPDBResidueInfo()" in code
+    assert "SetResidueName" in code
+
+
+def test_am1bcc_is_checked_for_before_it_is_needed(structure):
+    """AmberTools is found on PATH, not by import, so an unactivated environment
+    fails minutes later with an opaque toolkit-registry error."""
+    code = _code(structure, keep_heteroatoms=["BEN"], has_ligands=True,
+                 ligand_charge_method="am1bcc")
+    assert "shutil.which('sqm')" in code or 'shutil.which("sqm")' in code
+
+
+def test_am1bcc_declares_ambertools_explicitly(structure):
+    """It arrives transitively today; a hard requirement should not rely on that."""
+    text = _pixi(structure, keep_heteroatoms=["BEN"], has_ligands=True,
+                 ligand_charge_method="am1bcc")
+    assert "ambertools" in text
+
+
+def test_gasteiger_needs_no_ambertools(structure):
+    text = _pixi(structure, keep_heteroatoms=["BEN"], has_ligands=True,
+                 ligand_charge_method="gasteiger")
+    assert "ambertools" not in text
+
+
+@pytest.mark.parametrize("ff,generator", [
+    ("openff-2.2.1", "SMIRNOFFTemplateGenerator"),
+    ("gaff-2.11", "GAFFTemplateGenerator"),
+    ("espaloma-0.3.2", "EspalomaTemplateGenerator"),
+])
+def test_each_ligand_force_field_selects_its_generator(structure, ff, generator):
+    code = _code(structure, keep_heteroatoms=["BEN"], has_ligands=True, ligand_ff=ff)
+    assert generator in code
+
+
+def test_apo_run_has_no_ligand_machinery(structure):
+    code = _code(structure)
+    assert "TemplateGenerator" not in code
+    assert "AssignBondOrdersFromTemplate" not in code

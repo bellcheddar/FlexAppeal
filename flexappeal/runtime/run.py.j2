@@ -24,6 +24,7 @@ again. Delete the output directory to force a fresh run.
 
 from __future__ import annotations
 
+import io
 import json
 import os
 import platform
@@ -153,7 +154,7 @@ def check_memory(n_atoms):
 #  1. Structure preparation
 # ---------------------------------------------------------------------------
 
-def prepare_structure():
+def prepare_structure(ligands=None):
     """Repair the input structure and return an OpenMM Modeller."""
     step("preparing the structure")
 {% if needs_pdbfixer %}
@@ -211,9 +212,11 @@ def prepare_structure():
     fixer.replaceNonstandardResidues()
 {% endif %}
 
-    # removeHeterogens takes everything that is not protein/nucleic/water. The
-    # heteroatoms chosen to keep are re-added afterwards from the original file
-    # if any were requested, because PDBFixer has no "keep these" option.
+    # PDBFixer has no "keep these heteroatoms" option -- removeHeterogens takes
+    # everything that is not protein, nucleic or water. Any ligand being kept is
+    # therefore extracted first (below) and merged back after preparation, which
+    # is also the only order that works: PDBFixer cannot add hydrogens to a
+    # residue it has no template for.
     fixer.removeHeterogens(keepWater={{ 'True' if cfg.keep_waters else 'False' }})
 
 {% if cfg.add_missing_atoms %}
@@ -230,6 +233,25 @@ def prepare_structure():
     pdb = app.PDBFile(str(INPUT))
     modeller = app.Modeller(pdb.topology, pdb.positions)
 {% endif %}
+{% if ligand_names %}
+
+    # Merged after preparation, with the hydrogens the extraction added: adding
+    # them here rather than letting PDBFixer try is the whole point, since it has
+    # no template for a ligand.
+    for molecule in ligands or []:
+        modeller.add(molecule.to_topology().to_openmm(),
+                     molecule.conformers[0].to_openmm())
+    if ligands:
+        # openff's to_openmm() sets residue and chain ids as ints, while OpenMM's
+        # own topologies use strings. PDBFile.writeFile(keepIds=True) then dies on
+        # len(res.id). Normalising here rather than at the write site because the
+        # mixed types would otherwise surface again at every downstream writer.
+        for chain in modeller.topology.chains():
+            chain.id = str(chain.id)
+        for residue in modeller.topology.residues():
+            residue.id = str(residue.id)
+        ok(f"merged {len(ligands)} ligand(s) back into the system")
+{% endif %}
 
     n_atoms = modeller.topology.getNumAtoms()
     ok(f"prepared: {n_atoms} atoms, {len(list(modeller.topology.residues()))} residues")
@@ -241,12 +263,159 @@ def prepare_structure():
     return modeller
 
 
+{% if ligand_names %}
+# ---------------------------------------------------------------------------
+#  1b. Ligands
+# ---------------------------------------------------------------------------
+
+LIGAND_RESIDUES = {{ ligand_names | tojson }}
+
+
+def extract_ligands():
+    """Recover each kept ligand as a fully specified molecule.
+
+    A PDB HETATM record has elements and coordinates but no bond orders and no
+    hydrogens, which is nowhere near enough to parameterise. The chemistry comes
+    from the RCSB chemical definition bundled alongside; this transfers it onto
+    the deposited coordinates:
+
+        PDB coordinates  +  CCD bond orders  ->  add hydrogens  ->  OpenFF molecule
+
+    Note `Chem.RemoveAllHs` rather than `RemoveHs` on the template: RemoveHs
+    keeps hydrogens that define stereochemistry, which leaves the template with
+    a different atom count from the PDB fragment and makes the substructure
+    match fail with an unhelpful "No matching found".
+    """
+    from openff.toolkit import Molecule
+    from rdkit import Chem
+    from rdkit.Chem import AllChem
+
+{% if cfg.ligand_charge_method in ('am1bcc', 'am1bccelf10') %}
+    # AM1-BCC is run by AmberTools' `sqm`, which the OpenFF toolkit finds on
+    # PATH rather than by import. If the environment is not activated, the
+    # AmberTools wrapper silently does not register and the failure surfaces
+    # minutes later as an opaque "no registered toolkits can provide
+    # assign_partial_charges". Checked up front instead.
+    import shutil
+    if not shutil.which("sqm") or not shutil.which("antechamber"):
+        fail("AmberTools is not on PATH, so AM1-BCC charges cannot be computed.")
+        info("Run this bundle through its own environment: `pixi run python run.py`,")
+        info("or just re-run the .command file, which does that for you.")
+        sys.exit(1)
+{% endif %}
+
+    source = app.PDBFile(str(INPUT))
+    molecules = []
+
+    for resname in LIGAND_RESIDUES:
+        template_path = HERE / "ligands" / f"{resname}.sdf"
+        if not template_path.is_file():
+            warn(f"no chemical definition bundled for {resname}; skipping it")
+            continue
+
+        present = [r for r in source.topology.residues() if r.name == resname]
+        if not present:
+            warn(f"{resname} is not in the structure; skipping it")
+            continue
+
+        for copy_index, residue in enumerate(present):
+            keep = {a.index for a in residue.atoms()}
+            fragment = app.Modeller(source.topology, source.positions)
+            fragment.delete([a for a in fragment.topology.atoms() if a.index not in keep])
+
+            block = io.StringIO()
+            app.PDBFile.writeFile(fragment.topology, fragment.positions, block)
+            rd = Chem.MolFromPDBBlock(block.getvalue(), removeHs=True)
+            if rd is None:
+                fail(f"{resname} could not be read out of the structure.")
+                sys.exit(1)
+
+            template = Chem.RemoveAllHs(Chem.MolFromMolFile(str(template_path)))
+            if template is None:
+                fail(f"the bundled chemical definition for {resname} is unreadable.")
+                sys.exit(1)
+
+            try:
+                rd = AllChem.AssignBondOrdersFromTemplate(template, rd)
+            except ValueError:
+                fail(
+                    f"{resname} in this structure does not match its RCSB chemical "
+                    f"definition ({rd.GetNumAtoms()} atoms here, "
+                    f"{template.GetNumAtoms()} in the definition)."
+                )
+                info("This usually means the ligand is partially resolved, covalently "
+                     "bound, or a modified form. Rebuild the bundle without it.")
+                sys.exit(1)
+
+            rd = Chem.AddHs(rd, addCoords=True)
+
+            # AddHs gives the new hydrogens no PDB residue metadata, so they end
+            # up in a separate UNK residue everywhere downstream: `resname BEN`
+            # then selects 9 atoms instead of 17, and a residue with zero heavy
+            # atoms makes MDTraj's closest-heavy contact analysis fail outright.
+            # Stamping the parent residue onto them keeps the ligand one entity.
+            reference = next((a.GetPDBResidueInfo() for a in rd.GetAtoms()
+                              if a.GetPDBResidueInfo() is not None), None)
+            if reference is not None:
+                counter = 0
+                for atom in rd.GetAtoms():
+                    if atom.GetPDBResidueInfo() is not None:
+                        continue
+                    counter += 1
+                    stamp = Chem.AtomPDBResidueInfo()
+                    stamp.SetResidueName(reference.GetResidueName())
+                    stamp.SetResidueNumber(reference.GetResidueNumber())
+                    stamp.SetChainId(reference.GetChainId())
+                    stamp.SetIsHeteroAtom(True)
+                    stamp.SetName(f"H{counter}".ljust(4)[:4])
+                    atom.SetMonomerInfo(stamp)
+
+            molecule = Molecule.from_rdkit(rd, allow_undefined_stereo=True)
+            molecule.name = resname if len(present) == 1 else f"{resname}_{copy_index + 1}"
+            molecules.append(molecule)
+
+            info(f"{molecule.name}: {molecule.n_atoms} atoms, "
+                 f"formal charge {molecule.total_charge.m:+.0f}, "
+                 f"{molecule.to_smiles(explicit_hydrogens=False)}")
+
+    if molecules:
+        warn("ligand protonation comes from the RCSB chemical definition, not from "
+             "the pH above -- check the formal charges printed here are the ones "
+             "you expect at pH {{ cfg.ph }}.")
+    return molecules
+{% endif %}
+
+
 # ---------------------------------------------------------------------------
 #  2. Force field and solvation
 # ---------------------------------------------------------------------------
 
-def build_forcefield():
-    return app.ForceField({% for f in ff_files %}{{ f | tojson }}{{ ", " if not loop.last }}{% endfor %})
+def build_forcefield(ligands=None):
+    forcefield = app.ForceField({% for f in ff_files %}{{ f | tojson }}{{ ", " if not loop.last }}{% endfor %})
+{% if ligand_names %}
+    if ligands:
+        from openmmforcefields.generators import {{ ligand_generator }}
+
+        generator = {{ ligand_generator }}(
+            molecules=ligands,
+            forcefield={{ cfg.ligand_ff | tojson }},
+        )
+{% if cfg.ligand_charge_method == 'gasteiger' %}
+        # Gasteiger charges are assigned up front so the generator uses them
+        # instead of running AM1-BCC. Fast and noticeably worse -- the force
+        # fields here were fitted against AM1-BCC.
+        for molecule in ligands:
+            molecule.assign_partial_charges("gasteiger")
+        generator = {{ ligand_generator }}(
+            molecules=ligands,
+            forcefield={{ cfg.ligand_ff | tojson }},
+        )
+{% endif %}
+        forcefield.registerTemplateGenerator(generator.generator)
+        step("parameterising {{ ligand_names | length }} ligand type(s) with "
+             "{{ cfg.ligand_ff }} -- this takes a minute or two per molecule")
+{% endif %}
+    return forcefield
 
 
 def solvate(modeller, forcefield):
@@ -749,8 +918,13 @@ def main():
         fail(f"the bundled structure {INPUT.name} is missing. Re-extract the bundle.")
         return 1
 
-    modeller = prepare_structure()
-    forcefield = build_forcefield()
+{% if ligand_names %}
+    ligands = extract_ligands()
+{% else %}
+    ligands = None
+{% endif %}
+    modeller = prepare_structure(ligands)
+    forcefield = build_forcefield(ligands)
     modeller = solvate(modeller, forcefield)
 
 {% if cfg.memory_guard %}

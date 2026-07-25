@@ -24,6 +24,16 @@ pdbfixer = "*"
 # {{ openmmforcefields_reason }}
 openmmforcefields = "*"
 openff-toolkit = "*"
+# Transfers bond orders from the bundled chemical definitions onto the deposited
+# coordinates, and adds the hydrogens a PDB HETATM record does not carry.
+rdkit = "*"
+{% if needs_ambertools %}
+# AM1-BCC is computed by AmberTools' `sqm`. It arrives transitively via
+# openmmforcefields today, but this is a hard requirement of the chosen charge
+# method rather than an incidental one -- declared explicitly so a change in
+# openmmforcefields' own dependencies cannot quietly remove it.
+ambertools = "*"
+{% endif %}
 {% endif %}
 
 # Analysis. Both are needed: MDTraj is faster for the geometric time series and

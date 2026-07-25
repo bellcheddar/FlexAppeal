@@ -264,6 +264,57 @@ def compute(traj, run_dir):
         except Exception as exc:
             warn(f"clustering failed ({exc})")
 
+{% if ligand_names %}
+    LIGAND_RESIDUES = {{ ligand_names | tojson }}
+    ligand_sel = " or ".join(f"resname {name}" for name in LIGAND_RESIDUES)
+    ligand_atoms = top.select(ligand_sel) if LIGAND_RESIDUES else np.array([])
+
+    if "ligand_rmsd" in METRICS and len(ligand_atoms):
+        step("ligand RMSD")
+        try:
+            # The trajectory is already superposed on the protein, so this
+            # measures how far the ligand moves *within the binding site* rather
+            # than how far the whole complex tumbled -- which is the question.
+            metrics["ligand_rmsd_nm"] = md.rmsd(
+                traj, ref, atom_indices=ligand_atoms,
+                ref_atom_indices=ligand_atoms if ref.n_atoms == traj.n_atoms else None,
+            ).tolist()
+        except (ValueError, IndexError) as exc:
+            warn(f"ligand RMSD failed ({exc})")
+
+    if "ligand_contacts" in METRICS and len(ligand_atoms) and len(protein):
+        step("protein-ligand contacts")
+        try:
+            # A residue with no heavy atoms makes closest-heavy fail with an
+            # opaque "zero-size array to reduction operation minimum". Filtered
+            # rather than caught, so one odd residue does not lose the panel.
+            def has_heavy(index):
+                return any(a.element.symbol != "H" for a in top.residue(index).atoms)
+
+            ligand_residues = sorted({top.atom(i).residue.index for i in ligand_atoms
+                                      if has_heavy(top.atom(i).residue.index)})
+            protein_residues = sorted({top.atom(i).residue.index for i in protein
+                                       if has_heavy(top.atom(i).residue.index)})
+            pairs = [(p, l) for l in ligand_residues for p in protein_residues]
+            distances, _ = md.compute_contacts(traj, contacts=pairs, scheme="closest-heavy")
+            occupancy = (distances < 0.4).mean(axis=0)
+
+            contacts = []
+            for (p, _), value in zip(pairs, occupancy):
+                if value > 0.05:
+                    residue = top.residue(p)
+                    contacts.append({
+                        "residue": f"{residue.name}{residue.resSeq}",
+                        "resid": int(residue.resSeq),
+                        "occupancy": float(value),
+                    })
+            contacts.sort(key=lambda c: c["occupancy"], reverse=True)
+            metrics["ligand_contacts"] = contacts[:40]
+            metrics["ligand_contact_count"] = len(contacts)
+        except (ValueError, IndexError) as exc:
+            warn(f"ligand contacts failed ({exc})")
+{% endif %}
+
 {% if cfg.use_membrane %}
     if "membrane_apl" in METRICS:
         step("area per lipid")
@@ -299,6 +350,15 @@ def decimate(traj):
     """Cut the trajectory down to what the results file will carry."""
     tier = TIERS.get(PAYLOAD_TIER, TIERS["standard"])
     selection = _MDTRAJ_SELECTION[tier["selection"]]
+{% if ligand_names %}
+    # MDTraj's "protein" selection does not include a ligand, so the lighter
+    # tiers would pack the binding site empty -- the metrics would be right (they
+    # are computed on the full trajectory) but the viewer would show a hole where
+    # the ligand should be.
+    if tier["selection"] == "protein":
+        selection = " or ".join(
+            [selection] + [f"resname {name}" for name in {{ ligand_names | tojson }}])
+{% endif %}
     indices = traj.top.select(selection)
     if len(indices) == 0:
         indices = np.arange(traj.n_atoms)

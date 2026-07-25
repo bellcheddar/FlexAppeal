@@ -161,3 +161,26 @@ SOURCE_WARNINGS = {
         "along z. Do not re-align or re-centre them before building the membrane."
     ),
 }
+
+
+def fetch_ccd_ideal(residue_name: str) -> FetchResult:
+    """Fetch a residue's idealised SDF from the RCSB Chemical Component Dictionary.
+
+    This is how a ligand's *chemistry* reaches the bundle. A PDB HETATM record
+    carries elements and coordinates but no bond orders and no hydrogens, which
+    is not enough to parameterise anything -- the CCD entry supplies the missing
+    connectivity, and the run script transfers it onto the deposited coordinates.
+
+    Note the protonation caveat: the ideal SDF is deposited in one particular
+    protonation state, which is frequently not the dominant one at the pH the
+    protein is being simulated at. Benzamidine, for instance, comes back neutral
+    although it is cationic at pH 7.4. The bundle records the state it used.
+    """
+    name = residue_name.strip().upper()
+    data = _get(
+        f"https://files.rcsb.org/ligands/download/{name}_ideal.sdf",
+        what=f"chemical definition for {name}",
+    )
+    return FetchResult(data, f"{name}.sdf", "ccd",
+                       f"https://www.rcsb.org/ligand/{name}",
+                       citation=f"RCSB Chemical Component Dictionary {name}")

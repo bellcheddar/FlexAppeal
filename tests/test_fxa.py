@@ -337,3 +337,69 @@ def test_nan_becomes_a_gap_not_a_spike():
     metrics = {"time_ns": [0, 1, 2], "rmsd_nm": [0.1, float("nan"), 0.3]}
     figure = plots.rmsd(metrics)
     assert figure["data"][0]["y"][1] is None
+
+
+# ---------------------------------------------------------------------------
+#  A real protein-ligand run
+# ---------------------------------------------------------------------------
+
+LIGAND_FIXTURE = FIXTURES / "trypsin_ben.fxa"
+
+
+@pytest.fixture(scope="module")
+def trypsin():
+    if not LIGAND_FIXTURE.is_file():
+        pytest.skip("tests/fixtures/trypsin_ben.fxa is missing")
+    return fxa.load(LIGAND_FIXTURE.read_bytes())
+
+
+def test_ligand_run_produces_ligand_panels(trypsin):
+    ids = {p["id"] for p in plots.build_all(trypsin)["panels"]}
+    assert {"ligand_rmsd", "ligand_contacts"} <= ids
+
+
+def test_the_ligand_is_one_residue_not_two(trypsin):
+    """Chem.AddHs leaves new hydrogens without residue metadata.
+
+    Left unstamped they form a separate UNK residue, and the symptom in the
+    results is a contact list computed against 9 of the ligand's 17 atoms.
+    """
+    topology = trypsin.topology_pdb.decode()
+    assert "UNK" not in topology, "ligand hydrogens ended up in their own residue"
+    assert topology.count(" BEN ") >= 17, "the ligand should carry its hydrogens"
+
+
+def test_benzamidine_finds_the_trypsin_s1_pocket(trypsin):
+    """The chemistry test: does the pipeline reproduce known binding?
+
+    Benzamidine in trypsin is textbook -- its amidinium forms a salt bridge with
+    Asp189 at the bottom of the S1 specificity pocket. If parameterisation,
+    placement or contact analysis were wrong, this is what would break, and no
+    amount of "it ran without error" would tell us.
+    """
+    contacts = {c["residue"]: c["occupancy"] for c in trypsin.metrics["ligand_contacts"]}
+
+    assert "ASP189" in contacts, f"the defining S1 contact is absent: {list(contacts)[:10]}"
+    assert contacts["ASP189"] > 0.9, "Asp189 should be in contact essentially always"
+
+    # The rest of the canonical S1 pocket.
+    residue_numbers = {c["residue"][3:] for c in trypsin.metrics["ligand_contacts"]}
+    assert {"189", "190", "215", "216", "219"} <= residue_numbers
+
+
+def test_the_ligand_stays_in_the_pocket(trypsin):
+    """A tight binder should not drift over a short run."""
+    rmsd_angstrom = [v * 10 for v in trypsin.metrics["ligand_rmsd_nm"]]
+    assert max(rmsd_angstrom) < 3.0, "the ligand left the site, or alignment is wrong"
+
+
+def test_ligand_contacts_are_sorted_by_occupancy(trypsin):
+    occupancies = [c["occupancy"] for c in trypsin.metrics["ligand_contacts"]]
+    assert occupancies == sorted(occupancies, reverse=True)
+
+
+def test_ligand_contact_chart_uses_one_colour_for_every_bar(trypsin):
+    """One series: colouring by value would re-encode what bar length shows."""
+    panels = {p["id"]: p for p in plots.build_all(trypsin)["panels"]}
+    marker = panels["ligand_contacts"]["figure"]["data"][0]["marker"]
+    assert isinstance(marker["color"], str), "a per-bar colour list is a value ramp"

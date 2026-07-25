@@ -630,9 +630,76 @@ def build_all(results) -> dict[str, Any]:
         "Distinct clouds mean distinct conformational states.")
     add("clusters", "Conformational clusters", clusters(metrics),
         "Representative states found by RMSD clustering.")
+    add("ligand_rmsd", "Ligand pose stability", ligand_rmsd(metrics),
+        "How far the ligand moves within the binding site, with the protein "
+        "held fixed. A flat trace means the pose held; a jump means it moved "
+        "or left.")
+    add("ligand_contacts", "Protein-ligand contacts", ligand_contacts(metrics),
+        "Which residues the ligand touches, and for what fraction of the run.")
     add("membrane_apl", "Area per lipid", area_per_lipid(metrics),
         "The standard bilayer equilibration diagnostic: it should plateau.")
     add("membrane_thickness", "Bilayer thickness", bilayer_thickness(metrics),
         "Phosphate-to-phosphate distance across the bilayer.")
 
     return {"panels": panels}
+
+
+def ligand_rmsd(metrics: dict[str, Any]) -> dict[str, Any] | None:
+    """Ligand pose stability, measured after aligning on the protein.
+
+    The trajectory is superposed on the protein first, so this is movement
+    within the binding site rather than tumbling of the whole complex -- which
+    is the question anyone asks about a bound ligand.
+    """
+    values = metrics.get("ligand_rmsd_nm")
+    time = metrics.get("time_ns")
+    if not values or not time:
+        return None
+    angstrom = [v * 10.0 for v in values]
+    return _figure(
+        [_line(time, _finite(angstrom), "Ligand RMSD", CATEGORICAL[3],
+               hover="%{y:.2f} Å<extra></extra>")],
+        _layout("Ligand pose stability", "Time (ns)", "Ligand RMSD (Å)"),
+    )
+
+
+def ligand_contacts(metrics: dict[str, Any]) -> dict[str, Any] | None:
+    """Which residues the ligand actually touches, and how often.
+
+    A horizontal bar chart: residue labels are long and there are up to twenty
+    of them, so vertical bars would need rotated tick labels to fit.
+    """
+    contacts = metrics.get("ligand_contacts")
+    if not contacts:
+        return None
+
+    top = contacts[:20][::-1]           # highest occupancy nearest the top
+    labels = [c["residue"] for c in top]
+    values = [c["occupancy"] for c in top]
+
+    return _figure([{
+        "type": "bar", "orientation": "h",
+        "x": values, "y": labels,
+        # One series, so every bar takes slot 1. Colouring by value would
+        # re-encode the bar length and spend the identity channel for nothing.
+        "marker": {"color": CATEGORICAL[0], "line": {"width": 0}},
+        "hovertemplate": "%{y}<br>in contact for %{x:.0%} of frames<extra></extra>",
+        "text": [f"{v:.0%}" for v in values],
+        "textposition": "outside",
+        "textfont": {"family": MONO, "size": 10, "color": INK_MUTED},
+        "cliponaxis": False,
+    }], _layout(
+        "Protein–ligand contacts", "Occupancy", "Residue",
+        hovermode="closest",
+        margin={"l": 86, "r": 46, "t": 44, "b": 48},
+        height=max(240, 22 * len(top) + 90),
+        xaxis={"title": {"text": "Fraction of frames",
+                         "font": {"size": 12, "color": INK_MUTED}},
+               "tickformat": ".0%", "range": [0, min(1.05, max(values) * 1.2)],
+               "gridcolor": GRID, "zeroline": False, "linecolor": AXIS,
+               "ticks": "outside", "tickcolor": AXIS},
+        yaxis={"title": {"text": "", "font": {"size": 12, "color": INK_MUTED}},
+               "gridcolor": "rgba(0,0,0,0)", "zeroline": False, "linecolor": AXIS,
+               "ticks": "outside", "tickcolor": AXIS,
+               "tickfont": {"family": MONO, "size": 11}},
+    ))

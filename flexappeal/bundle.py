@@ -34,7 +34,7 @@ from typing import Any
 from jinja2 import Environment, FileSystemLoader, StrictUndefined
 
 from . import options as opts
-from . import schema
+from . import schema, sources, structure
 from .options import FLEXAPPEAL_VERSION
 
 RUNTIME_DIR = Path(__file__).resolve().parent / "runtime"
@@ -56,6 +56,14 @@ _IMPLICIT_SYMBOL = {
 }
 
 _TRAJ_EXTENSION = {"xtc": "xtc", "dcd": "dcd", "hdf5": "h5"}
+
+# Ligand force field -> the openmmforcefields template generator that provides it.
+# GAFF and SMIRNOFF/espaloma are separate classes rather than one with a flag.
+_LIGAND_GENERATOR = {
+    "openff": "SMIRNOFFTemplateGenerator",
+    "gaff": "GAFFTemplateGenerator",
+    "espaloma": "EspalomaTemplateGenerator",
+}
 
 _MUTATION_RE = re.compile(r"^([A-Za-z0-9]+):([A-Z]{3})-(\d+)-([A-Z]{3})$")
 
@@ -212,6 +220,10 @@ def build_context(cfg: dict[str, Any], structure_filename: str,
         "implicit_symbol": _IMPLICIT_SYMBOL.get(cfg.get("implicit_model", ""), "GBn2"),
         "needs_pdbfixer": needs_pdbfixer,
         "needs_openmmforcefields": needs_ommff,
+        "needs_ambertools": bool(
+            cfg.get("has_ligands")
+            and cfg.get("ligand_charge_method") in ("am1bcc", "am1bccelf10")
+        ),
         "openmmforcefields_reason": reason,
         "openmm_pin": OPENMM_PIN,
         "allow_linux": False,
@@ -226,6 +238,11 @@ def build_context(cfg: dict[str, Any], structure_filename: str,
             _vector3(cfg.get("anisotropic_pressure", ""), "the per-axis pressure")
             if cfg.get("barostat") == "MonteCarloAnisotropic" else [1.0, 1.0, 1.0]
         ),
+        "ligand_names": sorted(
+            n for n in (cfg.get("keep_heteroatoms") or []) if n
+        ),
+        "ligand_generator": _LIGAND_GENERATOR.get(
+            str(cfg.get("ligand_ff", "")).split("-")[0], "SMIRNOFFTemplateGenerator"),
         "traj_selection": traj_selection,
         "traj_extension": _TRAJ_EXTENSION.get(cfg["traj_format"], "xtc"),
         "solvent_summary": _solvent_summary(cfg),
@@ -269,6 +286,69 @@ def bundle_filename(cfg: dict[str, Any]) -> str:
 # ===========================================================================
 #  Assembly
 # ===========================================================================
+
+
+def collect_ligands(cfg: dict[str, Any], report: dict[str, Any] | None = None,
+                    fetch=None) -> tuple[dict[str, bytes], list[str]]:
+    """Fetch a chemical definition for every heteroatom the user chose to keep.
+
+    Returns the SDF payloads and any warnings. The SDFs carry *chemistry* --
+    bond orders and hydrogens -- which a PDB HETATM record does not have; the
+    run script transfers that onto the deposited coordinates on the user's
+    machine, where RDKit and the OpenFF toolkit actually live.
+
+    A metal-containing cofactor raises rather than warns. GAFF, OpenFF and
+    espaloma are organic force fields with no transition-metal parameters at
+    all, so proceeding would fail inside the user's run several minutes in,
+    with a message about a missing template rather than about the real problem.
+    """
+    kept = [name for name in (cfg.get("keep_heteroatoms") or []) if name]
+    if not kept:
+        return {}, []
+
+    fetch = fetch or sources.fetch_ccd_ideal
+    hetero = {h["name"]: h for h in (report or {}).get("heteroatoms", [])}
+
+    blocked = []
+    for name in kept:
+        info = hetero.get(name)
+        if info and info.get("elements"):
+            metals = sorted({e for e in info["elements"]
+                             if e.upper() in structure._UNPARAMETERISABLE_METALS})
+            if metals:
+                blocked.append(f"{name} (contains {', '.join(metals)})")
+    if blocked:
+        raise BundleError(
+            f"cannot parameterise {'; '.join(blocked)}. Small-molecule force fields "
+            f"cover organic chemistry only, and a transition-metal centre needs "
+            f"bespoke bonded parameters or a QM/MM treatment. Deselect it and "
+            f"simulate the apo protein, or supply your own parameters as a "
+            f"force-field XML."
+        )
+
+    payloads: dict[str, bytes] = {}
+    warnings: list[str] = []
+    for name in kept:
+        info = hetero.get(name, {})
+        if info.get("category") == "ion":
+            # Monatomic ions need no template: the protein force field's own ion
+            # parameters cover them, and a one-atom SDF would only confuse things.
+            continue
+        try:
+            result = fetch(name)
+        except sources.SourceError as exc:
+            raise BundleError(
+                f"could not fetch a chemical definition for {name}: {exc} "
+                f"Deselect it, or supply the ligand as an SDF."
+            ) from None
+        payloads[f"{name}.sdf"] = result.data
+        warnings.append(
+            f"{name} is parameterised from its RCSB chemical definition, which is "
+            f"deposited in one fixed protonation state. That state may not be the "
+            f"dominant one at pH {cfg.get('ph', 7.4)}; check the charge recorded in "
+            f"the run log."
+        )
+    return payloads, warnings
 
 
 def build(cfg: dict[str, Any], structure_bytes: bytes,
