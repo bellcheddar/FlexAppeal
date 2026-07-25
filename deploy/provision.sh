@@ -28,8 +28,17 @@ if ! id -u "${APP}" >/dev/null 2>&1; then
     useradd --system --shell /usr/sbin/nologin --home "${APP_PATH}" "${APP}"
 fi
 
-echo "==> Virtual environment"
+echo "==> Ownership"
+# Before the venv, not after. deploy.sh rsyncs as root, so everything under
+# /opt/flexappeal arrives root-owned; building the virtual environment as the
+# service user then fails with a bare
+#     Error: [Errno 13] Permission denied: '/opt/flexappeal/.venv'
+# which says nothing about ownership being the cause. Chowned again at the end
+# to catch anything the steps below create as root.
 mkdir -p "${APP_PATH}"
+chown -R "${APP}:${APP}" "${APP_PATH}"
+
+echo "==> Virtual environment"
 if [[ ! -x "${APP_PATH}/.venv/bin/python" ]]; then
     sudo -u "${APP}" python3 -m venv "${APP_PATH}/.venv"
 fi

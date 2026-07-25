@@ -160,3 +160,22 @@ def test_deploy_does_not_exclude_the_vendored_javascript():
 def test_provision_warns_when_dns_is_missing():
     """certbot proves domain control over HTTP; without the A record it fails."""
     assert "does not resolve" in _read("provision.sh")
+
+
+def test_provision_chowns_before_building_the_venv():
+    """rsync runs as root, so /opt/flexappeal arrives root-owned.
+
+    Building the virtual environment as the service user then fails with a bare
+    "Permission denied: '/opt/flexappeal/.venv'", which says nothing about
+    ownership being the cause. Caught on the first real provisioning run.
+    """
+    text = _read("provision.sh")
+    first_chown = text.index("chown -R")
+    venv_build = text.index("python3 -m venv")
+    assert first_chown < venv_build, \
+        "the venv is built before ownership is fixed; it will fail as the service user"
+
+
+def test_provision_chowns_again_at_the_end():
+    """The steps between create files as root, so once is not enough."""
+    assert _read("provision.sh").count("chown -R") >= 2
