@@ -34,6 +34,12 @@ _CRYSTALLISATION_ADDITIVES = {
     "EPE", "ACT", "ACY", "FMT", "SO4", "PO4", "CIT", "TLA", "IMD", "BME",
 }
 
+# OPM marks the bilayer boundaries with planes of dummy atoms. They are genuinely
+# useful -- they say exactly where the membrane is -- but they are not chemistry,
+# and offering them as a keepable ligand would send them to a force field that
+# has no template for them.
+_MEMBRANE_MARKERS = {"DUM", "MEM"}
+
 _COMMON_IONS = {
     "NA", "K", "MG", "CA", "ZN", "MN", "FE", "FE2", "CU", "CU1", "CO", "NI",
     "CD", "HG", "CL", "BR", "IOD", "F", "CS", "RB", "LI", "SR", "BA",
@@ -259,6 +265,8 @@ def _categorise_hetero(name: str) -> tuple[str, str]:
     upper = name.upper()
     if upper in ("HOH", "WAT", "DOD"):
         return "water", "water"
+    if upper in _MEMBRANE_MARKERS:
+        return "marker", "membrane boundary marker (removed before simulation)"
     if upper in _COMMON_IONS:
         return "ion", "ion"
     if upper in _KNOWN_COFACTORS:
@@ -459,6 +467,14 @@ def analyse(data: bytes, filename: str = "structure.pdb",
             f"alternate conformations are present ({', '.join(sorted(altlocs))}). "
             f"Only one can be simulated; the selection rule is in the advanced options."
         )
+    markers = [h for h in heteroatoms if h.category == "marker"]
+    if markers:
+        warnings.append(
+            "this structure carries membrane boundary markers, so it is already "
+            "oriented with the bilayer normal along z -- exactly what the membrane "
+            "builder needs. The markers themselves are removed before simulation."
+        )
+
     ligands = [h for h in heteroatoms if h.category in ("ligand", "cofactor")]
     if ligands:
         warnings.append(
@@ -637,7 +653,7 @@ def dynamic_choices(report: StructureReport) -> dict[str, list[dict[str, str]]]:
             ),
         }
         for h in report.heteroatoms
-        if h.category != "water"
+        if h.category not in ("water", "marker")
     ]
 
     return {"chains": chain_choices, "keep_heteroatoms": hetero_choices}

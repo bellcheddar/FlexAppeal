@@ -81,7 +81,15 @@ _SOLVENT_RESIDUES = {
     "HOH", "WAT", "TIP3", "TIP4", "SOL", "NA", "CL", "K", "MG", "CA", "ZN",
     "LI", "RB", "CS", "BR", "F", "IOD", "SOD", "CLA", "POT",
 }
-_LIPID_RESIDUES = {"POPC", "POPE", "DLPC", "DLPE", "DMPC", "DOPC", "DPPC"}
+# Both spellings on purpose. A PDB residue name field is three characters, so a
+# four-character lipid is truncated the moment anything is written or read as
+# PDB: POPC becomes POP, DPPC becomes DPP. Matching only the full name means
+# every lipid silently fails to match and the whole bilayer lands in selections
+# meant to exclude it.
+_LIPID_RESIDUES = {
+    "POPC", "POPE", "DLPC", "DLPE", "DMPC", "DOPC", "DPPC",
+    "POP", "DLP", "DMP", "DOP", "DPP",
+}
 
 
 def select_atoms(topology, selection):

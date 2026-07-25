@@ -637,7 +637,14 @@ def build_all(results) -> dict[str, Any]:
     add("ligand_contacts", "Protein-ligand contacts", ligand_contacts(metrics),
         "Which residues the ligand touches, and for what fraction of the run.")
     add("membrane_apl", "Area per lipid", area_per_lipid(metrics),
-        "The standard bilayer equilibration diagnostic: it should plateau.")
+        "The standard bilayer equilibration diagnostic: it should fall and then "
+        "plateau. POPC sits near 0.63 nm² at 310 K. Two caveats on the absolute "
+        "value: the protein's own cross-section is counted as membrane area, "
+        "which inflates it for a large complex, and a freshly built bilayer "
+        "starts loose and needs nanoseconds to condense.")
+    add("membrane_scd", "Lipid chain order", lipid_order(metrics),
+        "Order parameters down the acyl chain. A plateau near the headgroup "
+        "falling away toward the tail is what a fluid bilayer looks like.")
     add("membrane_thickness", "Bilayer thickness", bilayer_thickness(metrics),
         "Phosphate-to-phosphate distance across the bilayer.")
 
@@ -702,4 +709,32 @@ def ligand_contacts(metrics: dict[str, Any]) -> dict[str, Any] | None:
                "gridcolor": "rgba(0,0,0,0)", "zeroline": False, "linecolor": AXIS,
                "ticks": "outside", "tickcolor": AXIS,
                "tickfont": {"family": MONO, "size": 11}},
+    ))
+
+
+def lipid_order(metrics: dict[str, Any]) -> dict[str, Any] | None:
+    """Deuterium order parameters down the acyl chain.
+
+    Plotted as -S_CD, the literature convention, so an ordered chain reads high.
+    The shape is diagnostic: a plateau near the headgroup falling away toward
+    the tail end is what a fluid bilayer looks like, and a POPC plateau well
+    below about 0.2 means the membrane has not finished equilibrating.
+    """
+    profile = metrics.get("lipid_order_parameters")
+    if not profile:
+        return None
+
+    carbons = [p["carbon"] for p in profile]
+    values = [p["scd"] for p in profile]
+
+    return _figure([{
+        "type": "scatter", "mode": "lines+markers", "name": "-S(CD)",
+        "x": carbons, "y": values,
+        "line": {"color": CATEGORICAL[2], "width": 2},
+        "marker": {"size": 8, "color": CATEGORICAL[2],
+                   "line": {"color": "#ffffff", "width": 1}},
+        "hovertemplate": "C%{x}<br>-S<sub>CD</sub> = %{y:.3f}<extra></extra>",
+    }], _layout(
+        "Lipid chain order", "Acyl carbon", "-S<sub>CD</sub>",
+        hovermode="closest",
     ))

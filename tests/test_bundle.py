@@ -494,3 +494,70 @@ def test_apo_run_has_no_ligand_machinery(structure):
     code = _code(structure)
     assert "TemplateGenerator" not in code
     assert "AssignBondOrdersFromTemplate" not in code
+
+
+# ---------------------------------------------------------------------------
+#  Membrane
+# ---------------------------------------------------------------------------
+
+
+def _membrane_cfg(**overrides):
+    return _cfg(use_membrane=True, protein_ff="charmm36.xml",
+                input_source="opm", pdb_id="1AFO", **overrides)
+
+
+def test_membrane_uses_the_membrane_barostat_not_the_isotropic_one(structure):
+    """An isotropic barostat squeezes the bilayer plane and the normal together,
+    which is not physical for a membrane."""
+    code = _code(structure, **{k: v for k, v in _membrane_cfg().items()
+                               if k not in ("job_name",)})
+    assert "MonteCarloMembraneBarostat(" in code
+    assert "openmm.MonteCarloBarostat(" not in code
+
+
+def test_membrane_normalisation_cannot_be_overridden_by_accident(structure):
+    """Choosing a membrane and an isotropic barostat is a contradiction; the
+    normaliser resolves it rather than letting it through."""
+    from flexappeal import schema
+    cfg = schema.normalise(opts.defaults() | {"use_membrane": True,
+                                              "barostat": "MonteCarlo"})
+    assert cfg["barostat"] == "MonteCarloMembrane"
+
+
+def test_amber_membrane_loads_lipid_parameters(structure):
+    """CHARMM36 carries its own lipids; an AMBER force field needs lipid17."""
+    code = _code(structure, use_membrane=True, protein_ff="amber14-all.xml")
+    assert "amber14/lipid17.xml" in code
+
+
+def test_charmm_membrane_does_not_double_load_lipids(structure):
+    code = _code(structure, use_membrane=True, protein_ff="charmm36.xml")
+    assert "lipid17" not in code
+
+
+def test_lipid_residue_names_cover_the_pdb_truncation(structure):
+    """A PDB residue name field is three characters wide.
+
+    Matching only 'POPC' means a lipid read back from PDB (as 'POP') never
+    matches, so selections meant to exclude the bilayer silently include it.
+    """
+    code = _code(structure, use_membrane=True, protein_ff="charmm36.xml")
+    for full, truncated in (("POPC", "POP"), ("DPPC", "DPP"), ("DOPC", "DOP")):
+        assert f"'{full}'" in code, f"{full} missing from the lipid set"
+        assert f"'{truncated}'" in code, f"{truncated} missing from the lipid set"
+
+
+def test_membrane_analysis_handles_both_lipid_spellings(structure):
+    analyse = bundle.unpack(
+        bundle.build(_cfg(use_membrane=True, protein_ff="charmm36.xml",
+                          analysis_metrics=["membrane_apl", "membrane_scd"]),
+                     structure, "1aki.pdb").content
+    )["analyse.py"].decode()
+    assert "def lipid_selection(" in analyse
+    assert "name[:3]" in analyse
+
+
+def test_a_soluble_run_emits_no_membrane_code(structure):
+    code = _code(structure)
+    assert "addMembrane" not in code
+    assert "lipid_order" not in code

@@ -55,6 +55,17 @@ def warn(m):  print(_c("38;2;252;185;0", "⚠"), m, flush=True)
 def fail(m):  print(_c("38;2;214;54;56", "✗"), m, file=sys.stderr, flush=True)
 
 
+def lipid_selection(name):
+    """An MDTraj selection matching a lipid under either spelling.
+
+    A PDB residue name is three characters wide, so POPC is written and read
+    back as POP. Selecting on the configured name alone matches nothing, and the
+    failure is silent -- every membrane metric just returns empty.
+    """
+    names = {name, name[:3]}
+    return " or ".join(f"resname {n}" for n in sorted(names))
+
+
 _MDTRAJ_SELECTION = {
     "protein": "protein",
     "protein_heavy": "protein and not element H",
@@ -319,19 +330,66 @@ def compute(traj, run_dir):
     if "membrane_apl" in METRICS:
         step("area per lipid")
         try:
-            lipids = top.select("resname {{ cfg.lipid_type }}")
+            lipids = top.select(lipid_selection("{{ cfg.lipid_type }}"))
             n_lipids = len({r for r in (top.atom(i).residue.index for i in lipids)})
             if n_lipids and traj.unitcell_lengths is not None:
+                # Box cross-section divided by lipids per leaflet. This counts
+                # the protein's own cross-section as membrane area, so the
+                # absolute value runs high for a large complex -- it is a
+                # convergence diagnostic (watch it plateau) rather than a
+                # measurement to compare against a pure-bilayer literature value.
                 area = traj.unitcell_lengths[:, 0] * traj.unitcell_lengths[:, 1]
                 metrics["area_per_lipid_nm2"] = (area / (n_lipids / 2)).tolist()
                 metrics["lipid_count"] = n_lipids
+                metrics["area_per_lipid_note"] = (
+                    "includes the protein cross-section; a convergence "
+                    "diagnostic rather than an absolute measurement"
+                )
         except Exception as exc:
             warn(f"area per lipid failed ({exc})")
+
+    if "membrane_scd" in METRICS:
+        step("lipid order parameters")
+        try:
+            # -S_CD per tail carbon. The order parameter is
+            #     S_CD = <3cos^2(theta) - 1> / 2
+            # with theta the angle between each C-H bond and the bilayer normal
+            # (z). CHARMM36 names the sn-1 chain carbons C2n and their hydrogens
+            # HnR/HnS/HnX/HnY, so the pairs are found by name rather than by
+            # walking connectivity.
+            lipid = "{{ cfg.lipid_type }}"
+            profile = []
+            for carbon_index in range(2, 17):
+                carbon = top.select(
+                    f"({lipid_selection(lipid)}) and name C2{carbon_index}")
+                if not len(carbon):
+                    continue
+                values = []
+                for suffix in ("R", "S", "X", "Y"):
+                    hydrogen = top.select(
+                        f"({lipid_selection(lipid)}) and name H{carbon_index}{suffix}")
+                    if len(hydrogen) != len(carbon):
+                        continue
+                    vectors = traj.xyz[:, hydrogen, :] - traj.xyz[:, carbon, :]
+                    norms = np.linalg.norm(vectors, axis=2)
+                    with np.errstate(invalid="ignore", divide="ignore"):
+                        cos_theta = vectors[:, :, 2] / norms
+                    scd = 0.5 * (3.0 * cos_theta ** 2 - 1.0)
+                    values.append(float(np.nanmean(scd)))
+                if values:
+                    # Reported as -S_CD, which is the convention in the
+                    # literature and makes an ordered chain read as positive.
+                    profile.append({"carbon": carbon_index,
+                                    "scd": -float(np.mean(values))})
+            if profile:
+                metrics["lipid_order_parameters"] = profile
+        except Exception as exc:
+            warn(f"lipid order parameters failed ({exc})")
 
     if "membrane_thickness" in METRICS:
         step("bilayer thickness")
         try:
-            phosphates = top.select("resname {{ cfg.lipid_type }} and name P")
+            phosphates = top.select(f"({lipid_selection('{{ cfg.lipid_type }}')}) and name P")
             if len(phosphates):
                 z = traj.xyz[:, phosphates, 2]
                 midplane = z.mean(axis=1, keepdims=True)

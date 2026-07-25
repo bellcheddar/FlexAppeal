@@ -403,3 +403,80 @@ def test_ligand_contact_chart_uses_one_colour_for_every_bar(trypsin):
     panels = {p["id"]: p for p in plots.build_all(trypsin)["panels"]}
     marker = panels["ligand_contacts"]["figure"]["data"][0]["marker"]
     assert isinstance(marker["color"], str), "a per-bar colour list is a value ramp"
+
+
+# ---------------------------------------------------------------------------
+#  A real membrane run
+# ---------------------------------------------------------------------------
+
+MEMBRANE_FIXTURE = FIXTURES / "glycophorin.fxa"
+
+
+@pytest.fixture(scope="module")
+def membrane():
+    if not MEMBRANE_FIXTURE.is_file():
+        pytest.skip("tests/fixtures/glycophorin.fxa is missing")
+    return fxa.load(MEMBRANE_FIXTURE.read_bytes())
+
+
+def test_membrane_run_produces_membrane_panels(membrane):
+    ids = {p["id"] for p in plots.build_all(membrane)["panels"]}
+    assert {"membrane_apl", "membrane_thickness", "membrane_scd"} <= ids
+
+
+def test_the_bilayer_actually_got_built(membrane):
+    assert membrane.has_membrane
+    assert membrane.metrics["lipid_count"] > 50, "a bilayer needs lipids in both leaflets"
+
+
+def test_lipid_selection_survives_pdb_name_truncation(membrane):
+    """A PDB residue name is three characters, so POPC is stored as POP.
+
+    Selecting on the configured name alone matches nothing and every membrane
+    metric silently returns empty -- which is exactly what happened before this
+    was fixed, with no error anywhere.
+    """
+    assert membrane.metrics.get("area_per_lipid_nm2"), \
+        "the lipid selection matched nothing"
+    assert membrane.metrics.get("lipid_order_parameters"), \
+        "the lipid selection matched nothing"
+
+
+def test_bilayer_thickness_matches_a_popc_bilayer(membrane):
+    """POPC phosphate-to-phosphate is about 3.7-4.0 nm."""
+    thickness = membrane.metrics["bilayer_thickness_nm"]
+    mean = sum(thickness) / len(thickness)
+    assert 3.0 < mean < 4.5, f"{mean:.2f} nm is not a POPC bilayer"
+
+
+def test_lipid_order_parameters_have_the_fluid_bilayer_shape(membrane):
+    """A fluid bilayer plateaus near the headgroup and falls toward the tail.
+
+    This is the shape that says the lipids are behaving like a membrane rather
+    than a frozen slab or a disordered mess, and it is the check that would
+    catch order parameters computed against the wrong atoms.
+    """
+    profile = membrane.metrics["lipid_order_parameters"]
+    assert len(profile) >= 8, "too few carbons resolved to judge the profile"
+
+    values = {p["carbon"]: p["scd"] for p in profile}
+    plateau = [values[c] for c in sorted(values) if c <= 8]
+    tail = [values[c] for c in sorted(values) if c >= 14]
+
+    assert all(0.05 < v < 0.45 for v in plateau), \
+        f"plateau out of range for a fluid POPC bilayer: {plateau}"
+    assert sum(tail) / len(tail) < sum(plateau) / len(plateau), \
+        "order should fall toward the tail end; a flat or rising profile is wrong"
+
+
+def test_area_per_lipid_is_labelled_as_a_diagnostic(membrane):
+    """The absolute value includes the protein cross-section, so it must not be
+    presented as a measurement to compare against a pure-bilayer value."""
+    assert "protein" in membrane.metrics.get("area_per_lipid_note", "")
+    panels = {p["id"]: p for p in plots.build_all(membrane)["panels"]}
+    assert "cross-section" in panels["membrane_apl"]["blurb"]
+
+
+def test_a_soluble_run_has_no_membrane_panels(results):
+    ids = {p["id"] for p in plots.build_all(results)["panels"]}
+    assert not any(i.startswith("membrane") for i in ids)
