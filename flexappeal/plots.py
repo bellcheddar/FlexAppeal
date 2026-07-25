@@ -738,3 +738,47 @@ def lipid_order(metrics: dict[str, Any]) -> dict[str, Any] | None:
         "Lipid chain order", "Acyl carbon", "-S<sub>CD</sub>",
         hovermode="closest",
     ))
+
+
+def distance(metrics: dict[str, Any]) -> dict[str, Any] | None:
+    """Centre-of-geometry separation between two selections over time."""
+    values = metrics.get("distance_nm")
+    time = metrics.get("time_ns")
+    if not values or not time:
+        return None
+    return _figure(
+        [_line(time, _finite([v * 10 for v in values]), "Distance", CATEGORICAL[5],
+               hover="%{y:.2f} Å<extra></extra>")],
+        _layout("Distance between selections", "Time (ns)", "Distance (Å)"),
+    )
+
+
+def build_reanalysis(metrics: dict[str, Any]) -> list[dict[str, Any]]:
+    """Panels for a server-side re-analysis result.
+
+    Reuses the same builders as the main page, so a re-analysed RMSD looks
+    identical to one computed in the bundle -- which is the point: the user
+    should not have to work out which panel came from where.
+    """
+    panels: list[dict[str, Any]] = []
+
+    def add(key, title, figure):
+        if figure is not None:
+            figure["layout"]["title"] = {"text": ""}
+            figure["layout"]["margin"] = dict(figure["layout"].get("margin", {}), t=12)
+            panels.append({"id": f"re-{key}", "title": title, "figure": figure})
+
+    add("rmsd", "RMSD", rmsd(metrics))
+    add("rgyr", "Radius of gyration", radius_of_gyration(metrics))
+    add("rmsf", "Per-residue fluctuation", rmsf(metrics))
+    add("sasa", "Solvent exposure", sasa(metrics))
+    add("ss", "Secondary structure content", secondary_structure_fractions(metrics))
+    add("pca", "Essential dynamics", pca(metrics))
+    add("distance", "Distance", distance(metrics))
+
+    contact_map_values = metrics.get("contact_map")
+    if contact_map_values:
+        arrays = {"contact_map": np.asarray(contact_map_values, dtype=np.float32)}
+        add("contacts", "Contact map", contact_map(metrics, arrays))
+
+    return panels

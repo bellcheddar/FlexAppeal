@@ -119,6 +119,65 @@
     </section>
   {% endif %}
 
+  <section class="md-card md-reanalyse" id="reanalyse-card"
+           data-endpoint="{{ url_for('analysis.reanalyse', token=token) }}"
+           data-status="{{ url_for('analysis.reanalyse_status', token=token) }}">
+    <h3>Ask something else</h3>
+    <p class="md-panel-blurb">
+      Compute a metric the run did not, or restrict one to part of the molecule.
+      This runs on the server against the trajectory packed in your results file,
+      so it is bounded: one job at a time, and a size limit.
+      {% if results.tier != 'full' %}
+        <strong>This is a {{ results.tier }}-tier file</strong> — it carries a
+        thinned trajectory, so answers here are coarser than the panels above.
+        Rebuild with the full tier for the richest re-analysis.
+      {% endif %}
+    </p>
+
+    <div class="md-reanalyse-form">
+      <div class="md-field">
+        <label for="re-metrics">Metrics</label>
+        <div class="md-checkgroup">
+          {% for key, label in reanalysis_metrics.items() %}
+            <label class="md-check">
+              <input type="checkbox" name="re-metric" value="{{ key }}">
+              <span>{{ label }}</span>
+            </label>
+          {% endfor %}
+        </div>
+      </div>
+
+      <div class="md-field">
+        <label for="re-selection">Atom selection</label>
+        <input type="text" id="re-selection" value="protein"
+               placeholder="protein and resid 40 to 60">
+        <p class="md-help">
+          MDTraj selection syntax. <code>protein</code>, <code>name CA</code>,
+          <code>chainid 0 and backbone</code>, <code>resname BEN</code>.
+          <strong>Use <code>resSeq</code> for the residue numbers you see in the
+          PDB</strong> — <code>resid</code> is a zero-based index into the
+          topology, so <code>resid 195</code> is rarely residue 195.
+        </p>
+      </div>
+
+      <div class="md-field" id="re-selection-b-field" hidden>
+        <label for="re-selection-b">Second selection (for distance)</label>
+        <input type="text" id="re-selection-b" placeholder="resid 88 and name CA">
+        <p class="md-help">
+          Measured between the centres of the two selections, after undoing
+          periodic wrapping.
+        </p>
+      </div>
+
+      <button type="button" class="md-button md-button-primary" id="re-run">
+        Compute
+      </button>
+      <p class="md-reanalyse-status" id="re-status"></p>
+    </div>
+
+    <div id="re-results"></div>
+  </section>
+
   <section class="md-card">
     <h3>Run details</h3>
     <div class="md-details">
@@ -145,7 +204,7 @@
       </table>
     </div>
     <p class="md-note">
-      Analyse another run by <a href="{{ url_for('analysis.analysis') }}">uploading a different file</a>.
+      Analyse another run by <a href="{{ url_for('analysis.analysis_page') }}">uploading a different file</a>.
     </p>
   </section>
 {% endif %}

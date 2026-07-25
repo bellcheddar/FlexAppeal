@@ -413,3 +413,90 @@ def test_analysis_vendors_its_javascript(client):
     assert "/static/vendor/plotly.min.js" in html
     assert "/static/vendor/molstar.js" in html
     assert "cdn." not in html.split("<footer")[0]
+
+
+# ---------------------------------------------------------------------------
+#  Re-analysis routes
+# ---------------------------------------------------------------------------
+
+
+def _analysis_token(client):
+    html = _analyse(client).get_data(as_text=True)
+    return html.split("/analysis/", 1)[1].split("/", 1)[0]
+
+
+def test_the_analysis_page_offers_reanalysis(client):
+    html = _analyse(client).get_data(as_text=True)
+    assert "reanalyse-card" in html
+    assert 're-metric' in html
+    # The resid/resSeq distinction is a genuine trap: resid is a zero-based
+    # index, so `resid 195` is rarely residue 195.
+    assert "resSeq" in html
+
+
+def test_reanalysis_rejects_a_bad_request_without_starting_work(client):
+    token = _analysis_token(client)
+    response = client.post(f"/analysis/{token}/reanalyse",
+                           json={"metrics": ["nonsense"], "selection": "protein"})
+    assert response.status_code == 400
+    assert "nonsense" in response.get_json()["message"]
+
+
+def test_reanalysis_rejects_a_hostile_selection(client):
+    token = _analysis_token(client)
+    response = client.post(
+        f"/analysis/{token}/reanalyse",
+        json={"metrics": ["rmsd"], "selection": "__import__('os').system('id')"})
+    assert response.status_code == 400
+
+
+def test_reanalysis_refuses_a_hostile_token(client):
+    for hostile in ("../../etc", "/etc/passwd", "a" * 200):
+        response = client.post(f"/analysis/{hostile}/reanalyse",
+                               json={"metrics": ["rmsd"], "selection": "protein"})
+        assert response.status_code in (400, 404)
+        assert "Traceback" not in response.get_data(as_text=True)
+
+
+def test_reanalysis_status_is_idle_before_anything_runs(client):
+    token = _analysis_token(client)
+    response = client.get(f"/analysis/{token}/reanalyse/status")
+    assert response.get_json()["status"] == "idle"
+
+
+def test_reanalysis_is_limited_to_one_job(client, app):
+    """The second request must be told to wait rather than starting work."""
+    from flexappeal import analysis as analysis_module
+
+    token = _analysis_token(client)
+    analysis_module.acquire_lock(app.config["SCRATCH_ROOT"])
+    try:
+        response = client.post(f"/analysis/{token}/reanalyse",
+                               json={"metrics": ["rgyr"], "selection": "protein"})
+        assert response.status_code == 429
+        assert response.get_json()["status"] == "busy"
+    finally:
+        analysis_module.release_lock(app.config["SCRATCH_ROOT"])
+
+
+def test_reanalysis_status_reports_a_finished_job(client, app):
+    """The status route reads what the detached worker wrote."""
+    import json as json_module
+
+    from flexappeal import analysis as analysis_module
+
+    token = _analysis_token(client)
+    session = pathlib.Path(app.config["SCRATCH_ROOT"]) / token
+    request_path = session / "reanalyse_request.json"
+    request_path.write_text(json_module.dumps(
+        {"metrics": ["rgyr"], "selection": "protein"}))
+
+    analysis_module.acquire_lock(app.config["SCRATCH_ROOT"])
+    analysis_module.run_to_file(session / "results.fxa", request_path,
+                                session / "reanalyse_result.json")
+
+    payload = client.get(f"/analysis/{token}/reanalyse/status").get_json()
+    assert payload["status"] == "ready"
+    assert payload["metrics"]["rgyr_nm"]
+    # The status route builds the figures, so the browser only draws.
+    assert any(p["id"] == "re-rgyr" for p in payload["figures"])

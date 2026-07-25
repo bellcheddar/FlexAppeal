@@ -171,3 +171,131 @@
     initViewer();
   });
 })();
+
+/* ------------------------------------------------------- re-analysis -----
+ * Fire a bounded server-side job, then poll. The work happens in a detached
+ * subprocess, so this is a status poll rather than a long-held request.
+ */
+
+(function () {
+  'use strict';
+
+  const POLL_MS = 1500;
+  const PLOT_CONFIG = {
+    responsive: true, displaylogo: false,
+    modeBarButtonsToRemove: ['lasso2d', 'select2d', 'autoScale2d']
+  };
+
+  function init() {
+    const card = document.getElementById('reanalyse-card');
+    if (!card) return;
+
+    const button = document.getElementById('re-run');
+    const status = document.getElementById('re-status');
+    const output = document.getElementById('re-results');
+    const selection = document.getElementById('re-selection');
+    const selectionB = document.getElementById('re-selection-b');
+    const selectionBField = document.getElementById('re-selection-b-field');
+
+    function chosen() {
+      return Array.from(document.querySelectorAll('input[name="re-metric"]:checked'))
+        .map(function (el) { return el.value; });
+    }
+
+    /* The second selection only means anything for a distance. */
+    function syncDistanceField() {
+      selectionBField.hidden = chosen().indexOf('distance') === -1;
+    }
+    document.querySelectorAll('input[name="re-metric"]').forEach(function (el) {
+      el.addEventListener('change', syncDistanceField);
+    });
+    syncDistanceField();
+
+    function say(message, kind) {
+      status.textContent = message;
+      status.className = 'md-reanalyse-status' + (kind ? ' is-' + kind : '');
+    }
+
+    function draw(panels) {
+      output.innerHTML = '';
+      if (!panels || !panels.length) {
+        say('That produced nothing to plot.', 'error');
+        return;
+      }
+      panels.forEach(function (panel) {
+        const wrap = document.createElement('div');
+        wrap.className = 'md-panel md-reanalyse-panel';
+        const heading = document.createElement('h4');
+        heading.textContent = panel.title;
+        const target = document.createElement('div');
+        target.className = 'md-plot';
+        target.id = 'plot-' + panel.id;
+        wrap.appendChild(heading);
+        wrap.appendChild(target);
+        output.appendChild(wrap);
+        Plotly.newPlot(target, panel.figure.data, panel.figure.layout, PLOT_CONFIG);
+      });
+    }
+
+    let timer = null;
+
+    function poll() {
+      fetch(card.dataset.status)
+        .then(function (r) { return r.json(); })
+        .then(function (data) {
+          if (data.status === 'running') {
+            say('Working' + (data.seconds ? ' (' + data.seconds + 's)' : '') + '…');
+            timer = setTimeout(poll, POLL_MS);
+            return;
+          }
+          button.disabled = false;
+          if (data.status === 'ready') {
+            const m = data.metrics || {};
+            say('Done — ' + m.n_atoms + ' atoms, ' + m.n_frames + ' frames.', 'ok');
+            draw(data.figures);
+          } else {
+            say(data.message || 'That did not work.', 'error');
+          }
+        })
+        .catch(function () {
+          button.disabled = false;
+          say('Lost contact with the server.', 'error');
+        });
+    }
+
+    button.addEventListener('click', function () {
+      const metrics = chosen();
+      if (!metrics.length) {
+        say('Choose at least one metric.', 'error');
+        return;
+      }
+      clearTimeout(timer);
+      button.disabled = true;
+      say('Starting…');
+      output.innerHTML = '';
+
+      fetch(card.dataset.endpoint, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          metrics: metrics,
+          selection: selection.value,
+          selection_b: selectionB ? selectionB.value : ''
+        })
+      })
+        .then(function (r) { return r.json().then(function (d) { return [r.status, d]; }); })
+        .then(function (pair) {
+          const code = pair[0], data = pair[1];
+          if (code === 202) { timer = setTimeout(poll, POLL_MS); return; }
+          button.disabled = false;
+          say(data.message || 'That request was refused.', 'error');
+        })
+        .catch(function () {
+          button.disabled = false;
+          say('Could not reach the server.', 'error');
+        });
+    });
+  }
+
+  document.addEventListener('DOMContentLoaded', init);
+})();

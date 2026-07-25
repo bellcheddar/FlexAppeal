@@ -437,3 +437,10 @@ a { color: var(--md-primary); }
   .md-header, .md-tabs, .md-drop, .md-footer { display: none; }
   .md-card { break-inside: avoid; box-shadow: none; }
 }
+
+.md-reanalyse-form { max-width: 640px; }
+.md-reanalyse-status { font-size: 13px; margin: 12px 0 0; min-height: 20px; }
+.md-reanalyse-status.is-ok { color: var(--md-accent-green); }
+.md-reanalyse-status.is-error { color: var(--md-accent-red); }
+.md-reanalyse-panel { padding: 0; margin-top: 18px; border-top: 1px solid var(--md-bg-alt); }
+.md-reanalyse-panel h4 { margin: 14px 0 4px; font-size: 14px; }

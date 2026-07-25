@@ -20,6 +20,8 @@ import json
 import os
 import secrets
 import shutil
+import subprocess
+import sys
 import time
 from pathlib import Path
 from typing import Any
@@ -30,7 +32,7 @@ from flask import (
 )
 
 from . import options as opts
-from . import bundle, fxa, plots, schema, sources, structure
+from . import analysis, bundle, fxa, plots, schema, sources, structure
 from .options import FLEXAPPEAL_VERSION
 
 # MUST stay in sync with `client_max_body_size` in deploy/nginx-flexappeal.conf.
@@ -350,7 +352,12 @@ MAX_FXA_BYTES = MAX_CONTENT_LENGTH
 
 
 @analysis_bp.route("/analysis", methods=["GET", "POST"])
-def analysis():
+def analysis_page():
+    # Named `analysis_page`, not `analysis`: a view function called `analysis`
+    # sits at module scope and shadows the imported `analysis` module, so
+    # `analysis.METRICS` resolves against the function and raises
+    # AttributeError. The collision only shows up when a module attribute is
+    # actually touched, which is why it survived until the re-analysis route.
     if request.method == "GET":
         return render_template("analysis.html", active="analysis", results=None)
 
@@ -393,6 +400,7 @@ def analysis():
         ),
         has_viewer=bool(results.topology_pdb),
         warnings=results.warnings,
+        reanalysis_metrics=analysis.METRICS,
     )
 
 
@@ -503,3 +511,95 @@ def create_app() -> Flask:
         ), 500
 
     return app
+
+
+# ---------------------------------------------------------------------------
+#  Re-analysis (the hybrid path)
+# ---------------------------------------------------------------------------
+
+
+@analysis_bp.route("/analysis/<token>/reanalyse", methods=["POST"])
+def reanalyse(token: str):
+    """Start a bounded re-analysis in a detached subprocess.
+
+    Never does the work inline. MDTraj holds the GIL inside C extensions, so a
+    contact map computed in the request thread would block a gunicorn worker for
+    the duration; and a detached process survives a service restart. This is
+    AlphaFraud's `POST /calculate/run` pattern, with a lock file instead of a
+    database row because there is no database here.
+    """
+    path = session_path(token)
+    stored = path / "results.fxa"
+    if not stored.is_file():
+        abort(400, "this analysis session has expired -- please upload your results file again")
+
+    raw = request.get_json(silent=True)
+    if not isinstance(raw, dict):
+        raw = request.form.to_dict(flat=False)
+        raw = {k: (v if k == "metrics" else v[0]) for k, v in raw.items()}
+
+    try:
+        parsed = analysis.parse_request(raw)
+    except analysis.ReanalysisError as exc:
+        return jsonify({"status": "error", "message": str(exc)}), 400
+
+    try:
+        analysis.acquire_lock(_scratch_root())
+    except analysis.Busy as exc:
+        return jsonify({"status": "busy", "message": str(exc)}), 429
+
+    request_path = path / "reanalyse_request.json"
+    output_path = path / "reanalyse_result.json"
+    request_path.write_text(json.dumps(parsed.to_dict()))
+    output_path.unlink(missing_ok=True)
+
+    script = REPO_ROOT / "FlexAppeal.py"
+    try:
+        subprocess.Popen(
+            [sys.executable, str(script), "reanalyse",
+             str(stored), str(request_path), str(output_path)],
+            cwd=str(REPO_ROOT),
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            # A new session so the worker outlives a gunicorn restart rather
+            # than being killed with its parent's process group.
+            start_new_session=True,
+        )
+    except OSError as exc:
+        analysis.release_lock(_scratch_root())
+        return jsonify({"status": "error",
+                        "message": f"could not start the analysis: {exc}"}), 500
+
+    return jsonify({"status": "running"}), 202
+
+
+@analysis_bp.route("/analysis/<token>/reanalyse/status", methods=["GET"])
+def reanalyse_status(token: str):
+    """Poll for the detached worker's result."""
+    path = session_path(token)
+    output_path = path / "reanalyse_result.json"
+
+    if not output_path.is_file():
+        request_path = path / "reanalyse_request.json"
+        if not request_path.is_file():
+            return jsonify({"status": "idle"})
+        age = time.time() - request_path.stat().st_mtime
+        if age > analysis.TIMEOUT_SECONDS:
+            analysis.release_lock(_scratch_root())
+            return jsonify({
+                "status": "error",
+                "message": f"the analysis did not finish within "
+                           f"{analysis.TIMEOUT_SECONDS} seconds and was abandoned.",
+            })
+        return jsonify({"status": "running", "seconds": round(age)})
+
+    try:
+        payload = json.loads(output_path.read_text())
+    except (OSError, json.JSONDecodeError):
+        # The worker may be mid-write; treat it as still running rather than
+        # reporting a failure that will resolve itself on the next poll.
+        return jsonify({"status": "running"})
+
+    if payload.get("status") == "ready":
+        payload["figures"] = plots.build_reanalysis(payload.get("metrics", {}))
+    return jsonify(payload)

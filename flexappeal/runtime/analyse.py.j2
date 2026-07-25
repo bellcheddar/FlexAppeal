@@ -89,6 +89,31 @@ def load(run_dir):
     step(f"loading {candidates[0].name}")
     traj = md.load(str(candidates[0]), top=str(topology))
     ok(f"{traj.n_frames} frames, {traj.n_atoms} atoms, {traj.time[-1] / 1000:.1f} ns")
+
+{% if cfg.enforce_periodic_box %}
+    # The trajectory was written with enforcePeriodicBox, which wraps every
+    # molecule into the primary cell independently. A bound ligand can therefore
+    # sit a whole box length from its protein in the stored coordinates, which
+    # quietly ruins any distance or RMSD that spans two molecules.
+    # compute_contacts applies the minimum image convention itself, so a contact
+    # map looks perfectly correct while the distances beside it are nonsense --
+    # which is what makes this worth undoing up front rather than per metric.
+    # The anchor has to be named explicitly. MDTraj's own heuristic looks for a
+    # molecule with *more* atoms than the largest one, which can never be
+    # satisfied for a protein plus a ligand, and it fails with:
+    #   "Could not find any anchor molecules. Based on our heuristic, those
+    #    should be molecules with more than 3220 atoms."
+    if traj.unitcell_vectors is not None:
+        try:
+            molecules = traj.topology.find_molecules()
+            if molecules:
+                traj.image_molecules(
+                    inplace=True, anchor_molecules=[max(molecules, key=len)])
+                info("re-imaged molecules (undoing periodic wrapping)")
+        except (ValueError, RuntimeError, IndexError) as exc:
+            warn(f"could not re-image molecules ({exc}); distances that span "
+                 f"two molecules may be wrong by a box length")
+{% endif %}
     return traj
 
 

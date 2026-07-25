@@ -224,6 +224,19 @@ def cmd_unpack(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_reanalyse(args: argparse.Namespace) -> int:
+    """Worker entry point for the web app's re-analysis route.
+
+    Invoked as a detached subprocess so MDTraj never blocks a gunicorn worker,
+    and so the job survives a service restart. Writes its status to the output
+    file rather than signalling through the exit code alone.
+    """
+    from flexappeal import analysis
+
+    return analysis.run_to_file(
+        Path(args.fxa), Path(args.request), Path(args.output))
+
+
 def cmd_docs(args: argparse.Namespace) -> int:
     """Generate docs/options.md from the registry, so it cannot go stale."""
     lines = [
@@ -342,6 +355,12 @@ def _build_argparser() -> argparse.ArgumentParser:
     p.add_argument("bundle")
     p.add_argument("-o", "--output", help="extract here instead of listing")
     p.set_defaults(func=cmd_unpack)
+
+    p = sub.add_parser("reanalyse", help="re-analyse a results file (worker entry point)")
+    p.add_argument("fxa")
+    p.add_argument("request", help="a JSON file describing what to compute")
+    p.add_argument("output", help="where to write the result")
+    p.set_defaults(func=cmd_reanalyse)
 
     p = sub.add_parser("docs", help="regenerate docs/options.md from the registry")
     p.set_defaults(func=cmd_docs)
