@@ -93,11 +93,25 @@ else
     [[ $certbot_ok -eq 1 ]] || echo "!! certbot failed three times; the site is HTTP-only."
 
     # certbot does not enable HTTP/2 on nginx 1.24, so patch it in. Idempotent.
+    #
+    # Both listen directives have to be patched, not just one. In nginx 1.24
+    # `ssl` and `http2` are protocol options on the listening socket rather than
+    # per-server settings, so if one vhost declares 0.0.0.0:443 differently from
+    # the others nginx warns "protocol options redefined for 0.0.0.0:443" and
+    # honours whichever server block was parsed first. The first version of this
+    # regex put the space inside the optional group:
+    #
+    #     listen(\s+\[::\]:)?443 ssl;
+    #
+    # which requires "listen443" when the group is absent, so the IPv6 line was
+    # patched and the IPv4 line silently was not. nginx 1.25.1 replaces all of
+    # this with a separate `http2 on;` directive; this box is on 1.24.
     python3 - "$SERVER_NAME" <<'PATCH'
 import re, sys, pathlib
 path = pathlib.Path("/etc/nginx/sites-available/flexappeal")
 text = path.read_text()
-patched = re.sub(r"listen(\s+\[::\]:)?443 ssl;", lambda m: m.group(0)[:-1] + " http2;", text)
+patched = re.sub(r"listen(\s+\[::\]:)?\s*443 ssl;",
+                 lambda m: m.group(0)[:-1] + " http2;", text)
 if patched != text:
     path.write_text(patched)
     print("    HTTP/2 enabled")

@@ -179,3 +179,35 @@ def test_provision_chowns_before_building_the_venv():
 def test_provision_chowns_again_at_the_end():
     """The steps between create files as root, so once is not enough."""
     assert _read("provision.sh").count("chown -R") >= 2
+
+
+def test_http2_patch_matches_both_listen_directives():
+    """The regex must patch the IPv4 line as well as the IPv6 one.
+
+    In nginx 1.24 `ssl` and `http2` are protocol options on the listening
+    socket, not per-server settings. One vhost declaring 0.0.0.0:443
+    differently from its neighbours makes nginx warn
+
+        [warn] protocol options redefined for 0.0.0.0:443
+
+    and honour whichever server block was parsed first. The original pattern
+    put the space inside the optional group, so it required "listen443" when
+    that group was absent and silently patched only IPv6.
+    """
+    import re
+
+    pattern = re.search(r're\.sub\(r"([^"]+)"', _read("provision.sh")).group(1)
+    compiled = re.compile(pattern.encode().decode("unicode_escape"))
+
+    for line in ("    listen [::]:443 ssl; # managed by Certbot",
+                 "    listen 443 ssl; # managed by Certbot"):
+        assert compiled.search(line), f"the http2 patch would miss: {line.strip()}"
+
+
+def test_http2_patch_is_idempotent():
+    """provision.sh is meant to be re-run; a second pass must not double-apply."""
+    import re
+
+    pattern = re.search(r're\.sub\(r"([^"]+)"', _read("provision.sh")).group(1)
+    compiled = re.compile(pattern.encode().decode("unicode_escape"))
+    assert not compiled.search("    listen 443 ssl http2; # managed by Certbot")
