@@ -352,3 +352,88 @@ a { color: var(--md-primary); }
 @media (prefers-reduced-motion: reduce) {
   * { transition: none !important; }
 }
+
+/* ================================================================ analysis */
+
+.md-drop {
+  display: flex; flex-direction: column; align-items: center; gap: 6px;
+  padding: 40px 20px; margin: 20px 0;
+  border: 2px dashed var(--md-border); border-radius: var(--md-radius);
+  cursor: pointer; transition: all 0.15s; text-align: center;
+}
+.md-drop:hover, .md-drop.is-over {
+  border-color: var(--md-primary); background: var(--md-bg-alt);
+}
+.md-drop-icon { font-size: 28px; }
+.md-drop em { font-style: normal; font-size: 13px; color: var(--md-text-muted); }
+
+.md-run-header h2 { margin: 0 0 6px; font-size: 20px; }
+.md-run-desc { margin: 0 0 8px; color: var(--md-text); }
+
+/* Stat tiles -- where the story is one number, it is not a chart. */
+.md-tiles {
+  display: grid; gap: 12px; margin-bottom: 20px;
+  grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+}
+.md-tile {
+  background: var(--md-surface); border: 1px solid var(--md-border);
+  border-radius: var(--md-radius); padding: 14px 16px; box-shadow: var(--md-shadow-sm);
+}
+.md-tile dt {
+  font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em;
+  color: var(--md-text-muted); margin-bottom: 4px;
+}
+.md-tile dd {
+  margin: 0; font-family: 'Roboto Mono', monospace; font-size: 24px;
+  font-weight: 500; color: var(--md-text); line-height: 1.2;
+}
+.md-tile-unit { font-size: 13px; color: var(--md-text-muted); margin-left: 4px; }
+.md-tile p { margin: 4px 0 0; font-size: 11px; color: var(--md-text-muted); line-height: 1.4; }
+
+.md-panel h3, .md-viewer-card h3 { margin: 0 0 4px; font-size: 16px; }
+.md-panel-blurb {
+  margin: 0 0 14px; font-size: 13px; color: var(--md-text-muted); max-width: 70ch;
+}
+.md-plot { width: 100%; height: 340px; }
+.md-plot-small { height: 210px; }
+.md-plot-error { font-size: 13px; color: var(--md-accent-red); }
+.md-panel.is-wide .md-plot { height: 460px; }
+.md-multiples {
+  display: grid; gap: 10px;
+  grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+}
+
+#molstar-viewer {
+  position: relative; width: 100%; height: 480px;
+  border: 1px solid var(--md-border); border-radius: var(--md-radius);
+  overflow: hidden; background: var(--md-bg-alt);
+}
+.md-viewer-status { font-size: 12px; color: var(--md-text-muted); margin: 10px 0 0; }
+.md-viewer-status.is-error { color: var(--md-accent-red); }
+
+/* A table view is the accessibility fallback: identity is never colour-alone,
+   and every plotted number is readable as text somewhere on the page. */
+.md-details { overflow-x: auto; }
+.md-table { border-collapse: collapse; width: 100%; font-size: 13px; }
+.md-table caption {
+  text-align: left; font-size: 12px; color: var(--md-text-muted);
+  padding-bottom: 8px;
+}
+.md-table th, .md-table td {
+  text-align: left; padding: 7px 12px 7px 0;
+  border-bottom: 1px solid var(--md-bg-alt);
+}
+.md-table th { font-weight: 600; color: var(--md-text-muted); white-space: nowrap; }
+.md-table td { font-family: 'Roboto Mono', monospace; }
+
+@media (max-width: 768px) {
+  .md-plot { height: 280px; }
+  .md-panel.is-wide .md-plot { height: 320px; }
+  #molstar-viewer { height: 360px; }
+  .md-tile dd { font-size: 20px; }
+}
+
+@media print {
+  .md-header, .md-tabs, .md-drop, .md-footer { display: none; }
+  .md-card { break-inside: avoid; box-shadow: none; }
+}

@@ -339,3 +339,77 @@ def test_sessions_land_in_scratch_and_sweep_away(app, client, tmp_path):
     os.utime(root / token, (old, old))
     assert sweep_scratch(root, ttl=3600) == 1
     assert not (root / token).exists()
+
+
+# ---------------------------------------------------------------------------
+#  Analysis tab
+# ---------------------------------------------------------------------------
+
+
+def _analyse(client, payload=None):
+    data = {"fxa_file": (io.BytesIO(payload if payload is not None
+                                    else (FIXTURES / "lysozyme.fxa").read_bytes()),
+                         "results.fxa")}
+    return client.post("/analysis", data=data, content_type="multipart/form-data")
+
+
+def test_analysis_page_offers_an_upload(client):
+    html = client.get("/analysis").get_data(as_text=True)
+    assert "fxa_file" in html
+    assert "md-drop" in html
+
+
+def test_uploading_a_real_fxa_renders_every_panel(client):
+    html = _analyse(client).get_data(as_text=True)
+    assert "data-figure=" in html
+    # RMSD, Rg, RMSF, SASA, secondary structure, DSSP, contacts, PCA, clusters,
+    # plus the convergence multiples.
+    assert html.count("data-figure=") >= 10
+    assert 'class="md-tile"' in html
+    assert "molstar-viewer" in html
+
+
+def test_analysis_serves_the_viewer_assets(client):
+    html = _analyse(client).get_data(as_text=True)
+    token = html.split("/analysis/", 1)[1].split("/", 1)[0]
+
+    structure = client.get(f"/analysis/{token}/structure")
+    assert structure.status_code == 200
+    assert structure.get_data().startswith((b"ATOM", b"REMARK", b"CRYST", b"MODEL", b"HEADER"))
+
+    trajectory = client.get(f"/analysis/{token}/trajectory")
+    assert trajectory.status_code == 200
+    assert len(trajectory.get_data()) > 1000
+
+
+def test_viewer_assets_reject_a_hostile_token(client):
+    for hostile in ("../../etc", "/etc/passwd", "a" * 200):
+        response = client.get(f"/analysis/{hostile}/structure")
+        assert response.status_code in (400, 404)
+        assert "Traceback" not in response.get_data(as_text=True)
+
+
+def test_uploading_rubbish_is_a_friendly_error(client):
+    html = _analyse(client, b"not a results file at all" * 50).get_data(as_text=True)
+    assert "md-issue-error" in html
+    assert "Traceback" not in html
+
+
+def test_uploading_nothing_is_a_friendly_error(client):
+    response = client.post("/analysis", data={}, content_type="multipart/form-data")
+    assert "Choose a .fxa" in response.get_data(as_text=True)
+
+
+def test_analysis_page_includes_a_table_view(client):
+    """Identity is never colour-alone: every plotted fact is also readable as text."""
+    html = _analyse(client).get_data(as_text=True)
+    assert '<table class="md-table">' in html
+    assert "Metrics computed" in html
+
+
+def test_analysis_vendors_its_javascript(client):
+    """No CDN: the page must work with no third-party network access."""
+    html = _analyse(client).get_data(as_text=True)
+    assert "/static/vendor/plotly.min.js" in html
+    assert "/static/vendor/molstar.js" in html
+    assert "cdn." not in html.split("<footer")[0]

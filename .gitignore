@@ -29,6 +29,9 @@ flexappeal_output/
 *.command
 !examples/*/*.fxa
 !examples/*/*.command
+# The test fixture is a real .fxa from a real run, and the whole analysis suite
+# skips without it. Tracked deliberately despite the rule above.
+!tests/fixtures/*.fxa
 
 # macOS
 .DS_Store

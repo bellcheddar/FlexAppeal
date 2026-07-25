@@ -30,7 +30,7 @@ from flask import (
 )
 
 from . import options as opts
-from . import bundle, schema, sources, structure
+from . import bundle, fxa, plots, schema, sources, structure
 from .options import FLEXAPPEAL_VERSION
 
 # MUST stay in sync with `client_max_body_size` in deploy/nginx-flexappeal.conf.
@@ -346,10 +346,83 @@ def estimate():
 
 analysis_bp = Blueprint("analysis", __name__)
 
+MAX_FXA_BYTES = MAX_CONTENT_LENGTH
 
-@analysis_bp.route("/analysis", methods=["GET"])
+
+@analysis_bp.route("/analysis", methods=["GET", "POST"])
 def analysis():
-    return render_template("analysis.html", active="analysis")
+    if request.method == "GET":
+        return render_template("analysis.html", active="analysis", results=None)
+
+    uploaded = request.files.get("fxa_file")
+    if not uploaded or not uploaded.filename:
+        return render_template("analysis.html", active="analysis", results=None,
+                               error="Choose a .fxa results file to upload.")
+
+    content = uploaded.read(MAX_FXA_BYTES + 1)
+    if len(content) > MAX_FXA_BYTES:
+        return render_template(
+            "analysis.html", active="analysis", results=None,
+            error=f"That file is larger than {MAX_FXA_BYTES // (1024 * 1024)} MB. "
+                  f"Rebuild the bundle with a smaller payload tier.")
+
+    try:
+        results = fxa.load(content)
+    except fxa.FxaError as exc:
+        return render_template("analysis.html", active="analysis", results=None,
+                               error=str(exc))
+
+    # The token lets the browser fetch the structure and trajectory for the
+    # viewer without re-uploading them, and gives /reanalyse something to work
+    # from in phase 7.
+    token, path = new_session()
+    (path / "results.fxa").write_bytes(content)
+
+    summary = fxa.summarise(results)
+    return render_template(
+        "analysis.html",
+        active="analysis",
+        results=results,
+        summary=summary,
+        token=token,
+        tiles=plots.tiles(summary, results.metrics),
+        panels=plots.build_all(results)["panels"],
+        convergence=plots.convergence(
+            plots.parse_state_data(results.members["state_data.csv"])
+            if "state_data.csv" in results.members else {}
+        ),
+        has_viewer=bool(results.topology_pdb),
+        warnings=results.warnings,
+    )
+
+
+def _load_results(token: str) -> fxa.Results:
+    path = session_path(token)
+    stored = path / "results.fxa"
+    if not stored.is_file():
+        abort(400, "this analysis session has expired -- please upload your results file again")
+    return fxa.load(stored.read_bytes(), verify_checksums=False)
+
+
+@analysis_bp.route("/analysis/<token>/structure", methods=["GET"])
+def structure_file(token: str):
+    """The topology, for the Mol* viewer."""
+    results = _load_results(token)
+    if not results.topology_pdb:
+        abort(404)
+    return send_file(io.BytesIO(results.topology_pdb), mimetype="chemical/x-pdb",
+                     download_name="topology.pdb")
+
+
+@analysis_bp.route("/analysis/<token>/trajectory", methods=["GET"])
+def trajectory_file(token: str):
+    """The decimated trajectory, for playback in the viewer."""
+    results = _load_results(token)
+    if not results.trajectory_xtc:
+        abort(404)
+    return send_file(io.BytesIO(results.trajectory_xtc),
+                     mimetype="application/octet-stream",
+                     download_name="traj.xtc")
 
 
 # ===========================================================================

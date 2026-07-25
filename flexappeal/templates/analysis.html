@@ -1,15 +1,161 @@
 {% extends "base.html" %}
-{% block title %}Analysis{% endblock %}
+{% block title %}{% if results %}{{ summary.job_name }}{% else %}Analysis{% endif %}{% endblock %}
+
+{% block head %}
+{% if results %}
+<link rel="stylesheet" href="{{ asset('vendor/molstar.css') }}">
+{% endif %}
+{% endblock %}
+
 {% block content %}
-<section class="md-card md-intro">
-  <h2>Upload a results file</h2>
-  <p>
-    Drop the <code>.fxa</code> file your run produced here. It carries the metrics
-    computed against your full trajectory, plus enough of the trajectory itself to
-    view and re-analyse.
-  </p>
-  <p class="md-note">
-    Phase 4 of the build. Not wired up yet — finish a run first, then come back.
-  </p>
-</section>
+
+{% if error %}
+  <div class="md-issues">
+    <div class="md-issue md-issue-error"><strong>✕</strong><span>{{ error }}</span></div>
+  </div>
+{% endif %}
+
+{% if not results %}
+  <section class="md-card md-intro">
+    <h2>Upload a results file</h2>
+    <p>
+      Drop the <code>.fxa</code> file your run produced. It carries the metrics
+      computed against your <strong>full</strong> trajectory, plus a decimated copy
+      for viewing — so nothing here was measured on thinned data.
+    </p>
+
+    <form method="post" enctype="multipart/form-data" class="md-source-form" id="fxa-form">
+      <label class="md-drop" id="drop-zone">
+        <input type="file" name="fxa_file" accept=".fxa,.zip" id="fxa-input" hidden>
+        <span class="md-drop-icon">📊</span>
+        <strong>Choose a .fxa file</strong>
+        <em id="drop-hint">or drag it here</em>
+      </label>
+      <button type="submit" class="md-button md-button-primary">Analyse →</button>
+    </form>
+
+    <p class="md-note">
+      Do not have one yet? Build a bundle on the
+      <a href="{{ url_for('prepare.index') }}">Prepare tab</a>, run it on your
+      machine, and the <code>.fxa</code> appears in the output directory.
+    </p>
+  </section>
+
+{% else %}
+  {% if warnings %}
+    <div class="md-issues">
+      {% for w in warnings %}
+        <div class="md-issue md-issue-warning"><strong>⚠</strong><span>{{ w }}</span></div>
+      {% endfor %}
+    </div>
+  {% endif %}
+
+  <section class="md-card md-run-header">
+    <h2>{{ summary.job_name }}</h2>
+    {% if summary.description %}<p class="md-run-desc">{{ summary.description }}</p>{% endif %}
+    <p class="md-meta">
+      {{ summary.force_field }}{% if summary.water_model %} / {{ summary.water_model }}{% endif %}
+      · {{ summary.temperature }} K
+      · {{ summary.timestep }} fs
+      {% if summary.platform %} · {{ summary.platform }}{% endif %}
+      {% if summary.openmm_version %} · OpenMM {{ summary.openmm_version }}{% endif %}
+      {% if summary.structure.filename %} · {{ summary.structure.filename }}{% endif %}
+      {% if summary.structure.citation %} <span class="md-citation">{{ summary.structure.citation }}</span>{% endif %}
+    </p>
+  </section>
+
+  {% if tiles %}
+    <div class="md-tiles">
+      {% for t in tiles %}
+        <div class="md-tile">
+          <dt>{{ t.label }}</dt>
+          <dd>{{ t.value }}{% if t.unit %}<span class="md-tile-unit">{{ t.unit }}</span>{% endif %}</dd>
+          {% if t.note %}<p>{{ t.note }}</p>{% endif %}
+        </div>
+      {% endfor %}
+    </div>
+  {% endif %}
+
+  {% if has_viewer %}
+    <section class="md-card md-viewer-card">
+      <h3>Structure</h3>
+      <p class="md-panel-blurb">
+        The decimated trajectory, {{ summary.frames_packed }} frames of
+        {{ summary.atoms_packed }} atoms. Press play, or scrub the frame slider —
+        the plots below highlight the frame you are on.
+      </p>
+      <div id="molstar-viewer"
+           data-structure="{{ url_for('analysis.structure_file', token=token) }}"
+           data-trajectory="{{ url_for('analysis.trajectory_file', token=token) }}"
+           data-frames="{{ summary.frames_packed or 0 }}"
+           data-duration="{{ summary.duration_ns or 0 }}"></div>
+      <p class="md-viewer-status" id="viewer-status">Loading the structure…</p>
+    </section>
+  {% endif %}
+
+  {% for panel in panels %}
+    <section class="md-card md-panel {% if panel.wide %}is-wide{% endif %}">
+      <h3>{{ panel.title }}</h3>
+      {% if panel.blurb %}<p class="md-panel-blurb">{{ panel.blurb }}</p>{% endif %}
+      <div class="md-plot" id="plot-{{ panel.id }}"
+           data-figure='{{ panel.figure | tojson }}'></div>
+    </section>
+  {% endfor %}
+
+  {% if convergence %}
+    <section class="md-card md-panel is-wide">
+      <h3>Convergence</h3>
+      <p class="md-panel-blurb">
+        Each measure on its own axis. Energies, temperature and density differ by
+        orders of magnitude, so sharing a plot between any two of them would
+        make their alignment arbitrary and any apparent correlation fictional.
+      </p>
+      <div class="md-multiples">
+        {% for c in convergence %}
+          <div class="md-plot md-plot-small" id="plot-{{ c.id }}"
+               data-figure='{{ c.figure | tojson }}'></div>
+        {% endfor %}
+      </div>
+    </section>
+  {% endif %}
+
+  <section class="md-card">
+    <h3>Run details</h3>
+    <div class="md-details">
+      <table class="md-table">
+        <caption>Every value is read from the results file's manifest.</caption>
+        <tbody>
+          <tr><th scope="row">Simulated time</th><td>{{ '%.3f' % summary.duration_ns }} ns</td></tr>
+          <tr><th scope="row">Frames analysed</th><td>{{ '{:,}'.format(summary.frames_analysed or 0) }}</td></tr>
+          <tr><th scope="row">Frames packed</th><td>{{ '{:,}'.format(summary.frames_packed or 0) }} ({{ summary.tier }} tier)</td></tr>
+          <tr><th scope="row">Force field</th><td>{{ summary.force_field }}</td></tr>
+          <tr><th scope="row">Water model</th><td>{{ summary.water_model or '—' }}</td></tr>
+          <tr><th scope="row">Temperature</th><td>{{ summary.temperature }} K</td></tr>
+          <tr><th scope="row">Timestep</th><td>{{ summary.timestep }} fs</td></tr>
+          <tr><th scope="row">Platform</th><td>{{ summary.platform or '—' }}</td></tr>
+          <tr><th scope="row">Throughput</th><td>{% if summary.ns_per_day %}{{ summary.ns_per_day }} ns/day{% else %}—{% endif %}</td></tr>
+          <tr><th scope="row">Wall time</th><td>{% if summary.wall_hours %}{{ summary.wall_hours }} h{% else %}—{% endif %}</td></tr>
+          <tr><th scope="row">OpenMM</th><td>{{ summary.openmm_version or '—' }}</td></tr>
+          <tr><th scope="row">FlexAppeal</th><td>{{ summary.flexappeal_version or '—' }}</td></tr>
+          {% if summary.machine.machine %}
+            <tr><th scope="row">Machine</th><td>{{ summary.machine.system }} {{ summary.machine.release }} ({{ summary.machine.machine }})</td></tr>
+          {% endif %}
+          <tr><th scope="row">Metrics computed</th><td>{{ results.computed | join(', ') or '—' }}</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p class="md-note">
+      Analyse another run by <a href="{{ url_for('analysis.analysis') }}">uploading a different file</a>.
+    </p>
+  </section>
+{% endif %}
+
+{% endblock %}
+
+{% block scripts %}
+{% if results %}
+<script src="{{ asset('vendor/plotly.min.js') }}"></script>
+<script src="{{ asset('vendor/molstar.js') }}"></script>
+{% endif %}
+<script src="{{ asset('analysis.js') }}" defer></script>
 {% endblock %}
