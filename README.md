@@ -206,7 +206,7 @@ Roadmap, newest ideas at the top. Suggestions welcome.
 
 ## 📝 Licence
 
-MIT. See [`LICENSE`](LICENSE) for the full text and for the third-party notices.
+MIT. See [`LICENSE`](LICENSE) for the text, and [`NOTICE.md`](NOTICE.md) for the third-party notices.
 
 MIT is compatible with everything FlexAppeal depends on. The two libraries this
 repository actually redistributes, Plotly.js and Mol\*, are both MIT, and their
