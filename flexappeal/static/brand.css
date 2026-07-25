@@ -444,3 +444,20 @@ a { color: var(--md-primary); }
 .md-reanalyse-status.is-error { color: var(--md-accent-red); }
 .md-reanalyse-panel { padding: 0; margin-top: 18px; border-top: 1px solid var(--md-bg-alt); }
 .md-reanalyse-panel h4 { margin: 14px 0 4px; font-size: 14px; }
+
+.md-submit-lede { margin: 16px 0 8px; font-size: 14px; color: var(--md-text); }
+.md-run-commands {
+  display: inline-block; text-align: left; margin: 0 auto;
+  background: var(--md-text); color: #e8eef5;
+  padding: 14px 18px; border-radius: var(--md-radius);
+  font-family: 'Roboto Mono', monospace; font-size: 13px; line-height: 1.7;
+  overflow-x: auto; max-width: 100%;
+}
+.md-run-commands code { color: inherit; background: none; }
+.md-submit-note {
+  max-width: 62ch; margin: 14px auto 0; text-align: left;
+  font-size: 13px; color: var(--md-text-muted);
+}
+.md-submit-note code {
+  background: var(--md-bg-alt); padding: 1px 5px; border-radius: 4px; font-size: 12px;
+}

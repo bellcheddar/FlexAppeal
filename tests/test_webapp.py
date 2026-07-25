@@ -579,3 +579,49 @@ def test_a_typed_production_time_is_accepted_end_to_end(client, value):
     assert response.mimetype == "application/octet-stream", \
         f"production_duration={value} was rejected: " \
         f"{response.get_data(as_text=True)[:200]}"
+
+
+def test_the_page_does_not_promise_double_click(client):
+    """A file downloaded over HTTP has no executable bit, so Finder refuses it:
+
+        The file "flexappeal_1EVS.command" could not be executed because you do
+        not have appropriate access privileges.
+
+    The page told people to double-click it anyway.
+    """
+    _, _, html = _upload(client)
+
+    # Not a ban on the word: the page should still explain that double-clicking
+    # fails. What it must never do is offer it as the way to run the bundle, so
+    # every mention has to sit in a sentence that says it does not work.
+    import re
+
+    for sentence in re.split(r"(?<=[.!?])\s+", re.sub(r"<[^>]+>", " ", html)):
+        if "ouble-click" in sentence:
+            assert re.search(r"\bfail|will not work|cannot|does not work", sentence), (
+                f"double-click is presented as a method, not a warning: "
+                f"{' '.join(sentence.split())[:140]}"
+            )
+
+
+def test_the_page_gives_the_commands_that_actually_work(client):
+    _, _, html = _upload(client)
+    assert "chmod +x" in html
+    assert "cd ~/Downloads" in html
+    assert "not optional" in html, "the chmod has to read as required, not advisory"
+
+
+def test_the_commands_name_the_file_that_will_be_downloaded(client):
+    """The block is meant to be copied verbatim, so the filename must be real."""
+    from flexappeal import bundle as bundle_mod
+
+    _, token, html = _upload(client)
+    # The page seeds the job name from the uploaded filename.
+    assert 'name="job_name" value="1aki"' in html
+    expected = bundle_mod.bundle_filename({"job_name": "1aki"})
+
+    response = client.post("/prepare/build", data=_form_from_defaults(token, job_name="1aki"))
+    assert expected in response.headers["Content-Disposition"]
+    # And the page's JS builds the same name from the same rule.
+    assert "'flexappeal_' + safe + '.command'" in (
+        (pathlib.Path(__file__).parent.parent / "flexappeal" / "static" / "app.js").read_text())

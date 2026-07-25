@@ -204,7 +204,23 @@
 
       <div class="md-submit">
         <button type="submit" class="md-button md-button-primary">Build the run bundle ↓</button>
-        <p>You will get one file. Double-click it on your Mac to install, benchmark and run.</p>
+
+        {# The page used to say "double-click it on your Mac". It cannot work: a
+           file downloaded over HTTP arrives without the executable bit, and
+           Finder refuses it with "you do not have appropriate access
+           privileges". The two commands below are what actually runs it, and
+           the filename tracks the job name so they can be pasted as they are. #}
+        <p class="md-submit-lede">You will get one file. Run it from Terminal:</p>
+        <pre class="md-run-commands"><code>cd ~/Downloads
+chmod +x <span data-bundle-name>flexappeal_run.command</span>
+./<span data-bundle-name>flexappeal_run.command</span></code></pre>
+        <p class="md-submit-note">
+          The <code>chmod</code> is not optional. A download has no executable
+          bit, so double-clicking it in Finder will fail until you have run that
+          line once. The first run installs the environment (several GB, 5 to 15
+          minutes); later runs go straight to simulating, and re-running resumes
+          from the last checkpoint.
+        </p>
       </div>
     </form>
 

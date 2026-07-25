@@ -187,6 +187,21 @@
         });
     }
 
+    /* Keep the filename in the Terminal commands matching the job name, so the
+     * block can be copied verbatim rather than adapted. Mirrors
+     * bundle.bundle_filename() and schema's job-name rule. */
+    const jobName = document.getElementById('f-job_name');
+    const nameSlots = document.querySelectorAll('[data-bundle-name]');
+    function syncBundleName() {
+      const raw = (jobName && jobName.value.trim()) || 'flexappeal_run';
+      const safe = raw.replace(/[^A-Za-z0-9_-]/g, '') || 'flexappeal_run';
+      nameSlots.forEach(function (el) {
+        el.textContent = 'flexappeal_' + safe + '.command';
+      });
+    }
+    if (jobName) jobName.addEventListener('input', syncBundleName);
+    syncBundleName();
+
     const scheduled = debounce(refresh, DEBOUNCE_MS);
     form.addEventListener('input', scheduled);
     form.addEventListener('change', scheduled);
