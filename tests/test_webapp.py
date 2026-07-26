@@ -942,3 +942,28 @@ def test_the_terminal_captures_are_real_output_not_placeholders(client):
             assert name[0].isalpha(), f"{name!r} is not a valid CSS class"
         assert not (classes & seen), f"{capture.name} reuses another capture's classes"
         seen |= classes
+
+
+@pytest.mark.skipif(not _example_built(), reason="the example run has not been built")
+def test_the_example_survives_its_session_being_swept(client, app):
+    """The scratch sweeper must not be able to break this page.
+
+    The example caches a session token so every visitor is not given their own
+    copy of a five-megabyte results file. That cache outlives the directory it
+    names -- the sweeper removes anything older than the TTL -- so the second
+    visit after a sweep has to recreate it silently. It used to abort with 400
+    instead, which meant the page worked for four hours after a deploy and then
+    stopped, on a timer, with nothing in the logs pointing at the cause.
+    """
+    import shutil
+
+    from flexappeal import webapp
+
+    assert client.get("/example").status_code == 200
+
+    root = pathlib.Path(app.config["SCRATCH_ROOT"])
+    for entry in root.iterdir():
+        shutil.rmtree(entry, ignore_errors=True)
+    assert webapp._EXAMPLE_TOKEN, "the token should still be cached"
+
+    assert client.get("/example").status_code == 200, "did not recover from a sweep"

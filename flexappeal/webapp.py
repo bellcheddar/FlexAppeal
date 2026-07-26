@@ -426,8 +426,14 @@ _EXAMPLE_TOKEN: list[str] = []
 
 def _example_session() -> str:
     if _EXAMPLE_TOKEN:
-        stored = session_path(_EXAMPLE_TOKEN[0]) / "results.fxa"
-        if stored.is_file():
+        # Deliberately NOT session_path(): that helper aborts with 400 when the
+        # directory is missing, which is right for a token off a form and wrong
+        # here, where a missing directory is the expected state after the
+        # sweeper has run and the answer is to make a new one. Calling it turned
+        # "the example session expired" into a 400 page four hours after the
+        # first visit, rather than the transparent re-copy intended.
+        candidate = _scratch_root() / _EXAMPLE_TOKEN[0]
+        if (candidate / "results.fxa").is_file():
             return _EXAMPLE_TOKEN[0]
         _EXAMPLE_TOKEN.clear()
     token, path = new_session()
