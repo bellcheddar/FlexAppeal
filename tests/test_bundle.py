@@ -780,3 +780,39 @@ def test_the_bundle_declares_the_console_dependencies(structure):
         assert f"{dep} = " in pixi, f"the bundle environment does not declare {dep}"
     assert "import psutil" in run and "import psutil" in analyse
     assert "from rich" in run and "from rich" in analyse
+
+
+def test_the_run_projects_memory_growth_rather_than_assuming_a_rate(structure):
+    """The growth warning must measure, not hard-code.
+
+    OpenMM's OpenCL platform leaks about 3 kB per integration step on an M1 Max
+    -- measured with no reporters attached, so it is the platform and not this
+    script. The rate depends on the system, the driver and the OpenMM build, so
+    a constant baked in today would be wrong on someone else's machine. The
+    script samples its own resident size and extrapolates instead.
+    """
+    code = _code(structure)
+    assert "def watch_growth" in code
+    tail = code.split("def watch_growth", 1)[1]
+    body = tail[: tail.index("\ndef ")]
+
+    assert "memory_info()" in body, "the projection must sample real memory"
+    assert "_GROWTH" in body, "it needs a baseline to extrapolate from"
+    # No magic per-step constant: the numbers present should be fractions and
+    # thresholds, not a bytes-per-step rate.
+    import re
+
+    literals = [float(n) for n in re.findall(r"\b\d+\.?\d*\b", body)]
+    assert not any(n > 100 for n in literals), \
+        f"a hard-coded rate looks to have crept in: {[n for n in literals if n > 100]}"
+
+
+def test_the_growth_warning_names_the_way_out(structure):
+    """A warning with no remedy just tells someone their run is doomed.
+
+    Restarting works because the bundle resumes from its checkpoint, which is
+    not obvious, so the message has to say it.
+    """
+    run = bundle.unpack(_build(structure).content)["run.py"].decode()
+    assert "resumes from the last checkpoint" in run
+    assert "cannot be reclaimed while the process lives" in run

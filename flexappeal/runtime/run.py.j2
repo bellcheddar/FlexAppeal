@@ -113,6 +113,11 @@ def fail(msg):  err_console.print(f"[err]\u2717[/err] {msg}")
 _SWAP_AT_START = None
 _SWAP_WARNED = [False]
 
+# Resident size grows steadily on some platforms regardless of what this script
+# does -- see watch_growth. Sampled here so the projection is measured on the
+# machine in front of us rather than assumed.
+_GROWTH = {"rss": None, "fraction": None, "warned": False}
+
 
 def vitals():
     """RSS, free memory and swap, as a compact string for a progress line."""
@@ -159,6 +164,73 @@ def watch_swap():
         warn(f"the machine has swapped {_human_bytes(grown)} since this run began.")
         warn("MD throughput collapses once coordinates leave RAM. Close other "
              "applications, or stop and rebuild with a smaller box.")
+
+
+def watch_growth(fraction_done):
+    """Project memory growth to the end of the run, and warn if it will not fit.
+
+    OpenMM's OpenCL platform leaks on this hardware: resident size climbs
+    linearly with the number of integration steps and is never returned.
+    Measured on solvated lysozyme (19,433 atoms, M1 Max, OpenMM 8.5.2), with no
+    reporters attached at all:
+
+        CPU       451 B/step   (noise; it plateaus)
+        OpenCL  3,281 B/step   (linear, unbounded)
+
+    The 10 ns reference run grew from 0.59 GB to 8.3 GB over 2.5 million steps,
+    exactly on that slope. A 100 ns run of the same system would need about
+    80 GB and would not finish on this machine.
+
+    Nothing here can fix it. Context.reinitialize(preserveState=True) does not
+    reclaim it, and neither does destroying the Simulation and building a new
+    one from a saved State -- both measured, both grew the same amount. The
+    allocation is inside the platform and outlives anything Python can drop.
+
+    So the run measures its own slope and says so while there is still time to
+    act. Deliberately not a hard-coded constant: the rate depends on the system,
+    the driver and the OpenMM build, and a figure baked in today would be wrong
+    on someone else's machine and worse than useless.
+
+    The remedy is in the message because it is not obvious: this bundle resumes
+    from its checkpoint, so stopping it and running it again continues the run
+    in a fresh process with the memory reclaimed by the operating system.
+    """
+    if _GROWTH["warned"] or not 0.05 < fraction_done < 0.9:
+        return
+    try:
+        rss = psutil.Process().memory_info().rss
+        available = psutil.virtual_memory().available
+    except Exception:
+        return
+
+    if _GROWTH["rss"] is None:
+        _GROWTH["rss"], _GROWTH["fraction"] = rss, fraction_done
+        return
+
+    travelled = fraction_done - _GROWTH["fraction"]
+    if travelled < 0.1:                 # too short a baseline to extrapolate
+        return
+    grown = rss - _GROWTH["rss"]
+    if grown <= 0:
+        return
+
+    projected = grown / travelled * (1.0 - fraction_done)
+    if projected < available * 0.7:
+        return
+
+    _GROWTH["warned"] = True
+    console.print()
+    warn(f"memory is growing by {_human_bytes(grown / travelled / 100)} per percent "
+         f"of this run, and about {_human_bytes(projected)} more is projected "
+         f"before it finishes.")
+    warn(f"only {_human_bytes(available)} is free, so this run is likely to swap "
+         f"or be killed before it completes.")
+    info("This is a leak in the compute platform, not in the simulation -- it "
+         "cannot be reclaimed while the process lives.")
+    info("Stop this run and start it again: it resumes from the last checkpoint "
+         "in a fresh process, and the memory goes back to the system.")
+    info("A run on the CPU platform does not grow this way, if you would rather "
+         "trade speed for finishing unattended.")
 
 
 def _human_bytes(n):
@@ -244,6 +316,7 @@ class Progress:
             # here as the hand-rolled version did.
             self._bar.update(self._task, completed=done, extra=extra, vitals=vitals())
             watch_swap()
+            watch_growth(done / self.total)
             return
         elapsed = time.time() - self.started
         bucket = int(elapsed // _LOG_EVERY_SECONDS)
@@ -252,6 +325,7 @@ class Progress:
             console.print(f"  {self.label}: {done / self.total * 100:.0f}% {extra} "
                           f"({_fmt_duration(elapsed)})")
             watch_swap()
+            watch_growth(done / self.total)
 
     def close(self, message=""):
         self._bar.stop()
@@ -470,6 +544,23 @@ def check_memory(n_atoms):
     turn hours into days, because every step touches the whole coordinate array.
     The estimate is deliberately crude and generous; it exists to catch the
     order-of-magnitude mistake, not to predict usage.
+
+    Scope, because it is narrower than the name suggests. This sizes the
+    *system*: the particles, the neighbour list, the reporters' buffers.
+    Measured, that is a few hundred megabytes here -- solvated lysozyme peaked
+    at 0.26 GB on either platform, and the formula's 1.5 GB floor already covers
+    it comfortably.
+
+    What it cannot see is growth over time. On this hardware the OpenCL platform
+    leaks around 3 kB per integration step, so the memory a run needs depends on
+    how many steps it takes rather than how big it is -- and the platform is not
+    chosen until after this runs, because choosing it means benchmarking, which
+    means building a context. A 10 ns run of this system ends 8 GB up; a 100 ns
+    run would need 80 GB and never finish.
+
+    Rather than guess at that here, watch_growth measures the real slope during
+    production and warns in time to do something about it. This function is the
+    floor, not the ceiling.
     """
     try:
         total = os.sysconf("SC_PAGE_SIZE") * os.sysconf("SC_PHYS_PAGES")
