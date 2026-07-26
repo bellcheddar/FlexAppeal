@@ -14,7 +14,8 @@ committed, not a written-up description of one.
 | `config.json` | The complete option set, validated against the registry |
 | `flexappeal_lysozyme_10ns.command` | The self-contained bundle, exactly as the Prepare tab emits it |
 | `run/` | The bundle extracted: `run.py`, `analyse.py`, `pixi.toml`, `input.pdb` |
-| `terminal.log` | Raw `script(1)` capture of the run, escape sequences and all |
+| `terminal.log.gz` | Raw `script(1)` capture of the run, escape sequences and all (3 MB → 80 KB) |
+| `analyse.log.gz` | The same for the analysis pass |
 | `screenshots/*.html` | Terminal captures rendered for the web page, from that log |
 | `output/*.fxa` | The results file, which is what the Example tab renders |
 | `rebuild.sh` | Regenerates all of the above |

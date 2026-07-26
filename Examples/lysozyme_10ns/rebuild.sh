@@ -60,8 +60,14 @@ step "running 10 ns -- roughly seventy minutes, progress on screen"
   script -q "$HERE/terminal.log" /bin/bash -c \
     "stty cols 120 rows 45 2>/dev/null; COLUMNS=120 '$ROOT/.pixi/envs/default/bin/python' run.py" )
 
+# Captured the same way as the run, and for the same reason: analyse.py draws a
+# progress bar over the metric list, and without a pty rich prints milestone
+# lines instead. Recording it also means a rebuild reproduces every artefact
+# rather than most of them.
 step "analysing"
-( cd "$HERE/run" && "$ROOT/.pixi/envs/default/bin/python" analyse.py )
+( cd "$HERE/run" && \
+  script -q "$HERE/analyse.log" /bin/bash -c \
+    "stty cols 120 rows 45 2>/dev/null; COLUMNS=120 '$ROOT/.pixi/envs/default/bin/python' analyse.py" )
 
 step "collecting the results file"
 mkdir -p "$HERE/output"
@@ -70,6 +76,9 @@ find "$HERE/run" -name '*.fxa' -exec cp {} "$HERE/output/" \;
 step "rendering the terminal captures"
 pixi run python scripts/terminal_capture.py "$HERE/terminal.log" \
   --out "$HERE/screenshots"
+
+step "compressing the raw captures"
+gzip -9 -f -k "$HERE/terminal.log" "$HERE/analyse.log"
 
 ok "done. The Example tab will pick this up on its next request."
 printf "   %s\n" "$(du -sh "$HERE/output" | cut -f1) of results, $(ls "$HERE/screenshots" | wc -l | tr -d ' ') captures"

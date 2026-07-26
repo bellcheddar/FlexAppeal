@@ -42,7 +42,9 @@ flexappeal_output/
 # kept in that form.
 Examples/*/run/
 Examples/*/terminal.log
+Examples/*/analyse.log
 !Examples/*/terminal.log.gz
+!Examples/*/analyse.log.gz
 # The test fixture is a real .fxa from a real run, and the whole analysis suite
 # skips without it. Tracked deliberately despite the rule above.
 !tests/fixtures/*.fxa
