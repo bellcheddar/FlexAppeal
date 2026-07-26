@@ -732,3 +732,30 @@ def test_static_assets_still_carry_a_cache_busting_version(client):
     """no-cache on HTML must not have been applied to static files too."""
     body = client.get("/").get_data(as_text=True)
     assert "brand.css?v=" in body
+
+
+def test_the_banner_font_size_is_always_a_whole_number_of_pixels():
+    """Monospace art only stays in column at an integer font-size.
+
+    A vw-derived size is fractional at almost every window width (13.05px at
+    900px, 14.5px at 1000px). The character advance is then fractional too, the
+    browser rounds each glyph origin to the device pixel grid independently,
+    and the error accumulates differently per row -- so the columns drift and
+    the strokes stop meeting. It is invisible at 1200px, where the old clamp
+    happened to land on a clean 16px, which is why it survived several rounds
+    of screenshot checks.
+    """
+    import re
+
+    from flexappeal.webapp import PACKAGE_ROOT
+
+    css = (PACKAGE_ROOT / "static" / "brand.css").read_text()
+    block = css[css.index(".md-banner pre"):]
+
+    for size in re.findall(r"font-size:\s*([^;]+);", block[:block.index("}")] ):
+        assert re.fullmatch(r"\d+px", size.strip()), \
+            f"banner font-size {size.strip()!r} is not a whole number of pixels"
+
+    # ...including the step-down breakpoint.
+    for size in re.findall(r"\.md-banner pre\s*{\s*font-size:\s*([^;]+);", css):
+        assert re.fullmatch(r"\d+px", size.strip()), size

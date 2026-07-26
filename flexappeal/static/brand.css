@@ -485,9 +485,21 @@ a { color: var(--md-primary); }
      Mono on Linux. This is also why the terminal always looked right. */
   font-family: ui-monospace, 'SF Mono', SFMono-Regular, Menlo, Consolas,
                'DejaVu Sans Mono', monospace;
-  /* The art is 52 characters wide and must not wrap -- a wrapped line is just
-     noise -- so it scales with the viewport instead. */
-  font-size: clamp(10px, 1.45vw, 16px);
+  /* Whole pixels only. This was clamp(10px, 1.45vw, 16px), and a vw-derived
+     size is fractional at almost every real window width -- 13.05px at 900px,
+     14.5px at 1000px. A fractional size gives a fractional character advance,
+     the browser rounds each glyph's origin to the device pixel grid
+     independently, and the rounding error accumulates differently on every
+     row. Columns then drift apart and the strokes stop meeting: exactly the
+     "legs shifted to the right" failure, and it is invisible at 1200px, where
+     the clamp happens to land on a clean 16px. Monospace art only stays in
+     column if the advance is a whole number of pixels, so the size steps
+     between integers rather than sliding.
+
+     The art is 54 columns; at ~0.6em per column that is ~518px at 16px and
+     ~454px at 14px, so 14px carries it down to the 561px floor where the
+     banner is hidden altogether. */
+  font-size: 16px;
   /* Exactly 1, not 1.2. Figlet art is drawn on the assumption that a glyph's
      cell touches the one above it: the slant font builds each letter from
      diagonals that continue across the line break, so any leading at all
@@ -501,6 +513,12 @@ a { color: var(--md-primary); }
      without widening its advance -- which reintroduces exactly the horizontal
      drift this stack was chosen to remove. */
   font-weight: 400;
+}
+
+/* The one step down, and still a whole number of pixels -- see above for why
+   this is a breakpoint rather than a vw expression. */
+@media (max-width: 620px) {
+  .md-banner pre { font-size: 14px; }
 }
 
 /* Below this it scales down to an illegible smudge, and unreadable art is
