@@ -496,9 +496,9 @@ a { color: var(--md-primary); }
      column if the advance is a whole number of pixels, so the size steps
      between integers rather than sliding.
 
-     The art is 45 columns; at ~0.6em per column that is ~432px at 16px, which
-     clears the 561px width where the banner is hidden altogether, so one size
-     covers the whole visible range and no step-down is needed. */
+     The art is 55 columns; at ~0.6em per column that is ~528px at 16px, which
+     still clears the 561px width where the banner is hidden altogether, so one
+     size covers the whole visible range and no step-down is needed. */
   font-size: 16px;
   /* Exactly 1, not 1.2. Figlet art is drawn on the assumption that a glyph's
      cell touches the one above it: the slant font builds each letter from

@@ -6,28 +6,36 @@
    aria-hidden with a visually-hidden text alternative: to a screen reader the
    art is line noise, and the tab title already carries the name.
 
-   Font is `stforek`, arrived at by elimination. smslant, which BoltzMaker
-   uses, collides in this word: the x runs into the A and the F merges with
-   the l. slant is legible but italic, so it draws each p's descender two
-   columns left of its bowl. standard is upright but still has a descender
-   ROW -- a line containing nothing but two small marks, which read as
-   detached from the letters above them however they are aligned.
+   Font is `big`, and the requirement it satisfies is camel case: a capital
+   F and a capital A, unmistakably distinct from the lowercase letters. That
+   rules out most of the field. smslant collides (the F merges with the l);
+   stforek and the other no-descender faces draw everything as small caps, so
+   FlexAppeal reads as FLEXAPPEAL.
 
-   The real constraint is therefore structural, not stylistic: any font with a
-   separate descender row will orphan the legs of the Ps, because that row is
-   almost entirely whitespace. stforek has no descender row -- every glyph
-   fits the same four rows -- so the failure cannot occur. It also keeps the
-   camel-case FlexAppeal, and at 45 columns it is the narrowest of the
-   candidates, which buys the most headroom before the narrow breakpoint.
+   Among the faces that do keep true mixed case, the discriminator is how the
+   p's descender is drawn. slant is italic and puts each leg two columns left
+   of its bowl. standard is upright but gives the descender a single row
+   holding nothing but two small marks, which reads as detached whatever the
+   alignment. big gives it two rows -- a stem and a foot:
+
+       .__/| .__/
+       | |   | |
+       |_|   |_|
+
+   which reads as a leg belonging to the letter above it. 8 rows x 55 columns.
 
    The art is HTML-escaped. slant draws the x as ">  <", so unescaped the
    browser reads "</ ___" as a closing tag and eats the rest of the banner --
    which is why the page looked mangled while the terminal, which has no such
    problem, looked perfect. #}
 <div class="md-banner" aria-hidden="true">
-<pre> ___ _   _____   __ __  ___ ___ ___  __  _
-| __| | | __\ \_/ //  \| _,\ _,\ __|/  \| |
-| _|| |_| _| &gt; , &lt;| /\ | v_/ v_/ _|| /\ | |_
-|_| |___|___/_/ \_\_||_|_| |_| |___|_||_|___|</pre>
+<pre> ______ _                                            _
+|  ____| |              /\                          | |
+| |__  | | _____  __   /  \   _ __  _ __   ___  __ _| |
+|  __| | |/ _ \ \/ /  / /\ \ | '_ \| '_ \ / _ \/ _` | |
+| |    | |  __/&gt;  &lt;  / ____ \| |_) | |_) |  __/ (_| | |
+|_|    |_|\___/_/\_\/_/    \_\ .__/| .__/ \___|\__,_|_|
+                             | |   | |
+                             |_|   |_|</pre>
 </div>
 <p class="md-visually-hidden">FlexAppeal</p>
