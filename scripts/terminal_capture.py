@@ -30,7 +30,15 @@ of the live readouts -- exactly the thing worth showing. `--at` picks frames by
 the fraction of the way through each stage instead.
 
     python scripts/terminal_capture.py Examples/lysozyme_10ns/terminal.log \\
+        --analysis-log Examples/lysozyme_10ns/analyse.log \\
         --out Examples/lysozyme_10ns/screenshots
+
+Both halves of what a user does are captured, because both are what they will
+see: run.py produces the trajectory and analyse.py turns it into the results
+file. Names carry the phase and then a number -- run-01-startup,
+analyse-02-packing -- so sorting within a phase gives the order things
+happened, and the page can group them without inferring anything from the
+numbering.
 """
 
 from __future__ import annotations
@@ -77,6 +85,23 @@ def frames(log: str) -> list[str]:
 
 def _plain(s: str) -> str:
     return re.sub(r"\x1b\[[0-9;]*[A-Za-z]", "", s).strip()
+
+
+def shorten_home(text: str) -> str:
+    """Replace an absolute home directory with ~.
+
+    The run summary prints the output directory, which is somebody's home
+    directory, and these captures go on a public page. This is the only edit
+    made to the recorded bytes anywhere in this script, and the page says so --
+    an undisclosed edit would make its claim that these are the real bytes
+    false, which is worse than the path being there.
+
+    Trimming instead was the first thought, but the path sits mid-table in the
+    summary between the wall time and the peak memory rows, so cutting there
+    would lose the memory figures that are the reason the summary is shown.
+    """
+    home = str(Path.home())
+    return text.replace(home, "~") if home not in ("/", "") else text
 
 
 def _is_live(frame: str) -> bool:
@@ -128,7 +153,7 @@ def render(lines: list[str], path: Path, title: str, width: int = 120) -> None:
     for line in lines:
         # from_ansi is what makes this a capture rather than a re-creation: the
         # styling comes out of the recorded bytes, not from restyling the text.
-        console.print(Text.from_ansi(line), overflow="fold")
+        console.print(Text.from_ansi(shorten_home(line)), overflow="fold")
 
     # Just the styled body. rich's export wraps it in a whole document with its
     # own <html> and background, which cannot be nested inside a page.
@@ -154,10 +179,51 @@ def render(lines: list[str], path: Path, title: str, width: int = 120) -> None:
         f"</figure>\n")
 
 
+def capture_analysis(log: Path, out: Path, width: int) -> None:
+    """The second half: analyse.py turning the trajectory into a results file.
+
+    Matched by position rather than by label. The run has named stages that can
+    be searched for -- "minimising", "producing" -- but the analysis bar is
+    relabelled with whichever metric is in flight, and those depend on what the
+    user asked for. So the mid-analysis frame is simply the middle live frame,
+    whatever it happens to be computing.
+    """
+    all_frames = frames(log.read_text(errors="replace"))
+    if not all_frames:
+        return
+    flat = settled(all_frames)
+
+    # r"\S" matches any non-blank frame; stage_capture has already narrowed to
+    # the live ones, so this is "halfway through the bar" and nothing more.
+    middle = stage_capture(all_frames, r"\S", 0.5)
+    if middle:
+        render(middle, out / "analyse-01-metrics.html",
+               "Analysing: one bar across every metric, relabelled as it goes", width)
+
+    # Ends at the "results file(s) ready" tick rather than running to the end of
+    # the log. The two lines after it echo the results file's absolute path,
+    # which is somebody's home directory and has no business on a public page.
+    # Trimmed rather than rewritten: the section claims these are the bytes the
+    # scripts wrote, and editing them would make that claim false, whereas
+    # showing a shorter window of them does not.
+    for i, line in enumerate(flat):
+        if "packing" in _plain(line):
+            tail = flat[max(0, i - 1):]
+            for j, later in enumerate(tail):
+                if "results file" in _plain(later):
+                    tail = tail[: j + 1]
+                    break
+            render(tail, out / "analyse-02-packing.html",
+                   "Packing the results file the Analysis tab reads", width)
+            break
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("log", type=Path)
+    ap.add_argument("log", type=Path, help="the run capture (script(1) output)")
+    ap.add_argument("--analysis-log", type=Path, default=None,
+                    help="the analyse.py capture, if there is one")
     ap.add_argument("--out", type=Path, required=True)
     ap.add_argument("--width", type=int, default=120)
     args = ap.parse_args()
@@ -179,7 +245,7 @@ def main() -> int:
         head.append(line)
         if "using" in _plain(line) and "ns/day" in _plain(line):
             break
-    render(head, args.out / "01-startup.html",
+    render(head, args.out / "run-01-startup.html",
            "Startup, and the platform benchmark that picks OpenCL", args.width)
 
     for name, pattern, at, title in [
@@ -195,14 +261,17 @@ def main() -> int:
         if capture is None:
             print(f"  (nothing matched {pattern!r}; skipping {name})")
             continue
-        render(capture, args.out / f"{name}.html", title, args.width)
+        render(capture, args.out / f"run-{name}.html", title, args.width)
 
     # The closing summary.
     for i, line in enumerate(flat):
         if "all runs complete" in _plain(line):
-            render(flat[max(0, i - 2):], args.out / "06-summary.html",
+            render(flat[max(0, i - 2):], args.out / "run-06-summary.html",
                    "The closing summary", args.width)
             break
+
+    if args.analysis_log and args.analysis_log.is_file():
+        capture_analysis(args.analysis_log, args.out, args.width)
 
     written = sorted(p.name for p in args.out.glob("*.html"))
     print(f"wrote {len(written)} screenshots to {args.out}:")

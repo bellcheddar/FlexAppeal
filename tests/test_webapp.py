@@ -933,6 +933,15 @@ def test_the_terminal_captures_are_real_output_not_placeholders(client):
 
     captures = sorted((EXAMPLE_DIR / "screenshots").glob("*.html"))
     assert captures, "no terminal captures were generated"
+
+    # Both halves of what a user does, grouped by the phase in the filename.
+    phases = {c.name.split("-", 1)[0] for c in captures}
+    assert phases == {"run", "analyse"}, f"expected both phases, found {phases}"
+
+    # These go on a public page; the run summary prints its output directory.
+    for capture in captures:
+        assert "/Users/" not in capture.read_text(), \
+            f"{capture.name} leaks a home directory onto a public page"
     seen = set()
     for capture in captures:
         text = capture.read_text()

@@ -60,21 +60,39 @@
   </p>
 </section>
 
-{% if example.captures %}
+{% if example.captures.run or example.captures.analyse %}
 <section class="md-card md-panel is-wide md-example-terminal">
-  <h2>What it looked like running</h2>
+  <h2>What it looked like on the machine</h2>
   <p class="md-panel-blurb">
-    Captured from the terminal while this run was going, not re-created afterwards: these are
-    the bytes the run wrote, replayed through the same library that produced them. The bars
-    are caught mid-stage on purpose &mdash; a finished bar sits at 100% with its live readouts
-    gone, which is the one state not worth showing.
+    Captured from the terminal while this ran, not re-created afterwards: these are the bytes
+    the scripts wrote, replayed through the same library that produced them. The bars are
+    caught mid-stage on purpose &mdash; a finished bar sits at 100% with its live readouts
+    gone, which is the one state not worth showing. The one edit is that home directories
+    are shortened to <code>~</code>.
   </p>
-  {% for capture in example.captures %}{{ capture }}{% endfor %}
-  <p class="md-panel-blurb">
-    The memory figures are the reason they are there. A run that spills out of RAM into swap
-    does not slow down a little, it slows by an order of magnitude, and nothing else on screen
-    would tell you.
-  </p>
+
+  {% if example.captures.run %}
+    <h3 class="md-example-phase"><span>1</span> Running <code>run.py</code></h3>
+    {% for capture in example.captures.run %}{{ capture }}{% endfor %}
+    <p class="md-panel-blurb">
+      The memory figures are the reason they are there. A run that spills out of RAM into swap
+      does not slow down a little, it slows by an order of magnitude, and nothing else on screen
+      would tell you. This one never swapped.
+    </p>
+  {% endif %}
+
+  {% if example.captures.analyse %}
+    <h3 class="md-example-phase"><span>2</span> Then <code>analyse.py</code></h3>
+    <p class="md-panel-blurb">
+      The second script reads the trajectory back, computes the metrics, and packs the results
+      file. One bar carries all of them, relabelled with whichever metric is in flight &mdash;
+      SASA and the contact map are the slow ones.
+    </p>
+    {% for capture in example.captures.analyse %}{{ capture }}{% endfor %}
+    <p class="md-panel-blurb">
+      That <code>.fxa</code> is the file every panel below is rendered from.
+    </p>
+  {% endif %}
 </section>
 {% endif %}
 

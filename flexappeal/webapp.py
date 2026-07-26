@@ -479,14 +479,24 @@ def _example_option_tables(config: dict) -> list[dict]:
     return tables
 
 
-def _example_captures() -> list[str]:
-    """The recorded terminal output, as HTML fragments in filename order."""
+def _example_captures() -> dict[str, list[str]]:
+    """The recorded terminal output, grouped by which script produced it.
+
+    Filenames carry their phase (run-01-startup, analyse-02-packing), so the
+    grouping is read off the name rather than inferred from the numbering --
+    which would silently mis-sort the moment a stage is added to either half.
+    """
     from markupsafe import Markup
 
     directory = EXAMPLE_DIR / "screenshots"
+    grouped: dict[str, list[str]] = {"run": [], "analyse": []}
     if not directory.is_dir():
-        return []
-    return [Markup(p.read_text()) for p in sorted(directory.glob("*.html"))]
+        return grouped
+    for path in sorted(directory.glob("*.html")):
+        phase = path.name.split("-", 1)[0]
+        if phase in grouped:
+            grouped[phase].append(Markup(path.read_text()))
+    return grouped
 
 
 @analysis_bp.route("/example", methods=["GET"])

@@ -603,3 +603,15 @@ a { color: var(--md-primary); }
 .md-changed-cell { width: 18px; padding-right: 0 !important; }
 .md-changed-key { color: var(--md-primary); font-weight: 700; }
 .md-example-inputs .md-group { margin-bottom: 8px; }
+
+.md-example-phase {
+  display: flex; align-items: center; gap: 10px;
+  margin: 26px 0 12px; font-size: 15px; color: var(--md-text);
+}
+.md-example-phase:first-of-type { margin-top: 8px; }
+.md-example-phase span {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 22px; height: 22px; border-radius: 50%; flex-shrink: 0;
+  background: var(--md-primary); color: #fff; font-size: 12px; font-weight: 700;
+}
+.md-example-phase code { font-size: 13px; }
