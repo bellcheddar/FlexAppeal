@@ -1,0 +1,26 @@
+{% extends "base.html" %}
+{% block title %}Example{% endblock %}
+
+{% block content %}
+{% include "_banner.html" %}
+
+<section class="md-card md-intro">
+  <h2>The example has not been built yet</h2>
+  <p>
+    This page renders a real 10&nbsp;ns run of hen egg-white lysozyme from the results file
+    it produced. That file is not in this checkout:
+  </p>
+  <pre class="md-run-commands"><code>{{ path }}</code></pre>
+  <p>
+    It is committed to the repository, so the usual cause is a partial clone or a
+    <code>git-lfs</code> checkout that has not fetched. Rebuild it with:
+  </p>
+  <pre class="md-run-commands"><code>bash Examples/lysozyme_10ns/rebuild.sh</code></pre>
+  <p class="md-submit-note">
+    That takes about an hour and a half on an Apple&nbsp;M1&nbsp;Max, most of it the
+    simulation itself. Nothing else on the site depends on it &mdash; the
+    <a href="{{ url_for('prepare.index') }}">Prepare</a> and
+    <a href="{{ url_for('analysis.analysis_page') }}">Analysis</a> tabs work regardless.
+  </p>
+</section>
+{% endblock %}

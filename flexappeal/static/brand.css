@@ -548,3 +548,58 @@ a { color: var(--md-primary); }
 /* The tab row spans the full page width while the intro card is 760px and
    centred, which left the tabs floating out to the left of it. */
 .md-tabs-inner { justify-content: center; }
+
+/* ------------------------------------------------------- the Example tab */
+
+.md-example-lede h2 { margin-top: 0; }
+.md-example-steps {
+  display: grid; gap: 18px; margin: 22px 0 6px;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+}
+.md-example-steps h3 { margin: 8px 0 4px; font-size: 15px; }
+.md-example-steps p { margin: 0; font-size: 14px; color: var(--md-text-muted); }
+.md-example-step {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 24px; height: 24px; border-radius: 50%;
+  background: var(--md-primary); color: #fff; font-size: 12px; font-weight: 700;
+}
+.md-example-repro {
+  margin: 20px 0 0; padding: 12px 16px; border-left: 3px solid var(--md-primary);
+  background: var(--md-bg-alt); border-radius: 0 var(--md-radius) var(--md-radius) 0;
+  font-size: 14px;
+}
+.md-example-divider {
+  margin: 34px 0 16px; padding-bottom: 10px;
+  border-bottom: 1px solid var(--md-border); color: var(--md-text-muted);
+  font-size: 15px; font-weight: 600;
+}
+
+/* Terminal captures. The colours come from the recorded output as inline
+   classes; this only supplies the window the text sits in. */
+.md-term {
+  margin: 0 0 16px; border: 1px solid #2b3348; border-radius: var(--md-radius);
+  overflow: hidden; background: #14161f;
+}
+.md-term figcaption {
+  padding: 8px 14px; font-size: 12px; color: #97a3ba; background: #0f111a;
+  border-bottom: 1px solid #2b3348;
+}
+.md-term-body {
+  margin: 0; padding: 14px; background: #14161f; color: #d7dce6;
+  font-family: ui-monospace, 'SF Mono', SFMono-Regular, Menlo, Consolas,
+               'DejaVu Sans Mono', monospace;
+  /* Whole pixels and line-height 1.4: the captures contain box-drawing and
+     bar glyphs that must tile, for the same reason the banner does. */
+  font-size: 12px; line-height: 1.4; white-space: pre;
+  overflow-x: auto;
+}
+@media (max-width: 700px) { .md-term-body { font-size: 10px; } }
+
+/* Option tables */
+.md-option-table { width: 100%; font-size: 13px; }
+.md-option-table th[scope="row"] { font-weight: 500; text-align: left; }
+.md-option-table tr.is-changed th[scope="row"] { font-weight: 700; }
+.md-option-table td, .md-option-table th { padding: 5px 10px; }
+.md-changed-cell { width: 18px; padding-right: 0 !important; }
+.md-changed-key { color: var(--md-primary); font-weight: 700; }
+.md-example-inputs .md-group { margin-bottom: 8px; }

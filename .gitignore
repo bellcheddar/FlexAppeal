@@ -27,8 +27,22 @@ elementor-widget-markdown.css
 *.chk
 flexappeal_output/
 *.command
-!examples/*/*.fxa
-!examples/*/*.command
+# Capital E: the directory is Examples/, and these negations silently did
+# nothing on Linux while appearing to work on the Mac's case-insensitive
+# filesystem -- so the example results file would have been absent from the
+# droplet and the Example tab would have shown its "not built yet" page in
+# production only.
+!Examples/*/*.fxa
+!Examples/*/output/*.fxa
+!Examples/*/*.command
+
+# The extracted bundle and the raw capture are both regenerable from the two
+# files above by rebuild.sh, and together they are ten megabytes of trajectory
+# and repeated progress frames. The log compresses to 22 KB, so the evidence is
+# kept in that form.
+Examples/*/run/
+Examples/*/terminal.log
+!Examples/*/terminal.log.gz
 # The test fixture is a real .fxa from a real run, and the whole analysis suite
 # skips without it. Tracked deliberately despite the rule above.
 !tests/fixtures/*.fxa

@@ -52,6 +52,8 @@
     </div>
   {% endif %}
 
+  {% if example %}{% include "_example_intro.html" %}{% endif %}
+
   <section class="md-card md-run-header">
     <h2>{{ summary.job_name }}</h2>
     {% if summary.description %}<p class="md-run-desc">{{ summary.description }}</p>{% endif %}
@@ -206,7 +208,14 @@
       </table>
     </div>
     <p class="md-note">
-      Analyse another run by <a href="{{ url_for('analysis.analysis_page') }}">uploading a different file</a>.
+      {% if example %}
+        Everything above is generated from the results file this run produced, by the
+        same code that renders an upload. Try it with your own:
+        <a href="{{ url_for('prepare.index') }}">prepare a run</a>, or
+        <a href="{{ url_for('analysis.analysis_page') }}">upload a results file</a>.
+      {% else %}
+        Analyse another run by <a href="{{ url_for('analysis.analysis_page') }}">uploading a different file</a>.
+      {% endif %}
     </p>
   </section>
 {% endif %}

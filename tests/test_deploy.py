@@ -244,3 +244,46 @@ def test_the_droplet_can_import_the_cli_it_spawns():
         assert module in requirements, (
             f"flexappeal/console.py imports {module!r}, which the CLI loads at "
             f"module scope, but requirements.txt does not install it")
+
+
+def test_the_example_artefacts_are_not_gitignored():
+    """The Example tab needs files that .gitignore's broad rules would exclude.
+
+    `*.fxa` and `*.command` are ignored globally -- they are large and
+    regenerable everywhere except here, where the committed copies are the
+    entire point of the page. Negations bring them back, and a negation that
+    does not match is invisible on a Mac: the filesystem is case-insensitive, so
+    `!examples/...` appears to work locally while matching nothing on the Linux
+    droplet. The result would be an Example tab that renders in development and
+    shows "not built yet" in production.
+    """
+    import pathlib
+    import subprocess
+
+    root = pathlib.Path(__file__).resolve().parent.parent
+    if not (root / ".git").exists():
+        pytest.skip("not a git checkout")
+
+    required = [
+        "Examples/lysozyme_10ns/config.json",
+        "Examples/lysozyme_10ns/flexappeal_lysozyme_10ns.command",
+        "Examples/lysozyme_10ns/output/lysozyme_10ns.fxa",
+    ]
+    ignored = subprocess.run(
+        ["git", "check-ignore", "--no-index", *required],
+        cwd=root, capture_output=True, text=True).stdout.split()
+    assert not ignored, (
+        f".gitignore excludes files the Example tab requires: {ignored}. "
+        f"Check the negation rules match the directory's real case.")
+
+
+def test_the_example_directory_case_matches_what_the_code_expects():
+    """Linux is case-sensitive; this Mac is not, so only a check catches it."""
+    import pathlib
+
+    from flexappeal.webapp import EXAMPLE_DIR
+
+    root = pathlib.Path(__file__).resolve().parent.parent
+    on_disk = [p.name for p in root.iterdir() if p.name.lower() == "examples"]
+    assert on_disk == ["Examples"], f"expected Examples/, found {on_disk}"
+    assert EXAMPLE_DIR.parent.name == "Examples"

@@ -1005,6 +1005,50 @@ def add_restraints(system, topology, positions):
 #  4. Platform
 # ---------------------------------------------------------------------------
 
+def usable_properties(plat, wanted):
+    """Drop properties this platform will not accept, rather than losing it.
+
+    Apple's OpenCL implements single precision only. Asking it for `mixed` --
+    the right default on CUDA, and so the default here -- makes context
+    creation fail with "No compatible OpenCL platform is available", which
+    names the platform rather than the property and reads as "you have no GPU".
+    The benchmark then quietly falls back to CPU.
+
+    That was costing an order of magnitude on this hardware: measured on
+    solvated lysozyme (19,616 atoms) on an M1 Max, CPU 30.8 ns/day against
+    OpenCL 301.1 ns/day. A ten-nanosecond run took eight hours instead of
+    fifty minutes, and nothing in the output suggested anything was wrong.
+
+    So a property the platform rejects is degraded, not fatal, and the
+    substitution is announced -- silently running at a different precision than
+    asked for would be worse than the original bug.
+    """
+    supported = set(plat.getPropertyNames())
+    usable = {}
+    for key, value in wanted.items():
+        if key not in supported:
+            continue
+        if key == "Precision" and value == "mixed" and plat.getName() == "OpenCL":
+            # Probe rather than hard-code a platform list: a future build may
+            # well support it, and this asks the implementation in front of us.
+            if not _supports_mixed(plat):
+                warn(f"{plat.getName()} does not support mixed precision here; using single")
+                value = "single"
+        usable[key] = value
+    return usable
+
+
+def _supports_mixed(plat):
+    """Can this platform build a trivial context at mixed precision?"""
+    try:
+        probe = openmm.System()
+        probe.addParticle(1.0)
+        openmm.Context(probe, openmm.VerletIntegrator(0.001), plat, {"Precision": "mixed"})
+        return True
+    except Exception:
+        return False
+
+
 def platform_properties(name):
     properties = {}
 {% if cfg.precision %}
@@ -1023,7 +1067,7 @@ def platform_properties(name):
     if name in ("CUDA", "OpenCL", "HIP"):
         properties["DeviceIndex"] = {{ cfg.device_index | tojson }}
 {% endif %}
-    return properties
+    return usable_properties(openmm.Platform.getPlatformByName(name), properties)
 
 
 def available_platforms():

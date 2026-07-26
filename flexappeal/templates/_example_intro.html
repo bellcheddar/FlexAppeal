@@ -1,0 +1,122 @@
+{# Front matter for the Example tab.
+
+   Everything below this file is the ordinary Analysis view: the same panels,
+   the same Mol* viewer, built by the same plots.build_all() from a real .fxa.
+   Only the narrative, the input tables and the terminal captures are specific
+   to the example, so only those live here. A second copy of the results markup
+   would drift from the real one within a release. #}
+
+<section class="md-card md-intro md-example-lede">
+  <h2>A complete run, start to finish</h2>
+  <p>
+    This is hen egg-white lysozyme &mdash; <a href="https://www.rcsb.org/structure/1AKI"
+    target="_blank" rel="noopener noreferrer">PDB&nbsp;1AKI</a>, the orthorhombic form at
+    1.5&nbsp;&Aring; &mdash; simulated for <strong>10&nbsp;nanoseconds</strong> in explicit water
+    on an Apple&nbsp;M1&nbsp;Max. It is the same three steps the two tabs either side of this one
+    describe: configure a run, run the single file it hands you, upload what comes back.
+  </p>
+  <p>
+    Nothing here is illustrative. The tables are read out of the run's own
+    <code>config.json</code>, the terminal blocks are the bytes the run printed, and every
+    panel further down is built from the results file by the code that renders an upload.
+    If the Analysis tab breaks, this page breaks with it.
+  </p>
+
+  <div class="md-example-steps">
+    <div>
+      <span class="md-example-step">1</span>
+      <h3>Prepared</h3>
+      <p>
+        1AKI loaded from the RCSB, hydrogens added at pH&nbsp;7.4, solvated in a
+        dodecahedral box with 1.2&nbsp;nm padding and neutralised to 0.15&nbsp;M NaCl.
+        <strong>2,194</strong> solute atoms became <strong>19,433</strong> with water.
+      </p>
+    </div>
+    <div>
+      <span class="md-example-step">2</span>
+      <h3>Ran</h3>
+      <p>
+        One <code>.command</code> file, run from Terminal. It benchmarked the machine's
+        platforms, minimised, heated to 310&nbsp;K, equilibrated for 200&nbsp;ps while
+        releasing restraints, then produced 10&nbsp;ns at 4&nbsp;fs with hydrogen-mass
+        repartitioning.
+      </p>
+    </div>
+    <div>
+      <span class="md-example-step">3</span>
+      <h3>Analysed</h3>
+      <p>
+        The run packed a <code>.fxa</code> results file: metrics, a decimated trajectory and
+        the topology to view it against. That file is committed to the repository, and it is
+        what this page is rendering.
+      </p>
+    </div>
+  </div>
+
+  <p class="md-example-repro">
+    <strong>Reproduce it:</strong> the bundle is in the repository at
+    <code>{{ example.bundle }}</code>. Download it, <code>chmod +x</code> it, and run it.
+    The first run installs the environment; after that it goes straight to simulating.
+  </p>
+</section>
+
+{% if example.captures %}
+<section class="md-card md-panel is-wide md-example-terminal">
+  <h2>What it looked like running</h2>
+  <p class="md-panel-blurb">
+    Captured from the terminal while this run was going, not re-created afterwards: these are
+    the bytes the run wrote, replayed through the same library that produced them. The bars
+    are caught mid-stage on purpose &mdash; a finished bar sits at 100% with its live readouts
+    gone, which is the one state not worth showing.
+  </p>
+  {% for capture in example.captures %}{{ capture }}{% endfor %}
+  <p class="md-panel-blurb">
+    The memory figures are the reason they are there. A run that spills out of RAM into swap
+    does not slow down a little, it slows by an order of magnitude, and nothing else on screen
+    would tell you.
+  </p>
+</section>
+{% endif %}
+
+<section class="md-card md-panel is-wide md-example-inputs">
+  <h2>Every setting this run used</h2>
+  <p class="md-panel-blurb">
+    All {{ example.tables | map(attribute='rows') | map('length') | sum }} options, grouped as
+    the Prepare tab groups them and read from the registry rather than written out here, so a
+    new option appears the day it is added. Values changed from the default are marked
+    <span class="md-changed-key">&bull;</span>; the rest are defaults, which for a reference
+    run is worth being able to see rather than having to assume.
+  </p>
+
+  {% for table in example.tables %}
+    <details class="md-group" {% if table.changed %}open{% endif %}>
+      <summary>
+        <span class="md-group-icon">{{ table.icon }}</span>
+        <span class="md-group-title">{{ table.title }}</span>
+        <span class="md-group-blurb">
+          {{ table.rows | length }} option{{ '' if table.rows | length == 1 else 's' }}{% if table.changed %}, {{ table.changed }} changed{% endif %}
+        </span>
+      </summary>
+      <div class="md-group-body">
+        <table class="md-table md-option-table">
+          <thead>
+            <tr><th></th><th>Setting</th><th>Value</th><th>OpenMM</th></tr>
+          </thead>
+          <tbody>
+            {% for row in table.rows %}
+              <tr {% if row.changed %}class="is-changed"{% endif %}>
+                <td class="md-changed-cell">{% if row.changed %}<span class="md-changed-key"
+                    title="changed from the default">&bull;</span>{% endif %}</td>
+                <th scope="row" title="{{ row.help }}">{{ row.label }}</th>
+                <td>{{ row.value }}{% if row.units %} <span class="md-units">{{ row.units }}</span>{% endif %}</td>
+                <td>{% if row.openmm %}<code class="md-symbol">{{ row.openmm }}</code>{% endif %}</td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </details>
+  {% endfor %}
+</section>
+
+<h2 class="md-example-divider">The analysis, exactly as the Analysis tab renders it</h2>

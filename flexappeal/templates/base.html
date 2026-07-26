@@ -43,6 +43,12 @@
       <span class="md-tab-num">2</span> Analysis
       <span class="md-tab-hint">upload results, explore the trajectory</span>
     </a>
+    <a href="{{ url_for('analysis.example_page') }}"
+       class="md-tab {% if active == 'example' %}is-active{% endif %}"
+       {% if active == 'example' %}aria-current="page"{% endif %}>
+      <span class="md-tab-num">3</span> Example
+      <span class="md-tab-hint">a real 10 ns run, start to finish</span>
+    </a>
   </div>
 </nav>
 

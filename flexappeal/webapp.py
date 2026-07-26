@@ -404,6 +404,119 @@ def analysis_page():
     )
 
 
+# ---------------------------------------------------------------------------
+#  The worked example
+# ---------------------------------------------------------------------------
+#
+# A real 10 ns run of hen egg-white lysozyme, committed to the repository and
+# rendered through the same code path as an upload. Deliberately not a
+# screenshot or a written-up transcript: the panels below are built by
+# plots.build_all() from the .fxa the run actually produced, so a change that
+# breaks the Analysis tab breaks this page too and cannot ship looking fine.
+
+EXAMPLE_DIR = REPO_ROOT / "Examples" / "lysozyme_10ns"
+EXAMPLE_FXA = EXAMPLE_DIR / "output" / "lysozyme_10ns.fxa"
+
+# The Mol* viewer and /reanalyse address the results through a session token,
+# so the example needs one. Reused across requests rather than minted per hit,
+# which would fill the scratch directory with identical copies; recreated if the
+# sweeper has since expired it.
+_EXAMPLE_TOKEN: list[str] = []
+
+
+def _example_session() -> str:
+    if _EXAMPLE_TOKEN:
+        stored = session_path(_EXAMPLE_TOKEN[0]) / "results.fxa"
+        if stored.is_file():
+            return _EXAMPLE_TOKEN[0]
+        _EXAMPLE_TOKEN.clear()
+    token, path = new_session()
+    shutil.copyfile(EXAMPLE_FXA, path / "results.fxa")
+    _EXAMPLE_TOKEN.append(token)
+    return token
+
+
+def _example_option_tables(config: dict) -> list[dict]:
+    """The run's settings, grouped exactly as the Prepare form groups them.
+
+    Read out of the registry rather than hand-written, so a new option appears
+    here the day it is added and cannot be forgotten. Options the run left at
+    their default are marked rather than hidden -- for a reference example the
+    interesting fact is often that a value was NOT changed.
+    """
+    defaults = opts.defaults()
+    tables = []
+    for group in opts.GROUPS:
+        rows = []
+        for opt in opts.OPTIONS:
+            if opt.group != group.id or opt.id not in config:
+                continue
+            value = config[opt.id]
+            if isinstance(value, bool):
+                shown = "yes" if value else "no"
+            elif isinstance(value, list):
+                shown = ", ".join(str(v) for v in value) or "—"
+            else:
+                shown = str(value) if str(value) != "" else "—"
+            rows.append({
+                "label": opt.label,
+                "value": shown,
+                "units": opt.units or "",
+                "openmm": (opt.openmm or "").split(".")[-1],
+                "changed": value != defaults.get(opt.id),
+                "help": opt.help,
+            })
+        if rows:
+            tables.append({"title": group.title, "icon": group.icon,
+                           "blurb": group.blurb, "rows": rows,
+                           "changed": sum(1 for r in rows if r["changed"])})
+    return tables
+
+
+def _example_captures() -> list[str]:
+    """The recorded terminal output, as HTML fragments in filename order."""
+    from markupsafe import Markup
+
+    directory = EXAMPLE_DIR / "screenshots"
+    if not directory.is_dir():
+        return []
+    return [Markup(p.read_text()) for p in sorted(directory.glob("*.html"))]
+
+
+@analysis_bp.route("/example", methods=["GET"])
+def example_page():
+    if not EXAMPLE_FXA.is_file():
+        return render_template("example_missing.html", active="example",
+                               path=EXAMPLE_FXA.relative_to(REPO_ROOT)), 200
+
+    results = fxa.load(EXAMPLE_FXA.read_bytes(), verify_checksums=False)
+    summary = fxa.summarise(results)
+    config = results.manifest.get("config", {})
+
+    return render_template(
+        "analysis.html",
+        active="example",
+        example={
+            "tables": _example_option_tables(config),
+            "captures": _example_captures(),
+            "manifest": results.manifest,
+            "bundle": "Examples/lysozyme_10ns/flexappeal_lysozyme_10ns.command",
+        },
+        results=results,
+        summary=summary,
+        token=_example_session(),
+        tiles=plots.tiles(summary, results.metrics),
+        panels=plots.build_all(results)["panels"],
+        convergence=plots.convergence(
+            plots.parse_state_data(results.members["state_data.csv"])
+            if "state_data.csv" in results.members else {}
+        ),
+        has_viewer=bool(results.topology_pdb),
+        warnings=results.warnings,
+        reanalysis_metrics=analysis.METRICS,
+    )
+
+
 def _load_results(token: str) -> fxa.Results:
     path = session_path(token)
     stored = path / "results.fxa"

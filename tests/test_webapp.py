@@ -844,3 +844,101 @@ def test_every_banner_font_size_step_fits_its_viewport():
         assert width <= available, (
             f"at {floor}px the {size}px step needs {width:.0f}px "
             f"but only {available}px is available")
+
+
+# ---------------------------------------------------------------------------
+#  The worked example
+# ---------------------------------------------------------------------------
+
+
+def _example_built():
+    from flexappeal.webapp import EXAMPLE_FXA
+
+    return EXAMPLE_FXA.is_file()
+
+
+def test_the_example_tab_is_in_the_navigation(client):
+    """Three tabs, and the third points at the example."""
+    html = client.get("/").get_data(as_text=True)
+    assert html.count("md-tab-num") == 3
+    assert "/example" in html
+
+
+def test_the_example_page_answers_either_way(client):
+    """Built or not, it must be a page rather than a 404 or a traceback.
+
+    The results file is large enough that a shallow or partial clone can be
+    missing it, and a stack trace is a poor way to find that out.
+    """
+    response = client.get("/example")
+    assert response.status_code == 200
+    assert "Traceback" not in response.get_data(as_text=True)
+
+
+@pytest.mark.skipif(not _example_built(), reason="the example run has not been built")
+def test_the_example_renders_the_real_analysis(client):
+    """The page must be the Analysis view, not a description of it.
+
+    The whole point of committing a real run is that this page shares a code
+    path with an upload, so it cannot quietly drift from the product. If these
+    stop appearing, the page has become a brochure.
+    """
+    html = client.get("/example").get_data(as_text=True)
+    assert "md-plot" in html, "no Plotly panels"
+    assert "molstar-viewer" in html, "no structure viewer"
+    assert "A complete run, start to finish" in html
+    assert "Every setting this run used" in html
+
+
+@pytest.mark.skipif(not _example_built(), reason="the example run has not been built")
+def test_the_example_lists_every_option_from_the_registry(client):
+    """The tables are generated, not written out, so they cannot fall behind.
+
+    A hand-maintained table of 115 options would be stale within a release.
+    """
+    from flexappeal import options as opts
+
+    html = client.get("/example").get_data(as_text=True)
+    missing = [o.label for o in opts.OPTIONS if o.label not in html]
+    assert not missing, f"options absent from the example tables: {missing[:5]}"
+
+
+@pytest.mark.skipif(not _example_built(), reason="the example run has not been built")
+def test_the_example_run_actually_went_the_distance(client):
+    """Guards against committing a truncated or aborted run as the reference."""
+    from flexappeal import fxa
+    from flexappeal.webapp import EXAMPLE_FXA
+
+    results = fxa.load(EXAMPLE_FXA.read_bytes(), verify_checksums=False)
+    config = results.manifest.get("config", {})
+    assert config.get("production_duration") == 10.0, "the example is meant to be 10 ns"
+
+    times = results.metrics.get("time_ns") or []
+    assert times, "no time axis in the results"
+    assert times[-1] >= 9.5, f"the run stopped at {times[-1]:.2f} ns, short of 10"
+
+
+@pytest.mark.skipif(not _example_built(), reason="the example run has not been built")
+def test_the_terminal_captures_are_real_output_not_placeholders(client):
+    """Each capture must carry styling from the recording and its own classes.
+
+    rich numbers its CSS classes from zero in every export, so several captures
+    on one page collide unless namespaced -- and a class may not begin with a
+    digit, which an earlier version of the generator got wrong, silently
+    dropping every colour.
+    """
+    import re
+
+    from flexappeal.webapp import EXAMPLE_DIR
+
+    captures = sorted((EXAMPLE_DIR / "screenshots").glob("*.html"))
+    assert captures, "no terminal captures were generated"
+    seen = set()
+    for capture in captures:
+        text = capture.read_text()
+        classes = set(re.findall(r"\.([A-Za-z][\w-]*)-r\d+", text))
+        assert classes, f"{capture.name} has no styling"
+        for name in classes:
+            assert name[0].isalpha(), f"{name!r} is not a valid CSS class"
+        assert not (classes & seen), f"{capture.name} reuses another capture's classes"
+        seen |= classes
