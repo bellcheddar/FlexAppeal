@@ -447,7 +447,7 @@ def analyse(data: bytes, filename: str = "structure.pdb",
         )
     for c in chains:
         missing = c.missing_residues
-        if missing > 30:
+        if missing > 15:
             warnings.append(
                 f"chain {c.id} is missing {missing} residues. Rebuilt loops that long "
                 f"are guesses and will dominate the RMSD; consider simulating a "

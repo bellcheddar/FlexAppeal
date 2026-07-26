@@ -1,15 +1,26 @@
-{# The same smslant rendering the .command file prints when it starts, so the
+{# The same slant rendering the .command file prints when it starts, so the
    site and the thing you download look like one tool. Generated with pyfiglet
    rather than typed: the hand-written version had a malformed "Fl" and drifting
    indentation that nobody spotted until it was on screen.
 
    aria-hidden with a visually-hidden text alternative: to a screen reader the
-   art is line noise, and the tab title already carries the name. #}
+   art is line noise, and the tab title already carries the name.
+
+   Font is `slant`, not the `smslant` BoltzMaker uses. smslant is narrower, but
+   in this particular word its glyphs collide: the x runs into the A as
+   "\\ // __ |" and the F merges with the l, so it reads as noise rather than
+   as a name. slant is the same family, four columns wider, and legible.
+
+   The art is HTML-escaped. slant draws the x as ">  <", so unescaped the
+   browser reads "</ ___" as a closing tag and eats the rest of the banner --
+   which is why the page looked mangled while the terminal, which has no such
+   problem, looked perfect. #}
 <div class="md-banner" aria-hidden="true">
-<pre>   ______         ___                      __
-  / __/ /____ __ / _ | ___  ___  ___ ___ _/ /
- / _// / -_) \ // __ |/ _ \/ _ \/ -_) _ `/ /
-/_/ /_/\__/_\_\/_/ |_/ .__/ .__/\__/\_,_/_/
-                    /_/  /_/</pre>
+<pre>    ________          ___                           __
+   / ____/ /__  _  __/   |  ____  ____  ___  ____ _/ /
+  / /_  / / _ \| |/_/ /| | / __ \/ __ \/ _ \/ __ `/ /
+ / __/ / /  __/&gt;  &lt;/ ___ |/ /_/ / /_/ /  __/ /_/ / /
+/_/   /_/\___/_/|_/_/  |_/ .___/ .___/\___/\__,_/_/
+                        /_/   /_/</pre>
 </div>
 <p class="md-visually-hidden">FlexAppeal</p>

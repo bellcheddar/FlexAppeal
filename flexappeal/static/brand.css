@@ -476,10 +476,15 @@ a { color: var(--md-primary); }
   display: inline-block;
   margin: 0;
   font-family: 'Roboto Mono', ui-monospace, monospace;
-  /* The art is 45 characters wide and must not wrap -- a wrapped line is just
+  /* The art is 52 characters wide and must not wrap -- a wrapped line is just
      noise -- so it scales with the viewport instead. */
   font-size: clamp(10px, 1.45vw, 16px);
-  line-height: 1.2;
+  /* Exactly 1, not 1.2. Figlet art is drawn on the assumption that a glyph's
+     cell touches the one above it: the slant font builds each letter from
+     diagonals that continue across the line break, so any leading at all
+     breaks every stroke into disconnected dashes. That, not the art, is why
+     the banner still looked malformed after the font was fixed. */
+  line-height: 1;
   white-space: pre;
   color: var(--md-primary);
   font-weight: 500;

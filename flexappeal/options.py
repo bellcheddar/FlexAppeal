@@ -364,10 +364,15 @@ OPTIONS: tuple[Option, ...] = (
         openmm="pdbfixer.PDBFixer.findMissingResidues",
     ),
     Option(
-        "max_gap_length", "repair", "Longest gap to build", "int", 15,
-        "Rebuilt loops longer than about fifteen residues are essentially fiction and "
-        "will dominate your RMSD. Above this, the run stops and tells you rather than "
-        "quietly modelling something unusable.",
+        "max_gap_length", "repair", "Longest gap to build", "int", 25,
+        "A backstop against modelling something unusable, not an endorsement of "
+        "everything below it. A rebuilt loop is placed by geometry rather than "
+        "physics: up to about eight residues it is usually reasonable, by fifteen "
+        "it is a guess, and by twenty-five it is fiction that will dominate your "
+        "RMSD and is the likeliest thing to destabilise the run. The default "
+        "admits structures like oncostatin M (a 21-residue gap) because refusing "
+        "them outright helps nobody, but the run warns loudly and you should treat "
+        "that region as decoration.",
         units="residues", minimum=0, maximum=100,
         requires="fix_missing_residues", advanced=True,
     ),

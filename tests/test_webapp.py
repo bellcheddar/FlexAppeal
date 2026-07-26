@@ -633,10 +633,28 @@ def test_the_commands_name_the_file_that_will_be_downloaded(client):
 
 
 def _banner_lines():
+    """The banner art, unescaped.
+
+    It is stored HTML-escaped because the slant font draws x as ">  <", and an
+    unescaped "</" makes the browser close the <pre> and swallow the rest.
+    """
+    import html as html_mod
+
     from flexappeal.webapp import PACKAGE_ROOT
-    html = (PACKAGE_ROOT / "templates" / "_banner.html").read_text()
-    art = html.split("<pre>", 1)[1].split("</pre>", 1)[0]
-    return art.split("\n")
+
+    markup = (PACKAGE_ROOT / "templates" / "_banner.html").read_text()
+    art = markup.split("<pre>", 1)[1].split("</pre>", 1)[0]
+    return html_mod.unescape(art).split("\n")
+
+
+def test_the_banner_art_is_html_escaped():
+    """slant renders x as ">  <"; unescaped, the browser eats the banner."""
+    from flexappeal.webapp import PACKAGE_ROOT
+
+    markup = (PACKAGE_ROOT / "templates" / "_banner.html").read_text()
+    art = markup.split("<pre>", 1)[1].split("</pre>", 1)[0]
+    assert "<" not in art and ">" not in art, \
+        "raw angle brackets in the art will be parsed as markup"
 
 
 def test_both_landing_pages_show_the_banner(client):
@@ -655,14 +673,28 @@ def test_the_banner_matches_the_one_the_bundle_prints(client):
         "the page banner and the shell banner have drifted apart"
 
 
-def test_the_banner_art_is_rectangular_and_unwrapped():
-    """A wrapped or ragged line turns the art into noise."""
+def test_the_banner_art_is_well_formed():
+    """Structural sanity, independent of which figlet font is in use.
+
+    Deliberately not pinned to one font's dimensions: the first version of this
+    test hard-coded smslant's five lines and 46 columns, and broke the moment
+    the font changed for a legibility reason rather than a correctness one.
+    """
     lines = _banner_lines()
-    assert len(lines) == 5
-    assert max(len(l) for l in lines) <= 46
-    # The glyph rows must all start at a sensible offset; a shifted top row is
-    # exactly what was wrong with the hand-written version.
-    assert lines[3].startswith("/_/"), "the baseline row is misaligned"
+
+    assert 4 <= len(lines) <= 8, f"{len(lines)} lines is not a figlet banner"
+    assert max(len(l) for l in lines) <= 60, "too wide for an 80-column terminal"
+    assert all(l == l.rstrip() for l in lines), "trailing whitespace in the art"
+    assert not any("\t" in l for l in lines), "a tab will not align anywhere"
+
+    # A slant font steps left by one column per row, so exactly one row reaches
+    # column zero. A row starting left of the baseline means the art is skewed,
+    # which is what the hand-written version got wrong.
+    at_zero = [i for i, l in enumerate(lines) if l and not l.startswith(" ")]
+    assert len(at_zero) == 1, f"rows {at_zero} all start at column 0"
+
+    # And the glyph rows must actually carry glyphs.
+    assert all(l.strip() for l in lines[:-1]), "a blank row inside the art"
 
 
 def test_the_banner_is_hidden_from_screen_readers(client):
