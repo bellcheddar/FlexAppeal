@@ -52,3 +52,8 @@ examples/*/analyse.log
 
 # macOS
 .DS_Store
+
+# Exported session transcripts. `/export` drops these in the working directory
+# with a dated name, and they are conversation logs rather than source -- they
+# have been swept into a commit before by a broad `git add`.
+[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]-*.txt

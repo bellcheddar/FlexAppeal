@@ -1016,3 +1016,95 @@ def test_the_vendored_molstar_still_registers_the_animation():
     bundle = (PACKAGE_ROOT / "static" / "vendor" / "molstar.js").read_text(errors="replace")
     assert "built-in.animate-model-index" in bundle
     assert "durationInS" in bundle, "the duration parameter has been renamed"
+
+
+# ---------------------------------------------------------------------------
+#  The example's animation
+# ---------------------------------------------------------------------------
+
+
+def _animation_path():
+    from flexappeal.webapp import EXAMPLE_DIR
+
+    return EXAMPLE_DIR / "media" / "lysozyme.webp"
+
+
+@pytest.mark.skipif(not _animation_path().is_file(), reason="the animation has not been built")
+def test_the_animation_actually_carries_an_alpha_channel():
+    """The whole point is that the page shows through it.
+
+    Checked by decoding a frame, not by trusting the container: ffmpeg 8.1.2
+    advertises yuva420p for libvpx-vp9 and then writes yuv420p, and the metadata
+    reads the same either way, so a file can claim alpha and have none. That is
+    how this ended up an animated WebP rather than a WebM.
+    """
+    from PIL import Image
+
+    frame = Image.open(_animation_path()).convert("RGBA")
+    alpha = frame.getchannel("A")
+    lo, hi = alpha.getextrema()
+    assert lo == 0, "nothing in the first frame is transparent"
+    assert hi == 255, "nothing in the first frame is opaque"
+
+    # The corners are background and must be fully clear.
+    w, h = frame.size
+    for corner in ((0, 0), (w - 1, 0), (0, h - 1), (w - 1, h - 1)):
+        assert alpha.getpixel(corner) == 0, f"corner {corner} is not transparent"
+
+
+@pytest.mark.skipif(not _animation_path().is_file(), reason="the animation has not been built")
+def test_the_animation_is_a_reasonable_size_for_a_web_page():
+    """A hero animation is decorative; it must not dominate the page weight.
+
+    Frame rate is the lever if this ever fails: measured on this clip, dropping
+    WebP quality from 40 to 20 saved 11% while halving the frame rate saved 47%,
+    because the format differences consecutive frames but cannot compensate for
+    motion. Scaling down after keying makes it larger, not smaller.
+    """
+    size_mb = _animation_path().stat().st_size / 1e6
+    assert size_mb < 5.0, f"the animation is {size_mb:.1f} MB, too heavy to ship"
+
+
+@pytest.mark.skipif(not _animation_path().is_file(), reason="the animation has not been built")
+def test_the_media_route_serves_it_with_a_long_cache(client):
+    response = client.get("/example/media/lysozyme.webp")
+    assert response.status_code == 200
+    assert response.mimetype == "image/webp"
+    assert "immutable" in response.headers.get("Cache-Control", "")
+
+
+@pytest.mark.parametrize("hostile", [
+    "../../../etc/passwd",
+    "..%2f..%2fconfig.json",
+    "/etc/passwd",
+])
+def test_the_media_route_cannot_be_walked_out_of(client, hostile):
+    """<path:> accepts slashes, so the confinement has to be real."""
+    response = client.get(f"/example/media/{hostile}")
+    assert response.status_code in (301, 308, 400, 404)
+    assert b"root:" not in response.data
+
+
+@pytest.mark.skipif(not _animation_path().is_file(), reason="the animation has not been built")
+def test_the_animation_sits_beside_the_lede_without_a_panel(client):
+    """Left-justified panel, animation in the space beside it, no card.
+
+    A card behind the animation would put a white rectangle exactly where the
+    transparency is supposed to be, which defeats keying it in the first place.
+    """
+    from flexappeal.webapp import PACKAGE_ROOT
+
+    html = client.get("/example").get_data(as_text=True)
+    assert "md-example-hero" in html
+    assert "md-example-figure" in html
+    assert "/example/media/lysozyme.webp" in html
+
+    figure = html[html.index("md-example-figure"):]
+    figure = figure[: figure.index("</figure>")]
+    assert "md-card" not in figure, "the animation must not sit on a panel"
+
+    css = (PACKAGE_ROOT / "static" / "brand.css").read_text()
+    block = css[css.index(".md-example-hero .md-example-lede"):]
+    block = block[: block.index("}")]
+    assert "margin-left: 0" in block, "the lede must be left justified, not centred"
+    assert "760px" in block, "the lede must keep its original width"
