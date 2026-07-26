@@ -6,24 +6,28 @@
    aria-hidden with a visually-hidden text alternative: to a screen reader the
    art is line noise, and the tab title already carries the name.
 
-   Font is `standard`. smslant, which BoltzMaker uses, collides in this word:
-   the x runs into the A as "\\ // __ |" and the F merges with the l. slant was
-   legible but is an italic face, so it draws each p's descender two columns
-   left of its bowl -- the legs of the Ps read as shifted, and no CSS can move
-   them because that offset is in the art. standard is upright, so every
-   descender sits directly under its own stem, and at 53 columns it is
-   fractionally narrower than slant's 54.
+   Font is `stforek`, arrived at by elimination. smslant, which BoltzMaker
+   uses, collides in this word: the x runs into the A and the F merges with
+   the l. slant is legible but italic, so it draws each p's descender two
+   columns left of its bowl. standard is upright but still has a descender
+   ROW -- a line containing nothing but two small marks, which read as
+   detached from the letters above them however they are aligned.
+
+   The real constraint is therefore structural, not stylistic: any font with a
+   separate descender row will orphan the legs of the Ps, because that row is
+   almost entirely whitespace. stforek has no descender row -- every glyph
+   fits the same four rows -- so the failure cannot occur. It also keeps the
+   camel-case FlexAppeal, and at 45 columns it is the narrowest of the
+   candidates, which buys the most headroom before the narrow breakpoint.
 
    The art is HTML-escaped. slant draws the x as ">  <", so unescaped the
    browser reads "</ ___" as a closing tag and eats the rest of the banner --
    which is why the page looked mangled while the terminal, which has no such
    problem, looked perfect. #}
 <div class="md-banner" aria-hidden="true">
-<pre> _____ _               _                           _
-|  ___| | _____  __   / \   _ __  _ __   ___  __ _| |
-| |_  | |/ _ \ \/ /  / _ \ | '_ \| '_ \ / _ \/ _` | |
-|  _| | |  __/&gt;  &lt;  / ___ \| |_) | |_) |  __/ (_| | |
-|_|   |_|\___/_/\_\/_/   \_\ .__/| .__/ \___|\__,_|_|
-                           |_|   |_|</pre>
+<pre> ___ _   _____   __ __  ___ ___ ___  __  _
+| __| | | __\ \_/ //  \| _,\ _,\ __|/  \| |
+| _|| |_| _| &gt; , &lt;| /\ | v_/ v_/ _|| /\ | |_
+|_| |___|___/_/ \_\_||_|_| |_| |___|_||_|___|</pre>
 </div>
 <p class="md-visually-hidden">FlexAppeal</p>

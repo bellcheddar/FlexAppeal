@@ -496,9 +496,9 @@ a { color: var(--md-primary); }
      column if the advance is a whole number of pixels, so the size steps
      between integers rather than sliding.
 
-     The art is 54 columns; at ~0.6em per column that is ~518px at 16px and
-     ~454px at 14px, so 14px carries it down to the 561px floor where the
-     banner is hidden altogether. */
+     The art is 45 columns; at ~0.6em per column that is ~432px at 16px, which
+     clears the 561px width where the banner is hidden altogether, so one size
+     covers the whole visible range and no step-down is needed. */
   font-size: 16px;
   /* Exactly 1, not 1.2. Figlet art is drawn on the assumption that a glyph's
      cell touches the one above it: the slant font builds each letter from
@@ -513,12 +513,6 @@ a { color: var(--md-primary); }
      without widening its advance -- which reintroduces exactly the horizontal
      drift this stack was chosen to remove. */
   font-weight: 400;
-}
-
-/* The one step down, and still a whole number of pixels -- see above for why
-   this is a breakpoint rather than a vw expression. */
-@media (max-width: 620px) {
-  .md-banner pre { font-size: 14px; }
 }
 
 /* Below this it scales down to an illegible smudge, and unreadable art is
