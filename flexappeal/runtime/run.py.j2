@@ -29,6 +29,7 @@ import json
 import os
 import platform
 import sys
+import threading
 import time
 from datetime import datetime, timezone
 from pathlib import Path
@@ -62,6 +63,235 @@ def ok(msg):    print(_c("38;2;0;208;132", "✓"), msg, flush=True)
 def step(msg):  print(_c("38;2;30;115;190", "→"), msg, flush=True)
 def warn(msg):  print(_c("38;2;252;185;0", "⚠"), msg, flush=True)
 def fail(msg):  print(_c("38;2;214;54;56", "✗"), msg, file=sys.stderr, flush=True)
+
+
+# ---------------------------------------------------------------------------
+#  Progress
+# ---------------------------------------------------------------------------
+#
+# Several stages here are long and silent -- solvating a large box, minimising,
+# and the equilibration before production. A run that prints nothing for four
+# minutes is indistinguishable from a run that has hung, so every stage now
+# reports.
+#
+# Two shapes, because the work comes in two shapes. Anything whose length is
+# known in advance (integration steps, a bounded minimisation) gets a bar with
+# a percentage and an estimate. Anything that blocks inside OpenMM with no
+# callback to hook -- addSolvent, addMembrane, createSystem -- gets a spinner
+# on a background thread, which at least distinguishes "working" from "stuck".
+#
+# Both degrade when stdout is not a terminal. Redrawing with \r into a log file
+# produces an unreadable single line several megabytes long, so a non-terminal
+# gets periodic milestones instead.
+
+_BAR_WIDTH = 26
+_LOG_EVERY_SECONDS = 20
+
+
+def _fmt_duration(seconds):
+    if seconds is None or seconds != seconds or seconds < 0:
+        return "--"
+    seconds = int(seconds)
+    if seconds < 60:
+        return f"{seconds}s"
+    if seconds < 3600:
+        return f"{seconds // 60}m{seconds % 60:02d}s"
+    return f"{seconds // 3600}h{(seconds % 3600) // 60:02d}m"
+
+
+def _clear_line():
+    if _TTY:
+        sys.stdout.write("\r\033[2K")
+        sys.stdout.flush()
+
+
+class Progress:
+    """A bar for work whose total is known up front."""
+
+    def __init__(self, total, label):
+        self.total = max(1, int(total))
+        self.label = label
+        self.started = time.time()
+        self._last_draw = 0.0
+        self._last_logged = -1
+
+    def update(self, done, extra=""):
+        done = max(0, min(int(done), self.total))
+        fraction = done / self.total
+        now = time.time()
+        elapsed = now - self.started
+
+        if _TTY:
+            # Ten redraws a second is plenty and keeps the cost off the hot loop.
+            if now - self._last_draw < 0.1 and done < self.total:
+                return
+            self._last_draw = now
+            filled = int(round(_BAR_WIDTH * fraction))
+            bar = "━" * filled + _c("38;2;70;80;95", "━" * (_BAR_WIDTH - filled))
+            eta = (elapsed / fraction - elapsed) if fraction > 0.02 else None
+            sys.stdout.write(
+                f"\r  {_c('38;2;30;115;190', bar)} {fraction * 100:5.1f}%  "
+                f"{self.label}{extra}  {_fmt_duration(elapsed)}"
+                + (f" / eta {_fmt_duration(eta)}" if eta else "")
+                + "\033[K"
+            )
+            sys.stdout.flush()
+        else:
+            # A log gets a line per elapsed interval, not per update.
+            bucket = int(elapsed // _LOG_EVERY_SECONDS)
+            if bucket > self._last_logged:
+                self._last_logged = bucket
+                print(f"  {self.label}: {fraction * 100:.0f}%{extra} "
+                      f"({_fmt_duration(elapsed)})", flush=True)
+
+    def close(self, message=""):
+        _clear_line()
+        if message:
+            ok(f"{message}  {_c('2', _fmt_duration(time.time() - self.started))}")
+
+
+class Spinner:
+    """An indeterminate ticker for a blocking call with no progress callback.
+
+    Used as a context manager. On a terminal a daemon thread animates it while
+    the main thread does the work; elsewhere it prints one line on entry and
+    one on exit, so a log still shows the stage and how long it took.
+    """
+
+    FRAMES = "⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏"
+
+    def __init__(self, label):
+        self.label = label
+        self.started = time.time()
+        self._stop = threading.Event()
+        self._thread = None
+
+    def __enter__(self):
+        step(self.label)
+        if _TTY:
+            self._thread = threading.Thread(target=self._spin, daemon=True)
+            self._thread.start()
+        return self
+
+    def _spin(self):
+        frame = 0
+        while not self._stop.wait(0.12):
+            elapsed = _fmt_duration(time.time() - self.started)
+            sys.stdout.write(
+                f"\r  {_c('38;2;30;115;190', self.FRAMES[frame % len(self.FRAMES)])} "
+                f"{self.label}  {_c('2', elapsed)}\033[K")
+            sys.stdout.flush()
+            frame += 1
+
+    def __exit__(self, *exc):
+        self._stop.set()
+        if self._thread:
+            self._thread.join(timeout=1)
+        _clear_line()
+        return False
+
+    def close(self, message):
+        self.__exit__()
+        ok(f"{message}  {_c('2', _fmt_duration(time.time() - self.started))}")
+
+
+class MinimisationProgress(openmm.MinimizationReporter):
+    """Liveness and the falling energy during minimizeEnergy, which is silent.
+
+    OpenMM calls report(iteration, x, grad, args) and stops early if it returns
+    True. Note the four arguments: Python's introspection of the base class
+    reports three, and a three-argument override fails with a TypeError.
+
+    Deliberately not a percentage bar. The `iteration` argument is not
+    monotonic -- the L-BFGS minimiser restarts, so it climbs, resets to zero and
+    climbs again (measured: 1530 calls, three resets, a final value of 29 after
+    peaking at 499). A bar driven by it runs backwards, and the total work is
+    not knowable in advance. What is meaningful is the energy coming down, so
+    that is what this shows, next to a count of the iterations actually done.
+    """
+
+    FRAMES = "⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏"
+
+    def __init__(self, label, _unused_total=0):
+        super().__init__()
+        self.label = label
+        self.started = time.time()
+        self.iterations = 0
+        self.energy = None
+        self._last = 0.0
+        self._frame = 0
+
+    def report(self, iteration, x, grad, args):
+        self.iterations += 1          # counted, not taken from a resetting argument
+        # `args` is OpenMM's mapstringdouble, which supports subscripting but has
+        # no .get(). Guarding with hasattr(args, "get") therefore skipped the
+        # energy silently on every call and the display came out blank.
+        try:
+            self.energy = args["system energy"]
+        except (KeyError, TypeError):
+            pass
+
+        now = time.time()
+        detail = f"{self.energy:,.0f} kJ/mol" if self.energy is not None else ""
+
+        if _TTY:
+            if now - self._last < 0.1:
+                return False
+            self._last = now
+            self._frame += 1
+            sys.stdout.write(
+                f"\r  {_c('38;2;30;115;190', self.FRAMES[self._frame % len(self.FRAMES)])} "
+                f"{self.label}  {detail}  "
+                f"{_c('2', f'{self.iterations:,} iterations · ' + _fmt_duration(now - self.started))}"
+                f"\033[K")
+            sys.stdout.flush()
+        elif now - self._last >= _LOG_EVERY_SECONDS:
+            self._last = now
+            print(f"  {self.label}: {detail} after {self.iterations:,} iterations "
+                  f"({_fmt_duration(now - self.started)})", flush=True)
+        return False
+
+    def close(self, message):
+        _clear_line()
+        ok(f"{message}  {_c('2', _fmt_duration(time.time() - self.started))}")
+
+
+def run_chunked(simulation, steps, bar, offset, extra=lambda: ""):
+    """Integrate `steps`, driving a bar that spans several calls.
+
+    Heating and equilibration are staged -- a temperature ramp, a restraint
+    release schedule -- but a bar per stage would flicker through five in a row
+    and tell the reader nothing about the whole. One bar, advanced by `offset`,
+    reads as the single operation it is.
+    """
+    chunk = max(100, steps // 50)
+    done = 0
+    while done < steps:
+        n = min(chunk, steps - done)
+        simulation.step(n)
+        done += n
+        bar.update(offset + done, extra())
+
+
+def run_steps(simulation, total, label, extra=lambda: ""):
+    """Integrate `total` steps, updating a bar as it goes.
+
+    Stepping in chunks rather than one call so there is something to report.
+    The chunk is a percent of the run, floored at 100 steps, which keeps the
+    per-call overhead irrelevant next to the integration itself.
+    """
+    if total <= 0:
+        return
+    bar = Progress(total, label)
+    chunk = max(100, total // 100)
+    done = 0
+    while done < total:
+        n = min(chunk, total - done)
+        simulation.step(n)
+        done += n
+        bar.update(done, extra())
+    bar.close()
+    return bar
 
 
 # ---------------------------------------------------------------------------
@@ -429,8 +659,8 @@ def build_forcefield(ligands=None):
 def solvate(modeller, forcefield):
 {% if cfg.solvent_mode == 'explicit' %}
 {% if cfg.use_membrane %}
-    step("building a {{ cfg.lipid_type }} bilayer")
     warn("the protein must already be oriented with the membrane normal along z")
+    spinner = Spinner("building a {{ cfg.lipid_type }} bilayer (packing lipids and solvent)")
     modeller.addMembrane(
         forcefield,
         lipidType={{ cfg.lipid_type | tojson }},
@@ -442,7 +672,7 @@ def solvate(modeller, forcefield):
         neutralize={{ 'True' if cfg.neutralize else 'False' }},
     )
 {% else %}
-    step("solvating in a {{ cfg.box_shape }} box")
+    spinner = Spinner("solvating in a {{ cfg.box_shape }} box (packing water and ions)")
     # `model` selects the water GEOMETRY to pack; the parameters come from the
     # water XML loaded into the force field above. For OPC and the force-balance
     # models those are deliberately different names -- see WATER_MODEL_XML in
@@ -467,7 +697,7 @@ def solvate(modeller, forcefield):
 {% endif %}
     n = modeller.topology.getNumAtoms()
     waters = sum(1 for r in modeller.topology.residues() if r.name in ("HOH", "WAT"))
-    ok(f"solvated: {n} atoms, {waters} waters")
+    spinner.close(f"solvated: {n} atoms, {waters} waters")
 
     solvated = OUTPUT / "solvated.pdb"
 {% if cfg.save_solvated_pdb %}
@@ -486,7 +716,7 @@ def solvate(modeller, forcefield):
 # ---------------------------------------------------------------------------
 
 def build_system(topology, forcefield):
-    step("building the system")
+    spinner = Spinner("building the system (assigning parameters to every atom)")
     system = forcefield.createSystem(
         topology,
         nonbondedMethod=app.{{ cfg.nonbonded_method }},
@@ -553,8 +783,9 @@ def build_system(topology, forcefield):
         {{ cfg.temperature }} * unit.kelvin, {{ cfg.collision_frequency }} / unit.picosecond))
 {% endif %}
 
-    ok(f"system: {system.getNumParticles()} particles, {system.getNumConstraints()} constraints, "
-       f"{system.getNumForces()} forces")
+    spinner.close(f"system: {system.getNumParticles()} particles, "
+                  f"{system.getNumConstraints()} constraints, "
+                  f"{system.getNumForces()} forces")
     return system
 
 
@@ -622,11 +853,12 @@ def relax(system, positions):
     do with the platform. The relaxed positions are reused for the real run, so
     this work is not thrown away.
     """
-    step("relaxing initial clashes")
     integrator = openmm.VerletIntegrator(0.001 * unit.picoseconds)
     context = openmm.Context(system, integrator)
     context.setPositions(positions)
-    openmm.LocalEnergyMinimizer.minimize(context, 100.0, 200)
+    reporter = MinimisationProgress("relaxing initial clashes", 200)
+    openmm.LocalEnergyMinimizer.minimize(context, 100.0, 200, reporter)
+    reporter.close("clashes relaxed")
     relaxed = context.getState(getPositions=True).getPositions()
     del context, integrator
     return relaxed
@@ -758,17 +990,20 @@ def simulate(replicate, modeller, forcefield, system, plat, properties, benchmar
 
     if not resumed:
 {% if cfg.minimize %}
-        step("minimising")
         before = simulation.context.getState(getEnergy=True).getPotentialEnergy()
+        reporter = MinimisationProgress("minimising")
         simulation.minimizeEnergy(
             tolerance={{ cfg.minimize_tolerance }} * unit.kilojoule_per_mole / unit.nanometer,
 {% if cfg.minimize_max_iterations %}
             maxIterations={{ cfg.minimize_max_iterations }},
 {% endif %}
+            reporter=reporter,
         )
         after = simulation.context.getState(getEnergy=True).getPotentialEnergy()
-        ok(f"minimised: {before.value_in_unit(unit.kilojoule_per_mole):.0f} → "
-           f"{after.value_in_unit(unit.kilojoule_per_mole):.0f} kJ/mol")
+        reporter.close(
+            f"minimised over {reporter.iterations:,} iterations: "
+            f"{before.value_in_unit(unit.kilojoule_per_mole):,.0f} → "
+            f"{after.value_in_unit(unit.kilojoule_per_mole):,.0f} kJ/mol")
         with open(run_dir / "minimised.pdb", "w") as handle:
             state = simulation.context.getState(getPositions=True)
             app.PDBFile.writeFile(simulation.topology, state.getPositions(), handle, keepIds=True)
@@ -779,12 +1014,13 @@ def simulate(replicate, modeller, forcefield, system, plat, properties, benchmar
         simulation.context.setVelocitiesToTemperature({{ cfg.heat_start_temp }} * unit.kelvin)
         stages = {{ cfg.heat_stages }}
         per_stage = max(1, {{ derived.heat_steps }} // stages)
+        bar = Progress(per_stage * stages, "heating")
         for i in range(stages):
             target = {{ cfg.heat_start_temp }} + ({{ cfg.temperature }} - {{ cfg.heat_start_temp }}) * (i + 1) / stages
             integrator.setTemperature(target * unit.kelvin)
-            simulation.step(per_stage)
-            info(f"  {target:.0f} K")
-        ok("heated to {{ cfg.temperature }} K")
+            run_chunked(simulation, per_stage, bar, i * per_stage,
+                        lambda t=target: f"  {t:.0f} K")
+        bar.close("heated to {{ cfg.temperature }} K")
 {% else %}
         simulation.context.setVelocitiesToTemperature({{ cfg.temperature }} * unit.kelvin)
 {% endif %}
@@ -796,15 +1032,17 @@ def simulate(replicate, modeller, forcefield, system, plat, properties, benchmar
         # rather than being let go all at once.
         schedule = {{ restraint_schedule | tojson }}
         per_stage = max(1, {{ derived.equilibration_steps }} // len(schedule))
-        for k in schedule:
+        bar = Progress(per_stage * len(schedule), "equilibrating")
+        for i, k in enumerate(schedule):
             simulation.context.setParameter(
                 "k_restraint", k * unit.kilojoules_per_mole / unit.nanometer**2)
-            simulation.step(per_stage)
-            info(f"  restraint k = {k} kJ/mol/nm²")
+            run_chunked(simulation, per_stage, bar, i * per_stage,
+                        lambda k=k: f"  restraint {k:g} kJ/mol/nm²")
+        bar.close("equilibrated")
 {% else %}
-        simulation.step({{ derived.equilibration_steps }})
-{% endif %}
+        run_steps(simulation, {{ derived.equilibration_steps }}, "equilibrating")
         ok("equilibrated")
+{% endif %}
 {% endif %}
         simulation.saveCheckpoint(str(checkpoint))
 
@@ -847,10 +1085,10 @@ def simulate(replicate, modeller, forcefield, system, plat, properties, benchmar
         {{ f }}=True,
 {% endfor %}
     ))
-    simulation.reporters.append(app.StateDataReporter(
-        sys.stdout, {{ derived.state_interval_steps * 10 }}, step=True, temperature=True,
-        potentialEnergy=True, speed=True, progress=True, remainingTime=True,
-        totalSteps=total_steps, separator="  "))
+    # No StateDataReporter to stdout: it prints a fresh row every interval, which
+    # scrolls the terminal for hours and buries everything else. The bar below
+    # carries the same information -- progress, speed, time remaining -- on one
+    # line, and the full series is in state_data.csv either way.
     simulation.reporters.append(app.CheckpointReporter(
         str(checkpoint), {{ derived.checkpoint_interval_steps }}))
 
@@ -866,9 +1104,19 @@ def simulate(replicate, modeller, forcefield, system, plat, properties, benchmar
             sub.delete([a for a in sub.topology.atoms() if a.index not in keep])
             app.PDBFile.writeFile(sub.topology, sub.positions, handle, keepIds=True)
 
-    step(f"producing {{ cfg.production_duration }} ns ({remaining} steps)")
+    step(f"producing {{ cfg.production_duration }} ns ({remaining:,} steps)")
     started = time.time()
-    simulation.step(remaining)
+
+    def throughput():
+        elapsed = time.time() - started
+        if elapsed < 1:
+            return ""
+        state = simulation.context.getState()
+        done = state.getStepCount() - start_step
+        ns_per_day = (done * {{ derived.timestep_ps }} / 1000.0) / (elapsed / 86400.0)
+        return f"  {ns_per_day:.0f} ns/day"
+
+    run_steps(simulation, remaining, "producing", throughput)
     elapsed = time.time() - started
     simulation.saveCheckpoint(str(checkpoint))
 

@@ -69,15 +69,25 @@ def test_payload_lines_are_wrapped(structure):
     assert all(len(line) <= 76 for line in payload.split(b"\n"))
 
 
-def test_bundles_are_deterministic(structure):
+def test_bundles_are_deterministic(structure, monkeypatch):
     """The same configuration must produce the same bytes.
 
-    Only the generation timestamp may differ, so compare the payloads rather
-    than the whole file.
+    The clock is frozen for the comparison. config.json records generated_at to
+    the minute, and it is inside the payload, so two builds either side of a
+    minute boundary differ legitimately -- this test used to fail roughly once
+    an hour for that reason alone, which is a flaky test rather than a finding.
     """
-    first = _build(structure).content.split(b"__FLEXAPPEAL_PAYLOAD__", 1)[1]
-    second = _build(structure).content.split(b"__FLEXAPPEAL_PAYLOAD__", 1)[1]
-    assert first == second
+    import datetime as _dt
+
+    class Frozen(_dt.datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return _dt.datetime(2026, 1, 1, 12, 0, tzinfo=tz)
+
+    monkeypatch.setattr(bundle, "datetime", Frozen)
+    first = _build(structure).content
+    second = _build(structure).content
+    assert first == second, "the same configuration produced different bytes"
 
 
 def test_config_json_carries_the_full_configuration(structure):
@@ -99,10 +109,18 @@ def test_unpack_rejects_something_that_is_not_a_bundle():
         bundle.unpack(b"#!/bin/bash\necho hello\n")
 
 
-def test_unpack_rejects_a_truncated_payload(structure):
+@pytest.mark.parametrize("fraction", [0.1, 0.25, 0.5, 0.75, 0.9, 0.99])
+def test_unpack_rejects_a_truncated_payload(structure, fraction):
+    """Every cut point, not one.
+
+    This used to test a single offset and passed on where that happened to
+    land. Growing the run script moved it, and the new offset produced gzip's
+    EOFError -- which is not an OSError, was not caught, and reached the user
+    as a traceback.
+    """
     content = _build(structure).content
     with pytest.raises(BundleError, match="corrupt or truncated"):
-        bundle.unpack(content[: len(content) // 2])
+        bundle.unpack(content[: int(len(content) * fraction)])
 
 
 # ---------------------------------------------------------------------------
@@ -561,3 +579,87 @@ def test_a_soluble_run_emits_no_membrane_code(structure):
     code = _code(structure)
     assert "addMembrane" not in code
     assert "lipid_order" not in code
+
+
+# ---------------------------------------------------------------------------
+#  Progress reporting
+# ---------------------------------------------------------------------------
+
+
+def test_every_slow_stage_reports_progress(structure):
+    """A stage that prints nothing for minutes is indistinguishable from a hang."""
+    code = _code(structure)
+    for machinery in ("class Progress", "class Spinner",
+                      "class MinimisationProgress", "def run_steps", "def run_chunked"):
+        assert machinery in code, f"{machinery} missing"
+
+    # The stages that used to be silent.
+    assert "Spinner('solvating" in code or 'Spinner("solvating' in code
+    assert "Spinner('building the system" in code or 'Spinner("building the system' in code
+    assert "MinimisationProgress('minimising'" in code or 'MinimisationProgress("minimising"' in code
+    assert "run_steps(simulation" in code or "run_chunked(simulation" in code
+
+
+def test_minimisation_reporter_takes_four_arguments(structure):
+    """OpenMM calls report(iteration, x, grad, args).
+
+    Python's introspection of the base class reports three parameters, and a
+    three-argument override fails with a TypeError the moment minimisation
+    starts -- after solvation, so several minutes into a run.
+    """
+    import ast as ast_mod
+
+    tree = ast_mod.parse(_run_py(structure))
+    for node in ast_mod.walk(tree):
+        if isinstance(node, ast_mod.FunctionDef) and node.name == "report":
+            names = [a.arg for a in node.args.args]
+            assert names == ["self", "iteration", "x", "grad", "args"], names
+            return
+    raise AssertionError("no report() override found")
+
+
+def test_the_minimisation_energy_is_read_by_subscript(structure):
+    """`args` is OpenMM's mapstringdouble: subscriptable, but with no .get().
+
+    Guarding with hasattr(args, "get") silently skipped the energy on every
+    call and the progress line came out blank.
+    """
+    code = _code(structure)
+    assert "args['system energy']" in code or 'args["system energy"]' in code
+    assert "args.get(" not in code
+
+
+def test_minimisation_progress_does_not_claim_a_percentage(structure):
+    """OpenMM's L-BFGS restarts, so `iteration` is not monotonic.
+
+    Measured on a real minimisation: 1530 calls, three resets, a final value of
+    29 after peaking at 499. A bar driven by it runs backwards.
+    """
+    code = _code(structure)
+    # Bounded at the next top-level definition: MinimisationProgress is the last
+    # class in the file, so splitting only on "class " runs to the end and picks
+    # up run_steps' own use of Progress.
+    import re as _re
+
+    tail = code.split("class MinimisationProgress", 1)[1]
+    cut = _re.search(r"\n(?:class |def )", tail)
+    cls = tail[: cut.start()] if cut else tail
+    assert "self.iterations += 1" in cls, "the count must be its own, not the argument"
+    assert "Progress(" not in cls, "a determinate bar cannot be driven by a resetting counter"
+
+
+def test_production_has_no_scrolling_state_reporter(structure):
+    """A StateDataReporter to stdout prints a row per interval, for hours."""
+    code = _code(structure)
+    assert "sys.stdout" not in code.split("def simulate", 1)[1].split("StateDataReporter")[0] \
+        or "StateDataReporter(sys.stdout" not in code
+    # The CSV one must survive: it is the data behind the convergence panels.
+    assert "state_data.csv" in code
+
+
+def test_progress_degrades_when_output_is_not_a_terminal(structure):
+    """Redrawing with \\r into a log file makes one unreadable multi-megabyte line."""
+    code = _code(structure)
+    for cls in ("class Progress", "class Spinner", "class MinimisationProgress"):
+        body = code.split(cls, 1)[1].split("\nclass ", 1)[0]
+        assert "_TTY" in body, f"{cls} does not check whether stdout is a terminal"

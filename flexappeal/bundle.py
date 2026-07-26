@@ -458,7 +458,11 @@ def unpack(content: bytes) -> dict[str, bytes]:
     try:
         decoded = base64.b64decode(b"".join(payload.split()))
         raw = gzip.decompress(decoded)
-    except (ValueError, OSError) as exc:
+    except (ValueError, OSError, EOFError) as exc:
+        # EOFError specifically: gzip raises it, not OSError, when the stream
+        # ends before its end-of-stream marker -- which is exactly what a
+        # half-finished download looks like. Without it here a truncated bundle
+        # reaches the user as a traceback instead of a sentence.
         raise BundleError(f"the payload is corrupt or truncated: {exc}") from None
 
     files: dict[str, bytes] = {}
