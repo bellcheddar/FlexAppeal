@@ -474,6 +474,28 @@ def create_app() -> Flask:
     app.register_blueprint(api_bp)
     app.register_blueprint(analysis_bp)
 
+    @app.after_request
+    def _no_html_caching(response):
+        """Make HTML always revalidate.
+
+        This is the other half of asset() and without it that function does
+        nothing. Static files are served `immutable, max-age=31536000`, which
+        is only safe because the ?v=mtime in their URL changes when the file
+        does -- but the URL lives in the HTML. Flask sends no Cache-Control on
+        a rendered template, so browsers fall back to heuristic freshness
+        (commonly a tenth of the age since Last-Modified) and keep serving the
+        cached page, which keeps asking for the *old* asset URL, which really
+        is cached for a year. A CSS fix then stays invisible for days and looks
+        like a deploy that did not take -- which is exactly how it presented.
+
+        no-cache is not no-store: the browser may still hold the page, it just
+        has to revalidate it, so an unchanged page is a 304 rather than a
+        refetch.
+        """
+        if response.mimetype == "text/html":
+            response.headers.setdefault("Cache-Control", "no-cache")
+        return response
+
     @app.route("/healthz")
     def healthz():
         return {"status": "ok", "version": FLEXAPPEAL_VERSION}, 200

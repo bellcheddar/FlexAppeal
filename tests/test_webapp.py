@@ -712,3 +712,23 @@ def test_the_tab_row_is_centred(client):
     css = (PACKAGE_ROOT / "static" / "brand.css").read_text()
     assert ".md-tabs-inner { justify-content: center; }" in css \
         or "justify-content: center" in css.split(".md-tabs-inner")[1][:200]
+
+
+def test_html_is_never_heuristically_cached(client):
+    """The counterpart to the ?v=mtime on static assets.
+
+    Static files are immutable for a year, so the only thing that can deliver a
+    changed stylesheet is a fresh copy of the HTML that names it. With no
+    Cache-Control at all the browser invents its own freshness lifetime and
+    holds the page -- and with it the stale asset URL.
+    """
+    for path in ("/", "/analysis"):
+        r = client.get(path)
+        assert r.status_code == 200
+        assert "no-cache" in r.headers["Cache-Control"], path
+
+
+def test_static_assets_still_carry_a_cache_busting_version(client):
+    """no-cache on HTML must not have been applied to static files too."""
+    body = client.get("/").get_data(as_text=True)
+    assert "brand.css?v=" in body
