@@ -766,3 +766,34 @@ def test_the_banner_font_size_is_always_a_whole_number_of_pixels():
     # ...including the step-down breakpoint.
     for size in re.findall(r"\.md-banner pre\s*{\s*font-size:\s*([^;]+);", css):
         assert re.fullmatch(r"\d+px", size.strip()), size
+
+
+def test_the_banner_pre_overrides_the_inherited_centring():
+    """.md-banner centres the block; the <pre> must not inherit that.
+
+    text-align inherits. With display:inline-block the box is sized by its
+    longest line, but each line is then centred inside it independently, so
+    every row shorter than the longest slides right by half the difference.
+    The banner's two descender rows are 40 columns against 55, which pushed the
+    Ps' legs 7.5 columns right into the following letters -- the long-running
+    "legs are shifted right" bug, which survived six font changes because it
+    was never in the art.
+    """
+    from flexappeal.webapp import PACKAGE_ROOT
+
+    css = (PACKAGE_ROOT / "static" / "brand.css").read_text()
+    block = css[css.index(".md-banner pre"):]
+    block = block[:block.index("}")]
+    assert "text-align: left" in block, \
+        ".md-banner pre must reset the centring it inherits from .md-banner"
+
+
+def test_banner_rows_are_not_all_the_same_length():
+    """Guards the premise of the test above.
+
+    If every row were the longest, centring would be a no-op and the reset
+    would look like dead code to a future reader. It is not: the descender rows
+    are genuinely shorter.
+    """
+    lines = _banner_lines()
+    assert len(set(len(l) for l in lines)) > 1

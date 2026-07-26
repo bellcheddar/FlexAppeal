@@ -475,6 +475,16 @@ a { color: var(--md-primary); }
 .md-banner pre {
   display: inline-block;
   margin: 0;
+  /* MUST be left, and it is not redundant: .md-banner sets text-align:center to
+     centre this inline-block on the page, and that value INHERITS in here. The
+     block is sized by its longest line, but each line is then centred inside it
+     independently -- so every row shorter than the longest slides right by half
+     the difference. The two descender rows are 40 columns against the art's 55,
+     which pushed the Ps' legs 7.5 columns right, into the following letters.
+     That is the whole "legs are shifted right" bug: it was never the font, the
+     escaping, the line-height or the art, which is why six font changes did not
+     touch it and why the terminal, where nothing centres, always looked right. */
+  text-align: left;
   /* Deliberately NOT 'Roboto Mono', which every other monospace surface here
      uses. Figlet art needs a font whose underscore fills its whole advance
      width so that "________" tiles into one continuous rule. Roboto Mono's

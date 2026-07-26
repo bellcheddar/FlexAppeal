@@ -7,20 +7,14 @@
    art is line noise, and the tab title already carries the name.
 
    Font is `big` -- camel case, a capital F and a capital A plainly distinct
-   from the lowercase -- with ONE deliberate edit to pyfiglet's output.
+   from the lowercase. 8 rows x 55 columns, and byte-for-byte what
+   pyfiglet.figlet_format("FlexAppeal", "big") emits; there is no hand-editing
+   here, and there should not be.
 
-   Every mixed-case figlet font hangs the p's descender off the letter's stem
-   rather than its bowl, because that is where a descender belongs
-   typographically. At this resolution it misreads badly. As pyfiglet emits it,
-   the first leg sits at columns 9-11 while its bowl sits at 11-14, and the
-   second bowl is at 17-20 -- so each leg falls in the gap BETWEEN the two
-   bowls and the eye pairs it with the one on its right. The legs look shifted
-   right, and no font fixes it: it is how they are all drawn.
-
-   So the two descender rows are shifted right by two columns, which puts each
-   leg directly under its own bowl and removes the ambiguity. This is the one
-   place the art deliberately differs from `pyfiglet.figlet_format(..., "big")`
-   -- do not "restore" it by regenerating. 8 rows x 55 columns.
+   An earlier version shifted the two descender rows right by two columns to
+   "fix" the Ps' legs. That was treating a symptom: the legs were being pushed
+   right by text-align inheriting into the pre element (see brand.css), not by the
+   art, which was correct all along.
 
    The art is HTML-escaped. slant draws the x as ">  <", so unescaped the
    browser reads "</ ___" as a closing tag and eats the rest of the banner --
@@ -33,7 +27,7 @@
 |  __| | |/ _ \ \/ /  / /\ \ | '_ \| '_ \ / _ \/ _` | |
 | |    | |  __/&gt;  &lt;  / ____ \| |_) | |_) |  __/ (_| | |
 |_|    |_|\___/_/\_\/_/    \_\ .__/| .__/ \___|\__,_|_|
-                               | |   | |
-                               |_|   |_|</pre>
+                             | |   | |
+                             |_|   |_|</pre>
 </div>
 <p class="md-visually-hidden">FlexAppeal</p>
