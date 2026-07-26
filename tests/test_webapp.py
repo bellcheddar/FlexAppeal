@@ -797,3 +797,50 @@ def test_banner_rows_are_not_all_the_same_length():
     """
     lines = _banner_lines()
     assert len(set(len(l) for l in lines)) > 1
+
+
+def test_the_banner_is_never_hidden_on_narrow_screens():
+    """It used to be display:none below 560px; a phone should still see it.
+
+    That rule was written for 54-column art that genuinely could not scale down
+    far enough. smslant is 45 columns and reaches a 280px viewport at 8px, so
+    hiding it is no longer the trade.
+    """
+    from flexappeal.webapp import PACKAGE_ROOT
+
+    css = (PACKAGE_ROOT / "static" / "brand.css").read_text()
+    for chunk in css.split(".md-banner")[1:]:
+        head = chunk[:chunk.index("}")] if "}" in chunk else chunk
+        assert "display: none" not in head, "the banner must stay visible on mobile"
+
+
+def test_every_banner_font_size_step_fits_its_viewport():
+    """The narrow end of each breakpoint must still fit on screen.
+
+    Character advance is 0.6021em for the banner's monospace stack (measured in
+    Chrome, not assumed). Available width is the viewport less .md-main's
+    padding, which is 16px a side below 768px. Each rule is valid down to the
+    width where the next one takes over, so it is that width that has to fit.
+    """
+    import re
+
+    from flexappeal.webapp import PACKAGE_ROOT
+
+    css = (PACKAGE_ROOT / "static" / "brand.css").read_text()
+    steps = [(int(w), int(f)) for w, f in re.findall(
+        r"@media \(max-width: (\d+)px\) \{ \.md-banner pre \{ font-size:\s*(\d+)px", css)]
+    assert steps, "the breakpoint ladder has gone missing"
+
+    cols = max(len(l) for l in _banner_lines())
+    # Where the next rule takes over. The last step has no successor, so it is
+    # bounded at 253px -- the narrowest viewport the ladder is designed for, and
+    # far below any shipping phone. Under that, .md-banner's overflow-x: auto is
+    # the fallback rather than a broken layout.
+    lower = [s[0] + 1 for s in steps[1:]] + [253]
+
+    for (bp, size), floor in zip(steps, lower):
+        width = cols * 0.6021 * size
+        available = floor - 32
+        assert width <= available, (
+            f"at {floor}px the {size}px step needs {width:.0f}px "
+            f"but only {available}px is available")

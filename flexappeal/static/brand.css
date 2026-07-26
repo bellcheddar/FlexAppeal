@@ -506,9 +506,11 @@ a { color: var(--md-primary); }
      column if the advance is a whole number of pixels, so the size steps
      between integers rather than sliding.
 
-     The art is 55 columns; at ~0.6em per column that is ~528px at 16px, which
-     still clears the 561px width where the banner is hidden altogether, so one
-     size covers the whole visible range and no step-down is needed. */
+     Measured, not guessed: this stack advances 0.6021em per character, so the
+     45-column art is 27.09 x the font-size. Available width is the viewport
+     less .md-main's padding -- 48px normally, 32px below 768px. The ladder
+     below keeps ~4px of slack at the narrow end of every step, which is what
+     lets the banner stay on screen down to a 320px phone. */
   font-size: 16px;
   /* Exactly 1, not 1.2. Figlet art is drawn on the assumption that a glyph's
      cell touches the one above it: the slant font builds each letter from
@@ -525,11 +527,17 @@ a { color: var(--md-primary); }
   font-weight: 400;
 }
 
-/* Below this it scales down to an illegible smudge, and unreadable art is
-   worse than none. The wordmark in the header carries the name anyway. */
-@media (max-width: 560px) {
-  .md-banner { display: none; }
-}
+/* The banner used to be display:none below 560px, on the grounds that scaling
+   it further made an illegible smudge. That was true of the 54-column art it
+   was written for; smslant is 45 columns and survives the whole way down.
+
+   Whole pixels at every step -- a fractional size breaks the column alignment
+   (see above). Each rule is valid down to the viewport width in its comment;
+   the next rule takes over before that. */
+@media (max-width: 468px) { .md-banner pre { font-size: 14px; } }  /* to 415px */
+@media (max-width: 414px) { .md-banner pre { font-size: 12px; } }  /* to 361px */
+@media (max-width: 360px) { .md-banner pre { font-size: 10px; } }  /* to 307px */
+@media (max-width: 306px) { .md-banner pre { font-size:  8px; } }  /* to 253px */
 
 .md-visually-hidden {
   position: absolute; width: 1px; height: 1px; margin: -1px;

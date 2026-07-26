@@ -6,28 +6,27 @@
    aria-hidden with a visually-hidden text alternative: to a screen reader the
    art is line noise, and the tab title already carries the name.
 
-   Font is `big` -- camel case, a capital F and a capital A plainly distinct
-   from the lowercase. 8 rows x 55 columns, and byte-for-byte what
-   pyfiglet.figlet_format("FlexAppeal", "big") emits; there is no hand-editing
-   here, and there should not be.
+   Font is `smslant`, the one this started with and the one BoltzMaker uses,
+   so the two tools match. It was blamed and replaced five times over an
+   apparent misalignment of the descenders; that turned out to be text-align
+   inheriting into the pre element and centring each row separately (see
+   brand.css), which affected every font identically and none of them caused.
+   With that fixed the original renders correctly, so it is back.
 
-   An earlier version shifted the two descender rows right by two columns to
-   "fix" the Ps' legs. That was treating a symptom: the legs were being pushed
-   right by text-align inheriting into the pre element (see brand.css), not by the
-   art, which was correct all along.
+   5 rows x 45 columns -- the narrowest of everything tried, which is what lets
+   it stay visible on a 320px phone instead of being hidden below 560px.
+   Byte-for-byte pyfiglet.figlet_format("FlexAppeal", "smslant"); no
+   hand-editing.
 
    The art is HTML-escaped. slant draws the x as ">  <", so unescaped the
    browser reads "</ ___" as a closing tag and eats the rest of the banner --
    which is why the page looked mangled while the terminal, which has no such
    problem, looked perfect. #}
 <div class="md-banner" aria-hidden="true">
-<pre> ______ _                                            _
-|  ____| |              /\                          | |
-| |__  | | _____  __   /  \   _ __  _ __   ___  __ _| |
-|  __| | |/ _ \ \/ /  / /\ \ | '_ \| '_ \ / _ \/ _` | |
-| |    | |  __/&gt;  &lt;  / ____ \| |_) | |_) |  __/ (_| | |
-|_|    |_|\___/_/\_\/_/    \_\ .__/| .__/ \___|\__,_|_|
-                             | |   | |
-                             |_|   |_|</pre>
+<pre>   ______         ___                      __
+  / __/ /____ __ / _ | ___  ___  ___ ___ _/ /
+ / _// / -_) \ // __ |/ _ \/ _ \/ -_) _ `/ /
+/_/ /_/\__/_\_\/_/ |_/ .__/ .__/\__/\_,_/_/
+                    /_/  /_/</pre>
 </div>
 <p class="md-visually-hidden">FlexAppeal</p>
