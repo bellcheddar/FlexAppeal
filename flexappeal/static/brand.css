@@ -475,7 +475,16 @@ a { color: var(--md-primary); }
 .md-banner pre {
   display: inline-block;
   margin: 0;
-  font-family: 'Roboto Mono', ui-monospace, monospace;
+  /* Deliberately NOT 'Roboto Mono', which every other monospace surface here
+     uses. Figlet art needs a font whose underscore fills its whole advance
+     width so that "________" tiles into one continuous rule. Roboto Mono's
+     underscore is both narrower than its cell and set right-of-centre, so the
+     art's horizontals came out as detached dashes offset to the right of the
+     strokes above them -- the letters' feet visibly adrift. The system faces
+     below all tile cleanly: SF Mono on macOS, Consolas on Windows, DejaVu Sans
+     Mono on Linux. This is also why the terminal always looked right. */
+  font-family: ui-monospace, 'SF Mono', SFMono-Regular, Menlo, Consolas,
+               'DejaVu Sans Mono', monospace;
   /* The art is 52 characters wide and must not wrap -- a wrapped line is just
      noise -- so it scales with the viewport instead. */
   font-size: clamp(10px, 1.45vw, 16px);
@@ -487,7 +496,11 @@ a { color: var(--md-primary); }
   line-height: 1;
   white-space: pre;
   color: var(--md-primary);
-  font-weight: 500;
+  /* 400, not 500: Menlo and DejaVu Sans Mono ship only 400 and 700, so 500
+     makes the browser synthesise a bold by smearing each glyph sideways
+     without widening its advance -- which reintroduces exactly the horizontal
+     drift this stack was chosen to remove. */
+  font-weight: 400;
 }
 
 /* Below this it scales down to an illegible smudge, and unreadable art is
