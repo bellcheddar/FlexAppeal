@@ -21,11 +21,16 @@ ok()    { printf "${GREEN}✓${RESET} %s\n" "$1"; }
 step()  { printf "${BLUE}→${RESET} %s\n" "$1"; }
 warn()  { printf "${AMBER}⚠${RESET} %s\n" "$1"; }
 
-printf "\n${BOLD}${BLUE}   ____ _         ___                       __${RESET}\n"
-printf "${BOLD}${BLUE}  / __// /___ __ / _ | ___  ___  ___ ___ _ / /${RESET}\n"
-printf "${BOLD}${BLUE} / _/ / // -_) \\ \\/ __ |/ _ \\/ _ \\/ -_) _ \`// /${RESET}\n"
-printf "${BOLD}${BLUE}/_/  /_/ \\__/_\\_\\/_/ |_/ .__/ .__/\\__/\\_,_//_/${RESET}\n"
-printf "${BOLD}${BLUE}                      /_/  /_/${RESET}\n\n"
+printf '%b' "\n${BOLD}${BLUE}"
+cat <<'BANNER'
+   ______         ___                      __
+  / __/ /____ __ / _ | ___  ___  ___ ___ _/ /
+ / _// / -_) \ // __ |/ _ \/ _ \/ -_) _ `/ /
+/_/ /_/\__/_\_\/_/ |_/ .__/ .__/\__/\_,_/_/
+                    /_/  /_/
+BANNER
+printf '%s' "${RESET}"
+printf "\n"
 printf "  ${BLUE}molecular dynamics, prepared and analysed${RESET}\n\n"
 
 case "$(uname -s)" in

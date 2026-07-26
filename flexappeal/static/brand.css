@@ -461,3 +461,42 @@ a { color: var(--md-primary); }
 .md-submit-note code {
   background: var(--md-bg-alt); padding: 1px 5px; border-radius: 4px; font-size: 12px;
 }
+
+/* ---------------------------------------------------------------- banner */
+
+.md-banner {
+  /* text-align rather than flex: a flex item with white-space:pre refuses to
+     shrink and pushes the whole page wider than the viewport, which is what
+     cut the intro text off at 390px. */
+  text-align: center;
+  margin: 10px 0 22px;
+  overflow-x: auto;
+}
+.md-banner pre {
+  display: inline-block;
+  margin: 0;
+  font-family: 'Roboto Mono', ui-monospace, monospace;
+  /* The art is 45 characters wide and must not wrap -- a wrapped line is just
+     noise -- so it scales with the viewport instead. */
+  font-size: clamp(10px, 1.45vw, 16px);
+  line-height: 1.2;
+  white-space: pre;
+  color: var(--md-primary);
+  font-weight: 500;
+}
+
+/* Below this it scales down to an illegible smudge, and unreadable art is
+   worse than none. The wordmark in the header carries the name anyway. */
+@media (max-width: 560px) {
+  .md-banner { display: none; }
+}
+
+.md-visually-hidden {
+  position: absolute; width: 1px; height: 1px; margin: -1px;
+  padding: 0; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap;
+  border: 0;
+}
+
+/* The tab row spans the full page width while the intro card is 760px and
+   centred, which left the tabs floating out to the left of it. */
+.md-tabs-inner { justify-content: center; }

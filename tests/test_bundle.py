@@ -663,3 +663,55 @@ def test_progress_degrades_when_output_is_not_a_terminal(structure):
     for cls in ("class Progress", "class Spinner", "class MinimisationProgress"):
         body = code.split(cls, 1)[1].split("\nclass ", 1)[0]
         assert "_TTY" in body, f"{cls} does not check whether stdout is a terminal"
+
+
+# ---------------------------------------------------------------------------
+#  Instability
+# ---------------------------------------------------------------------------
+
+
+def test_a_nan_is_diagnosed_rather_than_raised(structure):
+    """OpenMM's "Particle coordinate is NaN" says what, never why.
+
+    It also arrives as a traceback through OpenMM's internals, twenty minutes
+    into a run. The script catches it and names the stage and the likely cause.
+    """
+    code = _code(structure)
+    assert "def explain_instability" in code
+    assert "def check_stable" in code
+    assert "except openmm.OpenMMException" in code
+    assert "'NaN' not in str(exc)" in code or '"NaN" not in str(exc)' in code
+
+
+def test_stability_is_checked_at_every_stage_boundary(structure):
+    """So the message names the stage, instead of a frame inside integrator.step."""
+    code = _code(structure)
+    for stage in ("minimisation", "heating", "equilibration"):
+        assert f"check_stable(simulation, '{stage}')" in code \
+            or f'check_stable(simulation, "{stage}")' in code, f"{stage} unchecked"
+
+
+def test_the_diagnosis_names_a_rebuilt_loop(structure):
+    """A long rebuilt loop is the commonest cause and the hardest to guess at."""
+    code = _code(structure)
+    body = code.split("def explain_instability", 1)[1].split("\ndef ", 1)[0]
+    assert "REBUILT['longest']" in body or 'REBUILT["longest"]' in body
+    assert "rebuilt" in body
+
+
+def test_a_long_rebuilt_loop_is_flagged_at_preparation(structure):
+    """Said once when it happens, not only after it has ruined the run."""
+    code = _code(structure)
+    assert "an invention, not a measurement" in code
+
+
+def test_positive_energy_after_minimisation_warns(structure):
+    """A solvated system's potential energy is strongly negative."""
+    code = _code(structure)
+    assert "still positive after minimisation" in code
+
+
+def test_an_implicit_solvent_run_does_not_use_the_solvated_energy_check(structure):
+    """The threshold is only meaningful with explicit water in the box."""
+    assert "still positive after minimisation" not in _code(
+        structure, solvent_mode="implicit")

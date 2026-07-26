@@ -26,6 +26,7 @@ from __future__ import annotations
 
 import io
 import json
+import math
 import os
 import platform
 import sys
@@ -389,6 +390,81 @@ def check_memory(n_atoms):
 
 
 # ---------------------------------------------------------------------------
+#  Stability
+# ---------------------------------------------------------------------------
+
+# Filled in by prepare_structure so a failure can name what was invented.
+REBUILT = {"residues": 0, "longest": 0}
+
+
+def explain_instability(stage):
+    """Turn "Particle coordinate is NaN" into something a user can act on.
+
+    OpenMM's own message says what happened but nothing about why, and by the
+    time it appears the run has usually been going for a while. The causes are
+    a short list, and which of them is plausible depends on how this particular
+    bundle was configured -- so the script knows, and says.
+    """
+    fail(f"the system became unstable during {stage}: a coordinate went to NaN.")
+    print(file=sys.stderr)
+    info("That means a force went to infinity, which is nearly always one of:")
+
+    if REBUILT["longest"] >= 8:
+        info(f"  * The {REBUILT['longest']}-residue loop PDBFixer rebuilt. This is the")
+        info(f"    likeliest cause here. A rebuilt loop is placed by geometry, not")
+        info(f"    physics, and a long one can thread through the protein or through")
+        info(f"    itself. Minimisation relieves the worst of it, and then releasing")
+        info(f"    the restraints lets it spring.")
+        info(f"    Try: rebuild the bundle with a lower 'longest gap to build', or")
+        info(f"    simulate a construct that does not span the gap.")
+{% if cfg.timestep >= 4 %}
+    info("  * The {{ cfg.timestep }} fs timestep. It is safe for an equilibrated system")
+    info("    but unforgiving of a strained starting structure. Try 2 fs.")
+{% endif %}
+{% if cfg.use_positional_restraints %}
+    info("  * The restraint release. Going from "
+         "{{ restraint_schedule[0] }} to 0 kJ/mol/nm² over")
+    info("    {{ cfg.equilibration_duration }} ps may be too fast for this system.")
+    info("    Try a longer equilibration, or more steps in the schedule.")
+{% endif %}
+    info("  * A clash minimisation could not resolve. Look at solvated.pdb.")
+    print(file=sys.stderr)
+    info("The trajectory written so far is still in the output directory, and")
+    info("re-running resumes from the last checkpoint rather than starting over.")
+
+
+def check_stable(simulation, stage):
+    """Fail at a stage boundary rather than deep inside integrator.step().
+
+    Cheap -- one energy read per stage -- and it means the message names the
+    stage that destabilised things instead of a traceback through OpenMM's
+    internals.
+    """
+    energy = simulation.context.getState(getEnergy=True).getPotentialEnergy()
+    value = energy.value_in_unit(unit.kilojoule_per_mole)
+    if math.isnan(value) or math.isinf(value):
+        explain_instability(stage)
+        sys.exit(1)
+
+{% if cfg.solvent_mode == 'explicit' %}
+    # A solvated system's potential energy is strongly negative -- water alone
+    # contributes tens of thousands of kJ/mol of hydrogen bonding. A positive
+    # total after minimisation means something is still overlapping badly, and
+    # it is a reliable early warning: this run's own structure started at
+    # +3.3 million kJ/mol because of a rebuilt loop threaded through itself.
+    if stage == "minimisation" and value > 0:
+        warn(f"potential energy is still positive after minimisation "
+             f"({value:,.0f} kJ/mol). A solvated system should be strongly "
+             f"negative, so something is badly overlapping and this run is "
+             f"likely to become unstable.")
+        if REBUILT["longest"] >= 8:
+            info(f"  the {REBUILT['longest']}-residue rebuilt loop is the first "
+                 f"thing to suspect; look at minimised.pdb")
+{% endif %}
+    return value
+
+
+# ---------------------------------------------------------------------------
 #  1. Structure preparation
 # ---------------------------------------------------------------------------
 
@@ -438,7 +514,14 @@ def prepare_structure(ligands=None):
         info("Rebuild the bundle with a higher limit, or simulate a single well-resolved domain.")
         sys.exit(1)
     if fixer.missingResidues:
-        info(f"rebuilding {sum(len(v) for v in fixer.missingResidues.values())} missing residue(s)")
+        REBUILT["residues"] = sum(len(v) for v in fixer.missingResidues.values())
+        REBUILT["longest"] = longest
+        info(f"rebuilding {REBUILT['residues']} missing residue(s), "
+             f"longest run {longest}")
+        if longest > 12:
+            warn(f"a {longest}-residue rebuilt loop is an invention, not a "
+                 f"measurement. It is the most likely thing to destabilise this "
+                 f"run, and it will dominate the RMSD.")
 {% else %}
     fixer.missingResidues = {}
 {% endif %}
@@ -969,6 +1052,26 @@ def build_integrator(seed_offset=0):
 # ---------------------------------------------------------------------------
 
 def simulate(replicate, modeller, forcefield, system, plat, properties, benchmark):
+    """Run one replicate.
+
+    Wrapped so OpenMM's NaN exception -- which can surface from any step() call
+    and arrives as a bare traceback through its internals -- is turned into a
+    diagnosis naming the stage and the likely cause.
+    """
+    try:
+        return _simulate(replicate, modeller, forcefield, system, plat,
+                         properties, benchmark)
+    except openmm.OpenMMException as exc:
+        if "NaN" not in str(exc):
+            raise
+        explain_instability(CURRENT_STAGE[0])
+        sys.exit(1)
+
+
+CURRENT_STAGE = ["the run"]
+
+
+def _simulate(replicate, modeller, forcefield, system, plat, properties, benchmark):
     suffix = f"_rep{replicate}" if {{ derived.replicates }} > 1 else ""
     run_dir = OUTPUT / f"{JOB_NAME}{suffix}"
     run_dir.mkdir(parents=True, exist_ok=True)
@@ -990,6 +1093,7 @@ def simulate(replicate, modeller, forcefield, system, plat, properties, benchmar
 
     if not resumed:
 {% if cfg.minimize %}
+        CURRENT_STAGE[0] = "minimisation"
         before = simulation.context.getState(getEnergy=True).getPotentialEnergy()
         reporter = MinimisationProgress("minimising")
         simulation.minimizeEnergy(
@@ -1004,6 +1108,7 @@ def simulate(replicate, modeller, forcefield, system, plat, properties, benchmar
             f"minimised over {reporter.iterations:,} iterations: "
             f"{before.value_in_unit(unit.kilojoule_per_mole):,.0f} → "
             f"{after.value_in_unit(unit.kilojoule_per_mole):,.0f} kJ/mol")
+        check_stable(simulation, "minimisation")
         with open(run_dir / "minimised.pdb", "w") as handle:
             state = simulation.context.getState(getPositions=True)
             app.PDBFile.writeFile(simulation.topology, state.getPositions(), handle, keepIds=True)
@@ -1012,6 +1117,7 @@ def simulate(replicate, modeller, forcefield, system, plat, properties, benchmar
 {% if derived.heat_steps %}
         step("heating {{ cfg.heat_start_temp }} → {{ cfg.temperature }} K over {{ cfg.heat_duration }} ps")
         simulation.context.setVelocitiesToTemperature({{ cfg.heat_start_temp }} * unit.kelvin)
+        CURRENT_STAGE[0] = "heating"
         stages = {{ cfg.heat_stages }}
         per_stage = max(1, {{ derived.heat_steps }} // stages)
         bar = Progress(per_stage * stages, "heating")
@@ -1021,6 +1127,7 @@ def simulate(replicate, modeller, forcefield, system, plat, properties, benchmar
             run_chunked(simulation, per_stage, bar, i * per_stage,
                         lambda t=target: f"  {t:.0f} K")
         bar.close("heated to {{ cfg.temperature }} K")
+        check_stable(simulation, "heating")
 {% else %}
         simulation.context.setVelocitiesToTemperature({{ cfg.temperature }} * unit.kelvin)
 {% endif %}
@@ -1030,6 +1137,7 @@ def simulate(replicate, modeller, forcefield, system, plat, properties, benchmar
 {% if cfg.use_positional_restraints %}
         # Release the restraints in stages so the structure adapts gradually
         # rather than being let go all at once.
+        CURRENT_STAGE[0] = "equilibration"
         schedule = {{ restraint_schedule | tojson }}
         per_stage = max(1, {{ derived.equilibration_steps }} // len(schedule))
         bar = Progress(per_stage * len(schedule), "equilibrating")
@@ -1039,6 +1147,7 @@ def simulate(replicate, modeller, forcefield, system, plat, properties, benchmar
             run_chunked(simulation, per_stage, bar, i * per_stage,
                         lambda k=k: f"  restraint {k:g} kJ/mol/nm²")
         bar.close("equilibrated")
+        check_stable(simulation, "equilibration")
 {% else %}
         run_steps(simulation, {{ derived.equilibration_steps }}, "equilibrating")
         ok("equilibrated")
@@ -1104,6 +1213,7 @@ def simulate(replicate, modeller, forcefield, system, plat, properties, benchmar
             sub.delete([a for a in sub.topology.atoms() if a.index not in keep])
             app.PDBFile.writeFile(sub.topology, sub.positions, handle, keepIds=True)
 
+    CURRENT_STAGE[0] = "production"
     step(f"producing {{ cfg.production_duration }} ns ({remaining:,} steps)")
     started = time.time()
 

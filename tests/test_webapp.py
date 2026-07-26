@@ -625,3 +625,58 @@ def test_the_commands_name_the_file_that_will_be_downloaded(client):
     # And the page's JS builds the same name from the same rule.
     assert "'flexappeal_' + safe + '.command'" in (
         (pathlib.Path(__file__).parent.parent / "flexappeal" / "static" / "app.js").read_text())
+
+
+# ---------------------------------------------------------------------------
+#  Banner
+# ---------------------------------------------------------------------------
+
+
+def _banner_lines():
+    from flexappeal.webapp import PACKAGE_ROOT
+    html = (PACKAGE_ROOT / "templates" / "_banner.html").read_text()
+    art = html.split("<pre>", 1)[1].split("</pre>", 1)[0]
+    return art.split("\n")
+
+
+def test_both_landing_pages_show_the_banner(client):
+    for page in ("/", "/analysis"):
+        html = client.get(page).get_data(as_text=True)
+        assert "md-banner" in html, f"{page} has no banner"
+
+
+def test_the_banner_matches_the_one_the_bundle_prints(client):
+    """The site and the downloaded .command should look like one tool."""
+    from flexappeal.webapp import PACKAGE_ROOT
+
+    bootstrap = (PACKAGE_ROOT / "runtime" / "bootstrap.sh.j2").read_text()
+    shell_art = bootstrap.split("cat <<'BANNER'\n", 1)[1].split("\nBANNER", 1)[0]
+    assert shell_art.split("\n") == _banner_lines(), \
+        "the page banner and the shell banner have drifted apart"
+
+
+def test_the_banner_art_is_rectangular_and_unwrapped():
+    """A wrapped or ragged line turns the art into noise."""
+    lines = _banner_lines()
+    assert len(lines) == 5
+    assert max(len(l) for l in lines) <= 46
+    # The glyph rows must all start at a sensible offset; a shifted top row is
+    # exactly what was wrong with the hand-written version.
+    assert lines[3].startswith("/_/"), "the baseline row is misaligned"
+
+
+def test_the_banner_is_hidden_from_screen_readers(client):
+    html = client.get("/").get_data(as_text=True)
+    banner = html.split('class="md-banner"', 1)[1][:400]
+    assert 'aria-hidden="true"' in html.split("md-banner", 1)[0][-80:] or \
+           'aria-hidden' in html.split('class="md-banner"', 1)[0][-80:] or \
+           'aria-hidden="true"' in banner or 'aria-hidden' in html
+    assert "md-visually-hidden" in html, "no text alternative for the art"
+
+
+def test_the_tab_row_is_centred(client):
+    from flexappeal.webapp import PACKAGE_ROOT
+
+    css = (PACKAGE_ROOT / "static" / "brand.css").read_text()
+    assert ".md-tabs-inner { justify-content: center; }" in css \
+        or "justify-content: center" in css.split(".md-tabs-inner")[1][:200]
