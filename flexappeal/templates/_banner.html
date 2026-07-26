@@ -6,23 +6,21 @@
    aria-hidden with a visually-hidden text alternative: to a screen reader the
    art is line noise, and the tab title already carries the name.
 
-   Font is `big`, and the requirement it satisfies is camel case: a capital
-   F and a capital A, unmistakably distinct from the lowercase letters. That
-   rules out most of the field. smslant collides (the F merges with the l);
-   stforek and the other no-descender faces draw everything as small caps, so
-   FlexAppeal reads as FLEXAPPEAL.
+   Font is `big` -- camel case, a capital F and a capital A plainly distinct
+   from the lowercase -- with ONE deliberate edit to pyfiglet's output.
 
-   Among the faces that do keep true mixed case, the discriminator is how the
-   p's descender is drawn. slant is italic and puts each leg two columns left
-   of its bowl. standard is upright but gives the descender a single row
-   holding nothing but two small marks, which reads as detached whatever the
-   alignment. big gives it two rows -- a stem and a foot:
+   Every mixed-case figlet font hangs the p's descender off the letter's stem
+   rather than its bowl, because that is where a descender belongs
+   typographically. At this resolution it misreads badly. As pyfiglet emits it,
+   the first leg sits at columns 9-11 while its bowl sits at 11-14, and the
+   second bowl is at 17-20 -- so each leg falls in the gap BETWEEN the two
+   bowls and the eye pairs it with the one on its right. The legs look shifted
+   right, and no font fixes it: it is how they are all drawn.
 
-       .__/| .__/
-       | |   | |
-       |_|   |_|
-
-   which reads as a leg belonging to the letter above it. 8 rows x 55 columns.
+   So the two descender rows are shifted right by two columns, which puts each
+   leg directly under its own bowl and removes the ambiguity. This is the one
+   place the art deliberately differs from `pyfiglet.figlet_format(..., "big")`
+   -- do not "restore" it by regenerating. 8 rows x 55 columns.
 
    The art is HTML-escaped. slant draws the x as ">  <", so unescaped the
    browser reads "</ ___" as a closing tag and eats the rest of the banner --
@@ -35,7 +33,7 @@
 |  __| | |/ _ \ \/ /  / /\ \ | '_ \| '_ \ / _ \/ _` | |
 | |    | |  __/&gt;  &lt;  / ____ \| |_) | |_) |  __/ (_| | |
 |_|    |_|\___/_/\_\/_/    \_\ .__/| .__/ \___|\__,_|_|
-                             | |   | |
-                             |_|   |_|</pre>
+                               | |   | |
+                               |_|   |_|</pre>
 </div>
 <p class="md-visually-hidden">FlexAppeal</p>
