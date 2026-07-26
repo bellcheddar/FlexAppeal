@@ -687,11 +687,18 @@ def test_the_banner_art_is_well_formed():
     assert all(l == l.rstrip() for l in lines), "trailing whitespace in the art"
     assert not any("\t" in l for l in lines), "a tab will not align anywhere"
 
-    # A slant font steps left by one column per row, so exactly one row reaches
-    # column zero. A row starting left of the baseline means the art is skewed,
-    # which is what the hand-written version got wrong.
-    at_zero = [i for i, l in enumerate(lines) if l and not l.startswith(" ")]
-    assert len(at_zero) == 1, f"rows {at_zero} all start at column 0"
+    # Flush left: at least one row must reach column zero, or the whole block
+    # is floating on indentation nobody intended.
+    #
+    # Note what this deliberately does NOT assert. The previous version required
+    # *exactly* one row at column zero, which is true of an italic face like
+    # slant (each row steps left by one) and false of an upright one like
+    # standard (most rows start at zero). That is the second time this test
+    # encoded the incumbent font's geometry as if it were a correctness
+    # property and then failed on a deliberate font change. Shape is a design
+    # decision; only structural sanity belongs here.
+    assert any(l and not l.startswith(" ") for l in lines), \
+        "no row reaches column 0 -- the art is floating on stray indentation"
 
     # And the glyph rows must actually carry glyphs.
     assert all(l.strip() for l in lines[:-1]), "a blank row inside the art"

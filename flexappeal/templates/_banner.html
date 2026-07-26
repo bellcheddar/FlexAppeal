@@ -6,21 +6,24 @@
    aria-hidden with a visually-hidden text alternative: to a screen reader the
    art is line noise, and the tab title already carries the name.
 
-   Font is `slant`, not the `smslant` BoltzMaker uses. smslant is narrower, but
-   in this particular word its glyphs collide: the x runs into the A as
-   "\\ // __ |" and the F merges with the l, so it reads as noise rather than
-   as a name. slant is the same family, four columns wider, and legible.
+   Font is `standard`. smslant, which BoltzMaker uses, collides in this word:
+   the x runs into the A as "\\ // __ |" and the F merges with the l. slant was
+   legible but is an italic face, so it draws each p's descender two columns
+   left of its bowl -- the legs of the Ps read as shifted, and no CSS can move
+   them because that offset is in the art. standard is upright, so every
+   descender sits directly under its own stem, and at 53 columns it is
+   fractionally narrower than slant's 54.
 
    The art is HTML-escaped. slant draws the x as ">  <", so unescaped the
    browser reads "</ ___" as a closing tag and eats the rest of the banner --
    which is why the page looked mangled while the terminal, which has no such
    problem, looked perfect. #}
 <div class="md-banner" aria-hidden="true">
-<pre>    ________          ___                           __
-   / ____/ /__  _  __/   |  ____  ____  ___  ____ _/ /
-  / /_  / / _ \| |/_/ /| | / __ \/ __ \/ _ \/ __ `/ /
- / __/ / /  __/&gt;  &lt;/ ___ |/ /_/ / /_/ /  __/ /_/ / /
-/_/   /_/\___/_/|_/_/  |_/ .___/ .___/\___/\__,_/_/
-                        /_/   /_/</pre>
+<pre> _____ _               _                           _
+|  ___| | _____  __   / \   _ __  _ __   ___  __ _| |
+| |_  | |/ _ \ \/ /  / _ \ | '_ \| '_ \ / _ \/ _` | |
+|  _| | |  __/&gt;  &lt;  / ___ \| |_) | |_) |  __/ (_| | |
+|_|   |_|\___/_/\_\/_/   \_\ .__/| .__/ \___|\__,_|_|
+                           |_|   |_|</pre>
 </div>
 <p class="md-visually-hidden">FlexAppeal</p>
