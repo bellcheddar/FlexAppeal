@@ -43,6 +43,13 @@ ambertools = "*"
 mdtraj = "*"
 scipy = "*"
 
+# Console output. rich draws the progress bars and tables; psutil supplies the
+# memory and swap readout beside them. Both are pure-Python and small next to
+# OpenMM, and the swap figure in particular is load bearing -- a run that spills
+# to swap slows by an order of magnitude with no other symptom.
+rich = "*"
+psutil = "*"
+
 [tasks]
 run = "python run.py"
 analyse = "python analyse.py"

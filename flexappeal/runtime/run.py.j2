@@ -35,8 +35,16 @@ import time
 from datetime import datetime, timezone
 from pathlib import Path
 
+import psutil
 import openmm
 from openmm import app, unit
+from rich.console import Console
+from rich.panel import Panel
+from rich.progress import BarColumn, SpinnerColumn, TaskProgressColumn
+from rich.progress import Progress as RichProgress
+from rich.progress import TextColumn, TimeElapsedColumn, TimeRemainingColumn
+from rich.table import Table
+from rich.theme import Theme
 {% if needs_pdbfixer %}
 from pdbfixer import PDBFixer
 {% endif %}
@@ -55,15 +63,110 @@ FLEXAPPEAL_VERSION = {{ version | tojson }}
 #  Console
 # ---------------------------------------------------------------------------
 
-_TTY = sys.stdout.isatty()
-def _c(code, text):
-    return f"\033[{code}m{text}\033[0m" if _TTY else text
+# The palette is a copy of flexappeal/console.py's THEME. It has to be a copy:
+# this script runs inside the bundle's own pixi environment, which has OpenMM
+# and rich in it but no FlexAppeal package to import from. The test suite
+# asserts the two have not drifted.
+THEME = Theme({
+    "info": "#1e73be",
+    "ok": "#00d084",
+    "warn": "#fcb900",
+    "err": "#d63638",
+    "muted": "#6b7c93",
+    "step": "#1e73be",
+    "heading": "bold #1e73be",
+    "value": "bold",
+    "bar.complete": "#1e73be",
+    "bar.finished": "#00d084",
+    "bar.pulse": "#1e73be",
+    "progress.percentage": "#6b7c93",
+    "progress.elapsed": "#6b7c93",
+    "progress.remaining": "#6b7c93",
+})
 
-def info(msg):  print(_c("38;2;30;115;190", "ℹ"), msg, flush=True)
-def ok(msg):    print(_c("38;2;0;208;132", "✓"), msg, flush=True)
-def step(msg):  print(_c("38;2;30;115;190", "→"), msg, flush=True)
-def warn(msg):  print(_c("38;2;252;185;0", "⚠"), msg, flush=True)
-def fail(msg):  print(_c("38;2;214;54;56", "✗"), msg, file=sys.stderr, flush=True)
+console = Console(theme=THEME)
+err_console = Console(theme=THEME, stderr=True)
+
+# rich's own detection, not sys.stdout.isatty(): it also honours NO_COLOR, TERM
+# and CI environment variables, which is the behaviour wanted when this runs
+# under nohup or a CI job rather than at a prompt.
+_TTY = console.is_terminal
+
+def info(msg):  console.print(f"[info]\u2139[/info] {msg}")
+def ok(msg):    console.print(f"[ok]\u2713[/ok] {msg}")
+def step(msg):  console.print(f"[step]\u2192[/step] {msg}")
+def warn(msg):  console.print(f"[warn]\u26a0[/warn] {msg}")
+def fail(msg):  err_console.print(f"[err]\u2717[/err] {msg}")
+
+
+# ---------------------------------------------------------------------------
+#  Vitals
+# ---------------------------------------------------------------------------
+#
+# Memory is the failure mode worth watching on this hardware. A run that fits
+# in RAM is fast; a run that spills to swap is not merely slower but a
+# different order of magnitude, because every integration step touches the
+# whole coordinate array and so every step faults. The distinction does not
+# show up in ns/day until it is far too late to do anything about it, and the
+# machine gives no other warning, so the readout is on screen throughout.
+
+_SWAP_AT_START = None
+_SWAP_WARNED = [False]
+
+
+def vitals():
+    """RSS, free memory and swap, as a compact string for a progress line."""
+    try:
+        rss = psutil.Process().memory_info().rss
+        vm = psutil.virtual_memory()
+        sw = psutil.swap_memory()
+    except Exception:               # psutil is best-effort; never break a run for it
+        return ""
+
+    grown = sw.used - (_SWAP_AT_START if _SWAP_AT_START is not None else sw.used)
+    swap_style = "warn" if grown > 256e6 else "muted"
+    swap = f"[{swap_style}]{_human_bytes(sw.used)} swap[/{swap_style}]"
+
+    # Budgeted against the terminal, because the progress row already carries a
+    # bar, a percentage, ns/day, elapsed and an ETA. Overflowing it makes rich
+    # truncate the RIGHT-hand columns, which are the ETA and the swap figure --
+    # the two most useful things on the line. So the vitals give ground first,
+    # and swap is the last thing dropped.
+    if console.width >= 118:
+        return (f"[muted]{_human_bytes(rss)} rss \u00b7 "
+                f"{_human_bytes(vm.available)} free \u00b7[/muted] {swap}")
+    if console.width >= 96:
+        return f"[muted]{_human_bytes(rss)} rss \u00b7[/muted] {swap}"
+    return swap if grown > 0 else ""
+
+
+def watch_swap():
+    """Warn once, loudly, the first time this run pushes the machine into swap.
+
+    Only counts growth since the run started: a machine with a few hundred MB
+    already swapped from earlier work is not a problem, and warning about it
+    would train the reader to ignore the message that matters.
+    """
+    if _SWAP_AT_START is None or _SWAP_WARNED[0]:
+        return
+    try:
+        grown = psutil.swap_memory().used - _SWAP_AT_START
+    except Exception:
+        return
+    if grown > 512e6:
+        _SWAP_WARNED[0] = True
+        console.print()
+        warn(f"the machine has swapped {_human_bytes(grown)} since this run began.")
+        warn("MD throughput collapses once coordinates leave RAM. Close other "
+             "applications, or stop and rebuild with a smaller box.")
+
+
+def _human_bytes(n):
+    for unit in ("B", "kB", "MB", "GB", "TB"):
+        if abs(n) < 1000 or unit == "TB":
+            return f"{n:.0f} {unit}" if unit == "B" else f"{n:.1f} {unit}"
+        n /= 1000.0
+    return f"{n:.1f} TB"
 
 
 # ---------------------------------------------------------------------------
@@ -78,14 +181,15 @@ def fail(msg):  print(_c("38;2;214;54;56", "✗"), msg, file=sys.stderr, flush=T
 # Two shapes, because the work comes in two shapes. Anything whose length is
 # known in advance (integration steps, a bounded minimisation) gets a bar with
 # a percentage and an estimate. Anything that blocks inside OpenMM with no
-# callback to hook -- addSolvent, addMembrane, createSystem -- gets a spinner
-# on a background thread, which at least distinguishes "working" from "stuck".
+# callback to hook -- addSolvent, addMembrane, createSystem -- gets a spinner,
+# which at least distinguishes "working" from "stuck".
 #
-# Both degrade when stdout is not a terminal. Redrawing with \r into a log file
-# produces an unreadable single line several megabytes long, so a non-terminal
-# gets periodic milestones instead.
+# Both degrade when stdout is not a terminal. A live region redrawing into a
+# log file produces an unreadable mess, so a non-terminal gets periodic
+# milestone lines instead -- which is also what makes the output of a `nohup`
+# run readable afterwards.
 
-_BAR_WIDTH = 26
+_BAR_WIDTH = 20
 _LOG_EVERY_SECONDS = 20
 
 
@@ -100,100 +204,101 @@ def _fmt_duration(seconds):
     return f"{seconds // 3600}h{(seconds % 3600) // 60:02d}m"
 
 
-def _clear_line():
-    if _TTY:
-        sys.stdout.write("\r\033[2K")
-        sys.stdout.flush()
+def _bar_columns():
+    """Columns shared by every determinate bar in this script."""
+    return [
+        TextColumn("  [step]{task.description}[/step]"),
+        BarColumn(bar_width=_BAR_WIDTH, complete_style="bar.complete",
+                  finished_style="bar.finished", pulse_style="bar.pulse"),
+        TaskProgressColumn(),
+        TextColumn("{task.fields[extra]}"),
+        TextColumn("[muted]{task.fields[vitals]}[/muted]"),
+        TimeElapsedColumn(),
+        TimeRemainingColumn(compact=True),
+    ]
 
 
 class Progress:
-    """A bar for work whose total is known up front."""
+    """A bar for work whose total is known up front.
+
+    Wraps rich rather than exposing it, because the call sites here update by
+    absolute step count from inside an integration loop, and because the
+    non-terminal path has to stay a handful of printed lines rather than a
+    live region.
+    """
 
     def __init__(self, total, label):
         self.total = max(1, int(total))
         self.label = label
         self.started = time.time()
-        self._last_draw = 0.0
         self._last_logged = -1
+        self._bar = RichProgress(*_bar_columns(), console=console,
+                                 transient=True, disable=not _TTY)
+        self._task = self._bar.add_task(label, total=self.total, extra="", vitals="")
+        self._bar.start()
 
     def update(self, done, extra=""):
         done = max(0, min(int(done), self.total))
-        fraction = done / self.total
-        now = time.time()
-        elapsed = now - self.started
-
         if _TTY:
-            # Ten redraws a second is plenty and keeps the cost off the hot loop.
-            if now - self._last_draw < 0.1 and done < self.total:
-                return
-            self._last_draw = now
-            filled = int(round(_BAR_WIDTH * fraction))
-            bar = "━" * filled + _c("38;2;70;80;95", "━" * (_BAR_WIDTH - filled))
-            eta = (elapsed / fraction - elapsed) if fraction > 0.02 else None
-            sys.stdout.write(
-                f"\r  {_c('38;2;30;115;190', bar)} {fraction * 100:5.1f}%  "
-                f"{self.label}{extra}  {_fmt_duration(elapsed)}"
-                + (f" / eta {_fmt_duration(eta)}" if eta else "")
-                + "\033[K"
-            )
-            sys.stdout.flush()
-        else:
-            # A log gets a line per elapsed interval, not per update.
-            bucket = int(elapsed // _LOG_EVERY_SECONDS)
-            if bucket > self._last_logged:
-                self._last_logged = bucket
-                print(f"  {self.label}: {fraction * 100:.0f}%{extra} "
-                      f"({_fmt_duration(elapsed)})", flush=True)
+            # rich throttles its own redraws, so there is no need to rate-limit
+            # here as the hand-rolled version did.
+            self._bar.update(self._task, completed=done, extra=extra, vitals=vitals())
+            watch_swap()
+            return
+        elapsed = time.time() - self.started
+        bucket = int(elapsed // _LOG_EVERY_SECONDS)
+        if bucket > self._last_logged:
+            self._last_logged = bucket
+            console.print(f"  {self.label}: {done / self.total * 100:.0f}% {extra} "
+                          f"({_fmt_duration(elapsed)})")
+            watch_swap()
 
     def close(self, message=""):
-        _clear_line()
+        self._bar.stop()
         if message:
-            ok(f"{message}  {_c('2', _fmt_duration(time.time() - self.started))}")
+            ok(f"{message}  [muted]{_fmt_duration(time.time() - self.started)}[/muted]")
 
 
 class Spinner:
     """An indeterminate ticker for a blocking call with no progress callback.
 
-    Used as a context manager. On a terminal a daemon thread animates it while
-    the main thread does the work; elsewhere it prints one line on entry and
-    one on exit, so a log still shows the stage and how long it took.
+    Used as a context manager. On a terminal rich animates it on its own
+    refresh thread while the main thread does the work; elsewhere it prints one
+    line on entry and one on exit, so a log still shows the stage and its
+    duration.
     """
-
-    FRAMES = "⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏"
 
     def __init__(self, label):
         self.label = label
         self.started = time.time()
-        self._stop = threading.Event()
-        self._thread = None
+        self._bar = RichProgress(
+            SpinnerColumn(style="step"),
+            TextColumn("  [step]{task.description}[/step]"),
+            TextColumn("[muted]{task.fields[vitals]}[/muted]"),
+            TimeElapsedColumn(),
+            console=console, transient=True, disable=not _TTY)
+        self._task = None
 
     def __enter__(self):
-        step(self.label)
         if _TTY:
-            self._thread = threading.Thread(target=self._spin, daemon=True)
-            self._thread.start()
+            self._task = self._bar.add_task(self.label, total=None, vitals=vitals())
+            self._bar.start()
+        else:
+            step(self.label)
         return self
 
-    def _spin(self):
-        frame = 0
-        while not self._stop.wait(0.12):
-            elapsed = _fmt_duration(time.time() - self.started)
-            sys.stdout.write(
-                f"\r  {_c('38;2;30;115;190', self.FRAMES[frame % len(self.FRAMES)])} "
-                f"{self.label}  {_c('2', elapsed)}\033[K")
-            sys.stdout.flush()
-            frame += 1
+    def tick(self):
+        """Refresh the vitals. Optional -- rich animates the spinner itself."""
+        if self._task is not None:
+            self._bar.update(self._task, vitals=vitals())
 
     def __exit__(self, *exc):
-        self._stop.set()
-        if self._thread:
-            self._thread.join(timeout=1)
-        _clear_line()
+        self._bar.stop()
         return False
 
     def close(self, message):
         self.__exit__()
-        ok(f"{message}  {_c('2', _fmt_duration(time.time() - self.started))}")
+        ok(f"{message}  [muted]{_fmt_duration(time.time() - self.started)}[/muted]")
 
 
 class MinimisationProgress(openmm.MinimizationReporter):
@@ -203,15 +308,13 @@ class MinimisationProgress(openmm.MinimizationReporter):
     True. Note the four arguments: Python's introspection of the base class
     reports three, and a three-argument override fails with a TypeError.
 
-    Deliberately not a percentage bar. The `iteration` argument is not
-    monotonic -- the L-BFGS minimiser restarts, so it climbs, resets to zero and
-    climbs again (measured: 1530 calls, three resets, a final value of 29 after
-    peaking at 499). A bar driven by it runs backwards, and the total work is
-    not knowable in advance. What is meaningful is the energy coming down, so
+    Deliberately a spinner and not a percentage bar. The `iteration` argument is
+    not monotonic -- the L-BFGS minimiser restarts, so it climbs, resets to zero
+    and climbs again (measured: 1530 calls, three resets, a final value of 29
+    after peaking at 499). A bar driven by it runs backwards, and the total work
+    is not knowable in advance. What is meaningful is the energy coming down, so
     that is what this shows, next to a count of the iterations actually done.
     """
-
-    FRAMES = "⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏"
 
     def __init__(self, label, _unused_total=0):
         super().__init__()
@@ -220,7 +323,16 @@ class MinimisationProgress(openmm.MinimizationReporter):
         self.iterations = 0
         self.energy = None
         self._last = 0.0
-        self._frame = 0
+        self._bar = RichProgress(
+            SpinnerColumn(style="step"),
+            TextColumn("  [step]{task.description}[/step]"),
+            TextColumn("[value]{task.fields[energy]}[/value]"),
+            TextColumn("[muted]{task.fields[iters]}[/muted]"),
+            TextColumn("[muted]{task.fields[vitals]}[/muted]"),
+            TimeElapsedColumn(),
+            console=console, transient=True, disable=not _TTY)
+        self._task = self._bar.add_task(label, total=None, energy="", iters="", vitals="")
+        self._bar.start()
 
     def report(self, iteration, x, grad, args):
         self.iterations += 1          # counted, not taken from a resetting argument
@@ -236,25 +348,17 @@ class MinimisationProgress(openmm.MinimizationReporter):
         detail = f"{self.energy:,.0f} kJ/mol" if self.energy is not None else ""
 
         if _TTY:
-            if now - self._last < 0.1:
-                return False
-            self._last = now
-            self._frame += 1
-            sys.stdout.write(
-                f"\r  {_c('38;2;30;115;190', self.FRAMES[self._frame % len(self.FRAMES)])} "
-                f"{self.label}  {detail}  "
-                f"{_c('2', f'{self.iterations:,} iterations · ' + _fmt_duration(now - self.started))}"
-                f"\033[K")
-            sys.stdout.flush()
+            self._bar.update(self._task, energy=detail,
+                             iters=f"{self.iterations:,} iterations", vitals=vitals())
         elif now - self._last >= _LOG_EVERY_SECONDS:
             self._last = now
-            print(f"  {self.label}: {detail} after {self.iterations:,} iterations "
-                  f"({_fmt_duration(now - self.started)})", flush=True)
+            console.print(f"  {self.label}: {detail} after {self.iterations:,} iterations "
+                          f"({_fmt_duration(now - self.started)})")
         return False
 
     def close(self, message):
-        _clear_line()
-        ok(f"{message}  {_c('2', _fmt_duration(time.time() - self.started))}")
+        self._bar.stop()
+        ok(f"{message}  [muted]{_fmt_duration(time.time() - self.started)}[/muted]")
 
 
 def run_chunked(simulation, steps, bar, offset, extra=lambda: ""):
@@ -1274,10 +1378,27 @@ def _simulate(replicate, modeller, forcefield, system, plat, properties, benchma
 # ---------------------------------------------------------------------------
 
 def main():
-    print()
-    info(f"FlexAppeal {FLEXAPPEAL_VERSION} — {JOB_NAME}")
-    info(f"OpenMM {openmm.version.version} on {platform.machine()}")
-    print()
+    global _SWAP_AT_START
+    started_at = time.time()
+
+    # Baseline the swap counter before anything allocates, so watch_swap()
+    # reports what THIS run caused rather than what was already there.
+    try:
+        _SWAP_AT_START = psutil.swap_memory().used
+    except Exception:
+        _SWAP_AT_START = None
+
+    console.print()
+    console.print(Panel(
+        f"[heading]{JOB_NAME}[/heading]\n"
+        f"[muted]{{ summary_line }}[/muted]\n\n"
+        f"[muted]FlexAppeal[/muted] {FLEXAPPEAL_VERSION}   "
+        f"[muted]OpenMM[/muted] {openmm.version.version}   "
+        f"[muted]{platform.machine()}[/muted] "
+        f"[muted]\u00b7 {psutil.cpu_count(logical=False) or '?'} cores "
+        f"\u00b7 {_human_bytes(psutil.virtual_memory().total)} RAM[/muted]",
+        border_style="info", expand=False, padding=(0, 2)))
+    console.print()
 
     OUTPUT.mkdir(parents=True, exist_ok=True)
     if not INPUT.is_file():
@@ -1318,8 +1439,27 @@ def main():
 {% endif %}
         simulate(replicate, modeller, forcefield, system, plat, properties, benchmark)
 
-    print()
-    ok(f"all runs complete — output in {OUTPUT}")
+    console.print()
+    summary = Table(box=None, show_header=False, pad_edge=False, padding=(0, 2, 0, 0))
+    summary.add_column("", style="muted")
+    # fold, not the default ellipsis: the output path is the one line in this
+    # summary a reader may need to copy, and "...ratchpad/richrun" cannot be.
+    summary.add_column("", overflow="fold")
+    summary.add_row("wall time", f"[value]{_fmt_duration(time.time() - started_at)}[/value]")
+    summary.add_row("output", str(OUTPUT))
+    try:
+        summary.add_row("peak memory",
+                        f"{_human_bytes(psutil.Process().memory_info().rss)} resident")
+        if _SWAP_AT_START is not None:
+            grown = psutil.swap_memory().used - _SWAP_AT_START
+            summary.add_row("swap", f"{_human_bytes(grown)} added by this run"
+                            + ("  [warn](throughput will have suffered)[/warn]"
+                               if grown > 512e6 else ""))
+    except Exception:
+        pass
+    ok("all runs complete")
+    console.print(summary)
+    console.print()
     info("next: run  ./analyse.py  to build the .fxa results file for the Analysis tab")
     return 0
 

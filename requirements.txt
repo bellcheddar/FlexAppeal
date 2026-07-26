@@ -28,3 +28,14 @@ numpy>=1.26
 # trajectory formats. Carrying it meant a dependency in the droplet's install
 # and in every generated bundle's environment solve, for nothing.
 mdtraj>=1.10
+
+# Needed by the web app despite being a terminal library, because the /reanalyse
+# route spawns FlexAppeal.py as a detached subprocess (webapp.py) and the CLI
+# imports flexappeal/console.py at module scope. Its output goes to DEVNULL, so
+# nothing here is ever seen -- but the import still has to succeed, and without
+# this line re-analysis fails on the droplet with an ImportError that the
+# browser only ever sees as a job that never finishes.
+#
+# psutil is deliberately NOT here: only the generated run/analyse scripts use it,
+# and those run in the bundle's own environment on the user's machine.
+rich>=13.0

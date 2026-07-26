@@ -27,19 +27,19 @@ if str(SCRIPT_DIR) not in sys.path:
 from flexappeal import options as opts  # noqa: E402
 from flexappeal import schema, sources, structure  # noqa: E402
 
-# Brand palette as truecolor ANSI, matching install.sh and the generated
-# bundle's console output so the whole toolchain looks like one thing.
-BLUE, GREEN, AMBER, RED, DIM, BOLD, RESET = (
-    "\033[38;2;30;115;190m", "\033[38;2;0;208;132m", "\033[38;2;252;185;0m",
-    "\033[38;2;214;54;56m", "\033[2m", "\033[1m", "\033[0m",
+# Styling lives in flexappeal.console so the CLI, the generated run script and
+# the generated analysis script all print in the same palette. The bare ANSI
+# escapes that used to be here are gone; rich handles colour capability
+# detection, so redirecting to a file now yields clean text rather than escape
+# sequences, and a NO_COLOR environment is honoured for free.
+from flexappeal.console import (  # noqa: E402
+    console, human_bytes, human_duration,
 )
-
-
-def _info(msg): print(f"{BLUE}ℹ{RESET} {msg}")
-def _ok(msg): print(f"{GREEN}✓{RESET} {msg}")
-def _warn(msg): print(f"{AMBER}⚠{RESET} {msg}")
-def _err(msg): print(f"{RED}✗{RESET} {msg}", file=sys.stderr)
-def _step(msg): print(f"{BLUE}→{RESET} {msg}")
+from flexappeal.console import fail as _err  # noqa: E402
+from flexappeal.console import info as _info  # noqa: E402
+from flexappeal.console import ok as _ok  # noqa: E402
+from flexappeal.console import step as _step  # noqa: E402
+from flexappeal.console import warn as _warn  # noqa: E402
 
 
 # ===========================================================================
@@ -63,34 +63,58 @@ def cmd_inspect(args: argparse.Namespace) -> int:
         print(json.dumps(report.to_dict(), indent=2))
         return 0
 
-    print(f"\n{BOLD}{report.title or report.name}{RESET}")
+    from rich.panel import Panel
+    from rich.table import Table
+
     meta = [report.method] if report.method else []
     if report.resolution:
         meta.append(f"{report.resolution} Å")
     meta.append(f"{report.models} model(s)")
-    print(f"{DIM}{' · '.join(meta)}{RESET}\n")
+    console.print()
+    console.print(Panel(
+        f"[heading]{report.title or report.name}[/heading]\n[muted]{' · '.join(meta)}[/muted]",
+        border_style="info", expand=False, padding=(0, 2)))
 
-    print(f"{BOLD}Chains{RESET}")
+    chains = Table(title="Chains", title_style="heading", title_justify="left",
+                   box=None, pad_edge=False, padding=(0, 2, 0, 0))
+    chains.add_column("id")
+    chains.add_column("kind", style="muted")
+    chains.add_column("residues", justify="right")
+    chains.add_column("missing", justify="right", style="warn")
+    chains.add_column("gaps", style="muted")
     for c in report.chains:
         if c.kind == "water":
             continue
-        missing = f"  {AMBER}{c.missing_residues} missing{RESET}" if c.missing_residues else ""
-        print(f"  {c.id:3s} {c.kind:8s} {c.observed_residues:5d} residues{missing}")
-        for gap in c.gaps:
-            if gap["after"] is not None:
-                print(f"      {DIM}gap of {gap['length']} after residue {gap['after']}{RESET}")
+        gaps = ", ".join(f"{g['length']} after {g['after']}"
+                         for g in c.gaps if g["after"] is not None)
+        chains.add_row(c.id, c.kind, f"{c.observed_residues:,}",
+                       str(c.missing_residues) if c.missing_residues else "",
+                       gaps)
+    console.print()
+    console.print(chains)
 
     if report.disulfides:
-        print(f"\n{BOLD}Disulfides{RESET}")
+        ss = Table(title="Disulfides", title_style="heading", title_justify="left",
+                   box=None, pad_edge=False, padding=(0, 2, 0, 0))
+        ss.add_column("pair")
+        ss.add_column("distance", justify="right", style="muted")
         for d in report.disulfides:
-            print(f"  {d.chain_a}{d.resid_a}–{d.chain_b}{d.resid_b}  {DIM}{d.distance} Å{RESET}")
+            ss.add_row(f"{d.chain_a}{d.resid_a}–{d.chain_b}{d.resid_b}", f"{d.distance} Å")
+        console.print()
+        console.print(ss)
 
     hetero = [h for h in report.heteroatoms if h.category != "water"]
     if hetero:
-        print(f"\n{BOLD}Heteroatoms{RESET}")
+        het = Table(title="Heteroatoms", title_style="heading", title_justify="left",
+                    box=None, pad_edge=False, padding=(0, 2, 0, 0))
+        het.add_column("code")
+        het.add_column("count", justify="right")
+        het.add_column("category", style="muted")
+        het.add_column("description", style="muted")
         for h in hetero:
-            desc = f"  {DIM}{h.description}{RESET}" if h.description else ""
-            print(f"  {h.name:5s} ×{h.count:<4d} {h.category:10s}{desc}")
+            het.add_row(h.name, f"×{h.count}", h.category, h.description or "")
+        console.print()
+        console.print(het)
 
     cfg = opts.defaults()
     est = structure.estimate_system_size(report, cfg)
@@ -99,16 +123,25 @@ def cmd_inspect(args: argparse.Namespace) -> int:
     derived = schema.derive(cfg)
     wall = schema.estimate_wall_time(cfg)
 
-    print(f"\n{BOLD}With the default settings{RESET}")
-    print(f"  {est['total_atoms']:,} atoms  {DIM}({est['water_molecules']:,} waters, {est['basis']}){RESET}")
-    print(f"  {derived['total_ns']:.0f} ns  →  {derived['traj_frames']:,} frames, {derived['traj_size_human']}")
-    print(f"  roughly {wall['human']} {DIM}at an estimated {wall['ns_per_day']} ns/day{RESET}")
+    plan = Table(title="With the default settings", title_style="heading",
+                 title_justify="left", box=None, pad_edge=False,
+                 show_header=False, padding=(0, 2, 0, 0))
+    plan.add_column("", style="muted")
+    plan.add_column("")
+    plan.add_row("system", f"[value]{est['total_atoms']:,}[/value] atoms  "
+                           f"[muted]({est['water_molecules']:,} waters, {est['basis']})[/muted]")
+    plan.add_row("simulated", f"[value]{derived['total_ns']:.0f}[/value] ns  →  "
+                              f"{derived['traj_frames']:,} frames, {derived['traj_size_human']}")
+    plan.add_row("wall time", f"[value]{wall['human']}[/value]  "
+                              f"[muted]at an estimated {wall['ns_per_day']} ns/day[/muted]")
+    console.print()
+    console.print(plan)
 
     if report.warnings:
-        print()
+        console.print()
         for w in report.warnings:
             _warn(w)
-    print()
+    console.print()
     return 0
 
 

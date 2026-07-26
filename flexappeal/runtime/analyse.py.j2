@@ -24,8 +24,16 @@ import numpy as np
 
 try:
     import mdtraj as md
-except ImportError:
-    print("mdtraj is missing -- run this through the bundle (pixi run python analyse.py)")
+    import psutil
+    from rich.console import Console
+    from rich.progress import BarColumn, TaskProgressColumn
+    from rich.progress import Progress as RichProgress
+    from rich.progress import TextColumn, TimeElapsedColumn
+    from rich.table import Table
+    from rich.theme import Theme
+except ImportError as exc:
+    print(f"{exc.name} is missing -- run this through the bundle "
+          f"(pixi run python analyse.py)")
     sys.exit(1)
 
 HERE = Path(__file__).resolve().parent
@@ -46,13 +54,96 @@ TIERS = {
     "full":     {"frames": 2000, "selection": "all"},
 }
 
-_TTY = sys.stdout.isatty()
-def _c(code, text): return f"\033[{code}m{text}\033[0m" if _TTY else text
-def info(m):  print(_c("38;2;30;115;190", "ℹ"), m, flush=True)
-def ok(m):    print(_c("38;2;0;208;132", "✓"), m, flush=True)
-def step(m):  print(_c("38;2;30;115;190", "→"), m, flush=True)
-def warn(m):  print(_c("38;2;252;185;0", "⚠"), m, flush=True)
-def fail(m):  print(_c("38;2;214;54;56", "✗"), m, file=sys.stderr, flush=True)
+# A copy of flexappeal/console.py's THEME, for the same reason run.py carries
+# one: this script runs in the bundle's environment, where there is no
+# FlexAppeal package to import from. The test suite asserts they match.
+THEME = Theme({
+    "info": "#1e73be",
+    "ok": "#00d084",
+    "warn": "#fcb900",
+    "err": "#d63638",
+    "muted": "#6b7c93",
+    "step": "#1e73be",
+    "heading": "bold #1e73be",
+    "value": "bold",
+    "bar.complete": "#1e73be",
+    "bar.finished": "#00d084",
+    "bar.pulse": "#1e73be",
+    "progress.percentage": "#6b7c93",
+    "progress.elapsed": "#6b7c93",
+})
+
+console = Console(theme=THEME)
+err_console = Console(theme=THEME, stderr=True)
+_TTY = console.is_terminal
+
+def info(m):  console.print(f"[info]\u2139[/info] {m}")
+def ok(m):    console.print(f"[ok]\u2713[/ok] {m}")
+def warn(m):  console.print(f"[warn]\u26a0[/warn] {m}")
+def fail(m):  err_console.print(f"[err]\u2717[/err] {m}")
+
+
+def _human_bytes(n):
+    for unit in ("B", "kB", "MB", "GB", "TB"):
+        if abs(n) < 1000 or unit == "TB":
+            return f"{n:.0f} {unit}" if unit == "B" else f"{n:.1f} {unit}"
+        n /= 1000.0
+    return f"{n:.1f} TB"
+
+
+def _vitals():
+    """Resident size and free memory, for the progress line.
+
+    Analysis is the memory-hungry half of a bundle: MDTraj holds the whole
+    trajectory in RAM, so a long run can need several times the peak of the
+    simulation that produced it. Showing it means an approaching MemoryError is
+    visible before it happens rather than only in the traceback.
+    """
+    try:
+        return (f"{_human_bytes(psutil.Process().memory_info().rss)} rss "
+                f"\u00b7 {_human_bytes(psutil.virtual_memory().available)} free")
+    except Exception:
+        return ""
+
+
+# step() is the one output call the metric bodies make, and there are eighteen
+# of them. Rather than wrap each in progress bookkeeping, step() itself drives
+# the bar when one is running: begin_metrics() opens it, every step() advances
+# it and relabels it, end_metrics() closes it. Off a terminal, or outside the
+# metric section, it stays the plain line it always was.
+_METRICS_BAR = {"bar": None, "task": None}
+
+
+def begin_metrics(total):
+    if not _TTY:
+        return
+    bar = RichProgress(
+        TextColumn("  [step]{task.fields[metric]}[/step]"),
+        BarColumn(bar_width=26, complete_style="bar.complete",
+                  finished_style="bar.finished"),
+        TaskProgressColumn(),
+        TextColumn("[muted]{task.fields[vitals]}[/muted]"),
+        TimeElapsedColumn(),
+        console=console, transient=True)
+    _METRICS_BAR["task"] = bar.add_task("", total=max(1, total), metric="", vitals="")
+    _METRICS_BAR["bar"] = bar
+    bar.start()
+
+
+def end_metrics():
+    bar = _METRICS_BAR["bar"]
+    if bar is not None:
+        bar.stop()
+        _METRICS_BAR["bar"] = _METRICS_BAR["task"] = None
+
+
+def step(m):
+    bar = _METRICS_BAR["bar"]
+    if bar is None:
+        console.print(f"[step]\u2192[/step] {m}")
+        return
+    bar.update(_METRICS_BAR["task"], metric=m, vitals=_vitals())
+    bar.advance(_METRICS_BAR["task"])
 
 
 def lipid_selection(name):
@@ -140,6 +231,9 @@ def compute(traj, run_dir):
     metrics = {}
     arrays = {}
     top = traj.topology
+
+    # +1 for the superposition, which is a step() but not a METRICS entry.
+    begin_metrics(len(METRICS) + 1)
 
     align = top.select(_MDTRAJ_SELECTION[ALIGN_SELECTION])
     if len(align) == 0:
@@ -426,6 +520,7 @@ def compute(traj, run_dir):
             warn(f"bilayer thickness failed ({exc})")
 {% endif %}
 
+    end_metrics()
     return metrics, arrays
 
 

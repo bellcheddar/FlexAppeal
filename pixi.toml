@@ -46,6 +46,13 @@ jinja2 = ">=3.1"
 gemmi = ">=0.6.5"
 python-dotenv = "*"
 
+# --- Console ---
+# Used by the CLI and by the generated run/analysis scripts. Both arrive
+# transitively today, which is not a reason to leave them undeclared: a change
+# in something else's dependencies would remove them silently.
+rich = ">=13.0"
+psutil = "*"
+
 # --- Development ---
 pytest = ">=8.0"
 

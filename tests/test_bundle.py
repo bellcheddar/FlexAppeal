@@ -645,7 +645,14 @@ def test_minimisation_progress_does_not_claim_a_percentage(structure):
     cut = _re.search(r"\n(?:class |def )", tail)
     cls = tail[: cut.start()] if cut else tail
     assert "self.iterations += 1" in cls, "the count must be its own, not the argument"
-    assert "Progress(" not in cls, "a determinate bar cannot be driven by a resetting counter"
+
+    # State the property rather than banning a spelling. This used to assert
+    # 'Progress(' was absent, which caught the old hand-rolled bar but began
+    # matching `RichProgress(` -- the spinner -- the moment rich arrived, even
+    # though the spinner is exactly what it was asking for. What must not appear
+    # is a *determinate* bar: a BarColumn, or a task given a finite total.
+    assert "BarColumn" not in cls, "a percentage bar cannot track a resetting counter"
+    assert "total=None" in cls, "the minimisation task must be indeterminate"
 
 
 def test_production_has_no_scrolling_state_reporter(structure):
@@ -715,3 +722,61 @@ def test_an_implicit_solvent_run_does_not_use_the_solvated_energy_check(structur
     """The threshold is only meaningful with explicit water in the box."""
     assert "still positive after minimisation" not in _code(
         structure, solvent_mode="implicit")
+
+
+def _template_theme(text):
+    """The THEME literal out of a generated script.
+
+    Those two are plain string literals, so they parse. console.py's is built
+    from a BRAND dict and is not a literal, which is why it is imported as a
+    live object rather than parsed.
+    """
+    import ast
+    import re
+
+    m = re.search(r"THEME = Theme\((\{.*?\})\)", text, re.S)
+    assert m, "no THEME literal found"
+    return ast.literal_eval(m.group(1))
+
+
+def test_the_three_theme_copies_have_not_drifted():
+    """The CLI, run.py and analyse.py each carry the palette.
+
+    They have to be separate copies: the generated scripts run inside the
+    bundle's own pixi environment, which has rich but no FlexAppeal package to
+    import a shared theme from. Copies drift silently, so this compares them.
+    The generated pair may define fewer keys than the CLI -- analyse.py has no
+    remaining-time column -- but every key they share must agree.
+    """
+    import pathlib
+
+    from rich.style import Style
+
+    from flexappeal.console import THEME as cli_theme
+
+    root = pathlib.Path(__file__).resolve().parent.parent
+    for name in ("run.py.j2", "analyse.py.j2"):
+        theme = _template_theme((root / "flexappeal" / "runtime" / name).read_text())
+        assert theme, f"{name} has no theme"
+        for key, value in theme.items():
+            assert key in cli_theme.styles, f"{name} defines {key!r}, console.py does not"
+            assert Style.parse(value) == cli_theme.styles[key], (
+                f"{name} styles {key!r} as {value!r}, "
+                f"console.py as {cli_theme.styles[key]!r}")
+
+
+def test_the_bundle_declares_the_console_dependencies(structure):
+    """rich and psutil are imported by both generated scripts.
+
+    They arrive transitively in the dev environment, which is exactly why the
+    bundle has to name them: the bundle solves its own environment from this
+    file alone, and an unlisted import is an ImportError on the user's machine.
+    """
+    files = bundle.unpack(_build(structure).content)
+    pixi = files["pixi.toml"].decode()
+    run = files["run.py"].decode()
+    analyse = files["analyse.py"].decode()
+    for dep in ("rich", "psutil"):
+        assert f"{dep} = " in pixi, f"the bundle environment does not declare {dep}"
+    assert "import psutil" in run and "import psutil" in analyse
+    assert "from rich" in run and "from rich" in analyse

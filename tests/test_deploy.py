@@ -211,3 +211,36 @@ def test_http2_patch_is_idempotent():
     pattern = re.search(r're\.sub\(r"([^"]+)"', _read("provision.sh")).group(1)
     compiled = re.compile(pattern.encode().decode("unicode_escape"))
     assert not compiled.search("    listen 443 ssl http2; # managed by Certbot")
+
+
+def test_the_droplet_can_import_the_cli_it_spawns():
+    """The /reanalyse route Popen's FlexAppeal.py, so its imports are runtime deps.
+
+    This is easy to get wrong in exactly one direction: the CLI's dependencies
+    look like developer tooling, so they get left out of requirements.txt, and
+    the failure surfaces only as a re-analysis job that never completes -- the
+    subprocess dies on ImportError with stdout and stderr both at DEVNULL.
+    """
+    import ast
+    import pathlib
+
+    root = pathlib.Path(__file__).resolve().parent.parent
+    requirements = (root / "requirements.txt").read_text()
+
+    # What FlexAppeal.py pulls in transitively via flexappeal/console.py.
+    console = ast.parse((root / "flexappeal" / "console.py").read_text())
+    third_party = {
+        node.module.split(".")[0]
+        for node in ast.walk(console)
+        if isinstance(node, ast.ImportFrom) and node.module and node.level == 0
+    } | {
+        alias.name.split(".")[0]
+        for node in ast.walk(console)
+        if isinstance(node, ast.Import) for alias in node.names
+    }
+    stdlib = {"shutil", "sys", "__future__", "os", "json", "pathlib"}
+
+    for module in third_party - stdlib:
+        assert module in requirements, (
+            f"flexappeal/console.py imports {module!r}, which the CLI loads at "
+            f"module scope, but requirements.txt does not install it")
