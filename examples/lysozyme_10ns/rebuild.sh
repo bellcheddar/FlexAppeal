@@ -13,7 +13,7 @@
 # own -- the bundle would solve a second multi-gigabyte environment to do
 # exactly the same work.
 #
-# Usage:  bash Examples/lysozyme_10ns/rebuild.sh
+# Usage:  bash examples/lysozyme_10ns/rebuild.sh
 set -euo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -27,7 +27,7 @@ ok()   { printf "%s\n" "${GREEN}✓${RESET} $1"; }
 command -v pixi >/dev/null 2>&1 || {
   echo "pixi is not installed -- see install.sh"; exit 1; }
 
-step "building the bundle from Examples/lysozyme_10ns/config.json"
+step "building the bundle from examples/lysozyme_10ns/config.json"
 pixi run python FlexAppeal.py bundle tests/fixtures/1aki.pdb \
   -c "$HERE/config.json" \
   -o "$HERE/flexappeal_lysozyme_10ns.command"

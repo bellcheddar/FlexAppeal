@@ -27,24 +27,25 @@ elementor-widget-markdown.css
 *.chk
 flexappeal_output/
 *.command
-# Capital E: the directory is Examples/, and these negations silently did
-# nothing on Linux while appearing to work on the Mac's case-insensitive
-# filesystem -- so the example results file would have been absent from the
-# droplet and the Example tab would have shown its "not built yet" page in
-# production only.
-!Examples/*/*.fxa
-!Examples/*/output/*.fxa
-!Examples/*/*.command
+# These negations must match the directory's real case. This Mac's filesystem
+# is case-insensitive and the droplet's is not, so a rule with the wrong case
+# appears to work locally and matches nothing in production -- the example
+# results file would simply be absent there and the Example tab would show its
+# "not built yet" page on the live site only. tests/test_deploy.py checks both
+# the case on disk and that git does not ignore what the page needs.
+!examples/*/*.fxa
+!examples/*/output/*.fxa
+!examples/*/*.command
 
 # The extracted bundle and the raw capture are both regenerable from the two
 # files above by rebuild.sh, and together they are ten megabytes of trajectory
 # and repeated progress frames. The log compresses to 22 KB, so the evidence is
 # kept in that form.
-Examples/*/run/
-Examples/*/terminal.log
-Examples/*/analyse.log
-!Examples/*/terminal.log.gz
-!Examples/*/analyse.log.gz
+examples/*/run/
+examples/*/terminal.log
+examples/*/analyse.log
+!examples/*/terminal.log.gz
+!examples/*/analyse.log.gz
 # The test fixture is a real .fxa from a real run, and the whole analysis suite
 # skips without it. Tracked deliberately despite the rule above.
 !tests/fixtures/*.fxa

@@ -29,9 +29,9 @@ itself, so a naive capture of the final state shows every bar at 100% and none
 of the live readouts -- exactly the thing worth showing. `--at` picks frames by
 the fraction of the way through each stage instead.
 
-    python scripts/terminal_capture.py Examples/lysozyme_10ns/terminal.log \\
-        --analysis-log Examples/lysozyme_10ns/analyse.log \\
-        --out Examples/lysozyme_10ns/screenshots
+    python scripts/terminal_capture.py examples/lysozyme_10ns/terminal.log \\
+        --analysis-log examples/lysozyme_10ns/analyse.log \\
+        --out examples/lysozyme_10ns/screenshots
 
 Both halves of what a user does are captured, because both are what they will
 see: run.py produces the trajectory and analyse.py turns it into the results

@@ -414,7 +414,7 @@ def analysis_page():
 # plots.build_all() from the .fxa the run actually produced, so a change that
 # breaks the Analysis tab breaks this page too and cannot ship looking fine.
 
-EXAMPLE_DIR = REPO_ROOT / "Examples" / "lysozyme_10ns"
+EXAMPLE_DIR = REPO_ROOT / "examples" / "lysozyme_10ns"
 EXAMPLE_FXA = EXAMPLE_DIR / "output" / "lysozyme_10ns.fxa"
 
 # The Mol* viewer and /reanalyse address the results through a session token,
@@ -516,7 +516,7 @@ def example_page():
             "tables": _example_option_tables(config),
             "captures": _example_captures(),
             "manifest": results.manifest,
-            "bundle": "Examples/lysozyme_10ns/flexappeal_lysozyme_10ns.command",
+            "bundle": "examples/lysozyme_10ns/flexappeal_lysozyme_10ns.command",
         },
         results=results,
         summary=summary,

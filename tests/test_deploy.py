@@ -265,9 +265,9 @@ def test_the_example_artefacts_are_not_gitignored():
         pytest.skip("not a git checkout")
 
     required = [
-        "Examples/lysozyme_10ns/config.json",
-        "Examples/lysozyme_10ns/flexappeal_lysozyme_10ns.command",
-        "Examples/lysozyme_10ns/output/lysozyme_10ns.fxa",
+        "examples/lysozyme_10ns/config.json",
+        "examples/lysozyme_10ns/flexappeal_lysozyme_10ns.command",
+        "examples/lysozyme_10ns/output/lysozyme_10ns.fxa",
     ]
     ignored = subprocess.run(
         ["git", "check-ignore", "--no-index", *required],
@@ -285,5 +285,5 @@ def test_the_example_directory_case_matches_what_the_code_expects():
 
     root = pathlib.Path(__file__).resolve().parent.parent
     on_disk = [p.name for p in root.iterdir() if p.name.lower() == "examples"]
-    assert on_disk == ["Examples"], f"expected Examples/, found {on_disk}"
-    assert EXAMPLE_DIR.parent.name == "Examples"
+    assert on_disk == ["examples"], f"expected examples/, found {on_disk}"
+    assert EXAMPLE_DIR.parent.name == "examples"

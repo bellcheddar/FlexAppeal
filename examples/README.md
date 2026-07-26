@@ -1,4 +1,4 @@
-# Examples
+# examples
 
 Complete, reproducible runs. Each one is a real simulation whose artefacts are
 committed, not a written-up description of one.
@@ -13,10 +13,10 @@ committed, not a written-up description of one.
 |---|---|
 | `config.json` | The complete option set, validated against the registry |
 | `flexappeal_lysozyme_10ns.command` | The self-contained bundle, exactly as the Prepare tab emits it |
-| `run/` | The bundle extracted: `run.py`, `analyse.py`, `pixi.toml`, `input.pdb` |
+| `run/` | The bundle extracted and run in place. Not committed: it holds the full trajectory, and `rebuild.sh` recreates it from the bundle |
 | `terminal.log.gz` | Raw `script(1)` capture of the run, escape sequences and all (3 MB → 80 KB) |
 | `analyse.log.gz` | The same for the analysis pass |
-| `screenshots/*.html` | Terminal captures rendered for the web page, from that log |
+| `screenshots/*.html` | Terminal captures for the web page, named by phase (`run-*`, `analyse-*`) |
 | `output/*.fxa` | The results file, which is what the Example tab renders |
 | `rebuild.sh` | Regenerates all of the above |
 
@@ -34,7 +34,7 @@ correct long after it had stopped being true.
 ## Regenerating
 
 ```bash
-bash Examples/lysozyme_10ns/rebuild.sh
+bash examples/lysozyme_10ns/rebuild.sh
 ```
 
 Roughly ninety minutes on an M1 Max, most of it the simulation. It needs the

@@ -3,6 +3,66 @@
 Dated history. Goals and non-goals live in `PROJECT_PLAN.md`; the roadmap is the
 checkbox list in `README.md`.
 
+## 2026-07-26
+
+### Added
+
+- **Example tab.** A real 10 ns run of hen egg-white lysozyme (PDB 1AKI, 19,433
+  atoms with water), committed to `examples/lysozyme_10ns/` and rendered through
+  the same code path as an upload: `plots.build_all()` for the panels, the same
+  Mol\* viewer reading the topology and trajectory out of the same `.fxa`, and
+  option tables generated from the registry. It cannot drift from the product,
+  because a change that breaks the Analysis tab breaks this page in CI.
+  `bash examples/lysozyme_10ns/rebuild.sh` regenerates every artefact.
+- **Terminal captures** (`scripts/terminal_capture.py`). Turns a `script(1)`
+  recording of a run into HTML for the Example tab -- the bytes the scripts
+  actually wrote, replayed through the library that produced them, with the
+  progress bars caught mid-stage rather than finished. Both phases are captured:
+  `run.py` and `analyse.py`. Home directories are shortened to `~`, which is the
+  only edit made and is disclosed on the page.
+- **Rich terminal output** (`flexappeal/console.py`). The CLI and both generated
+  scripts share one palette and print through rich: tables for structure
+  reports, determinate bars for the integration stages, an indeterminate spinner
+  for minimisation, and a live memory readout beside every bar. Off a terminal
+  it degrades to plain milestone lines with no escape sequences.
+- **Memory and swap readouts** during a run, with a warning the first time a run
+  pushes the machine into swap -- the failure that costs an order of magnitude
+  with no other symptom.
+- **Growth projection** (`watch_growth`). Samples resident size during
+  production, extrapolates to the end of the run, and warns if the projection
+  will not fit, naming the remedy: the bundle resumes from its checkpoint, so
+  restarting continues the run in a fresh process.
+- **Trajectory playback on load.** The structure panel loops the trajectory,
+  one pass every 50 seconds; skipped under `prefers-reduced-motion`.
+
+### Fixed
+
+- **OpenCL was never selected on Apple Silicon.** Apple's implementation is
+  single-precision only; the default request for mixed precision made context
+  creation fail with a message naming the platform rather than the property, and
+  the benchmark fell back to the CPU with nothing in the output to say so.
+  Measured: 29.5 ns/day on CPU against 206 on OpenCL for the same system.
+  Unsupported properties are now dropped and the substitution announced.
+- **Example session expiry.** The Example tab cached a scratch session token and
+  validated it with a helper that aborts with 400 when the directory is missing
+  -- correct for a token off a form, wrong when the sweeper is expected to have
+  removed it. The page would have worked for four hours after each deploy and
+  then started failing on a timer.
+- **HTML was heuristically cached.** Flask sends no `Cache-Control` on a
+  rendered template, so browsers invented their own freshness lifetime and held
+  the page -- which pinned the previous `?v=` asset URL, itself served
+  `immutable` for a year. Every CSS and JS change was invisible to returning
+  visitors for days. HTML now sends `no-cache`.
+
+### Known
+
+- **OpenMM's OpenCL platform leaks** about 3 kB per integration step on an
+  M1 Max, measured with no reporters attached. The 10 ns reference run ended
+  8 GB up; a 100 ns run would need roughly 80 GB. Neither
+  `Context.reinitialize(preserveState=True)` nor rebuilding the `Simulation`
+  from a saved `State` reclaims it. Restarting the process does, and the bundle
+  resumes from its checkpoint.
+
 ## 2026-07-25
 
 First build, phases 0 to 8.
