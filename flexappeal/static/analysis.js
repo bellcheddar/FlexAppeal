@@ -7,6 +7,13 @@
 (function () {
   'use strict';
 
+  /* One pass through the trajectory takes this long, however many frames it
+     holds. Mol*'s own parameter is durationInS and it clamps to 1-120, so this
+     is in seconds, not milliseconds. Fifty is slow enough to follow a loop
+     opening and closing and short enough that the whole run has been seen
+     before anyone scrolls past. */
+  const PLAYBACK_SECONDS = 50;
+
   /* ------------------------------------------------------- drop zone */
 
   function initDropZone() {
@@ -97,6 +104,38 @@
     });
   }
 
+  /* Start the trajectory looping as soon as it is loaded.
+
+     Mol* registers its animations by name and does not export the model-index
+     one on the global bundle, so it is looked up rather than imported -- which
+     also means a version that renames or drops it degrades to a static
+     structure with working manual controls, instead of throwing inside the
+     load chain and losing the viewer entirely.
+
+     Skipped for anyone who has asked their system for reduced motion. A
+     3D scene that starts moving on its own is exactly what that setting is
+     about, and the playback controls are still there for them. */
+  function autoplay(viewer) {
+    if (window.matchMedia
+        && window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+      return false;
+    }
+    try {
+      const manager = viewer.plugin.managers.animation;
+      const animation = manager.animations.find(function (a) {
+        return a.name === 'built-in.animate-model-index';
+      });
+      if (!animation) return false;
+      manager.play(animation, {
+        mode: { name: 'loop', params: { direction: 'forward' } },
+        duration: { name: 'fixed', params: { durationInS: PLAYBACK_SECONDS } }
+      });
+      return true;
+    } catch (err) {
+      return false;      /* a static structure is a fine outcome; a broken page is not */
+    }
+  }
+
   function initViewer() {
     const host = document.getElementById('molstar-viewer');
     const status = document.getElementById('viewer-status');
@@ -133,8 +172,12 @@
                        format: 'xtc', isBinary: true },
         preset: 'default'
       }).then(function () {
+        const playing = frames > 1 && autoplay(viewer);
         say(frames
-          ? frames + ' frames loaded — use the playback controls under the viewport.'
+          ? frames + ' frames'
+              + (playing
+                  ? ', playing on a ' + PLAYBACK_SECONDS + ' second loop — the controls under the viewport pause it.'
+                  : ' loaded — use the playback controls under the viewport.')
           : 'Structure loaded.');
 
         /* Poll the animation frame rather than subscribing to Mol*'s internal

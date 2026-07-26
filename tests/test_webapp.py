@@ -967,3 +967,43 @@ def test_the_example_survives_its_session_being_swept(client, app):
     assert webapp._EXAMPLE_TOKEN, "the token should still be cached"
 
     assert client.get("/example").status_code == 200, "did not recover from a sweep"
+
+
+def test_the_viewer_autoplays_the_trajectory_for_fifty_seconds():
+    """The structure panel starts playing on load, one pass in 50 s.
+
+    Mol*'s parameter is durationInS and it clamps to 1-120, so this is seconds
+    rather than milliseconds -- passing 50000 would silently clamp to 120 and
+    the loop would take two minutes.
+
+    The animation is looked up by name rather than imported: the viewer bundle
+    does not export AnimateModelIndex on the global, and a version that renames
+    it should leave a static structure with working manual controls rather than
+    throwing inside the load chain and losing the viewer.
+    """
+    from flexappeal.webapp import PACKAGE_ROOT
+
+    js = (PACKAGE_ROOT / "static" / "analysis.js").read_text()
+    assert "PLAYBACK_SECONDS = 50" in js
+    assert "built-in.animate-model-index" in js
+    assert "durationInS: PLAYBACK_SECONDS" in js, "the duration must be in seconds"
+    assert "durationInMs" not in js, "durationInMs is the wrong parameter and clamps"
+
+    body = js[js.index("function autoplay"):]
+    body = body[: body.index("\n  function ")]
+    assert "prefers-reduced-motion" in body, \
+        "a scene that starts moving on its own must honour reduced motion"
+    assert "catch" in body, "a failed lookup must not take the viewer down with it"
+
+
+def test_the_vendored_molstar_still_registers_the_animation():
+    """Guards the name this depends on across a Mol* upgrade.
+
+    If a new bundle renames it the page degrades quietly to a static structure,
+    which is the right behaviour but the wrong thing to discover in production.
+    """
+    from flexappeal.webapp import PACKAGE_ROOT
+
+    bundle = (PACKAGE_ROOT / "static" / "vendor" / "molstar.js").read_text(errors="replace")
+    assert "built-in.animate-model-index" in bundle
+    assert "durationInS" in bundle, "the duration parameter has been renamed"
