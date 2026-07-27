@@ -657,8 +657,14 @@ def test_the_banner_art_is_html_escaped():
         "raw angle brackets in the art will be parsed as markup"
 
 
-def test_both_landing_pages_show_the_banner(client):
-    for page in ("/", "/analysis"):
+def test_every_tab_shows_the_banner(client):
+    """All three, so the wordmark is the first thing on any of them.
+
+    The Example tab gets it from _example_intro.html rather than from the
+    results branch it shares with Analysis: a real upload opens on the run's own
+    header instead, which is the one place the wordmark would be noise.
+    """
+    for page in ("/", "/analysis", "/example"):
         html = client.get(page).get_data(as_text=True)
         assert "md-banner" in html, f"{page} has no banner"
 
@@ -1092,6 +1098,46 @@ def test_the_clip_is_not_fetched_with_the_page(client):
     clip_js = (PACKAGE_ROOT / "static" / "clip.js").read_text()
     assert "window.addEventListener('load'" in clip_js
     assert "prefers-reduced-motion" in clip_js, "reduced motion must skip the download"
+
+
+def test_the_clip_overrides_the_height_attribute():
+    """`height: auto` in the CSS is load-bearing, and its absence is silent.
+
+    The <video> carries width/height attributes so the browser reserves the box
+    before the poster arrives. The height one is a presentation hint, and CSS has
+    to override it explicitly: left alone it pins the element to a fixed 552px,
+    which beats both the intrinsic aspect ratio and an explicit aspect-ratio
+    declaration. On desktop that is invisible, because flex-grow resizes the
+    element anyway -- it only shows up stacked, as a tall column of white with a
+    small molecule adrift in the middle.
+    """
+    from flexappeal.webapp import PACKAGE_ROOT
+
+    css = (PACKAGE_ROOT / "static" / "brand.css").read_text()
+    block = css[css.index(".md-clip {"):]
+    block = block[:block.index("}")]
+    assert "height: auto" in block, \
+        "without height: auto the height attribute pins the clip to 552px"
+
+
+def test_the_clip_card_matches_the_panel_beside_it():
+    """Same height as its neighbour, with the caption pinned under the video.
+
+    A flex column does both: the heading and caption keep their natural heights
+    and the video takes what is left, so no gap can open between the video and
+    the caption when the panel next door is tall.
+    """
+    from flexappeal.webapp import PACKAGE_ROOT
+
+    css = (PACKAGE_ROOT / "static" / "brand.css").read_text()
+    split = css[css.index(".md-split {"):]
+    split = split[:split.index("}")]
+    assert "align-items" not in split, \
+        "align-items must stay at its default stretch, or the heights stop matching"
+
+    card = css[css.index(".md-clip-card {"):]
+    card = card[:card.index("}")]
+    assert "flex-direction: column" in card
 
 
 def test_the_clip_stays_small():

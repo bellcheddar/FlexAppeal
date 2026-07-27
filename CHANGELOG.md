@@ -7,6 +7,29 @@ checkbox list in `README.md`.
 
 ### Added
 
+- **The ASCII banner on the Example tab**, so the wordmark now leads all three
+  rather than two. It sits in `_example_intro.html` rather than the results
+  branch that tab shares with Analysis, because a real upload should open on the
+  run's own header instead.
+
+### Changed
+
+- **The clip sits on white, not cream.** Its background was `#faf9f5`, a shade
+  off the panel it sits in. Keyed to the panel's own white by RGB distance
+  (`colorkey`) rather than by a levels curve: the yellow ribbon's red channel is
+  244 against the background's 250, close enough that any brightness-based
+  remap would have shifted the artwork too.
+- **The clip panel is as tall as the panel beside it**, with the video absorbing
+  the difference and the caption pinned underneath it. `height: auto` on the
+  video is load-bearing and its absence is silent -- the `height` attribute is a
+  presentation hint that otherwise pins the element to 552px, beating both the
+  intrinsic ratio and an explicit `aspect-ratio`. Invisible on desktop, where
+  flex-grow resizes it anyway; it only showed up stacked, as a tall column of
+  white. Measured in the browser rather than reasoned about, after two wrong
+  guesses. Tested.
+
+### Added
+
 - **A trajectory clip on every tab.** Each of the three tabs now opens with its
   panel at 75% and a new 25% panel beside it, playing the Example run's lysozyme
   as a cartoon ribbon. One partial (`templates/_clip.html`) renders it in all

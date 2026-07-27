@@ -132,7 +132,10 @@ a { color: var(--md-primary); }
    grid rather than out of the columns, which is what keeps the split exact.
    min-width: 0 on both children stops a long <pre> or a wide table in the
    lede from blowing the 3fr column past its share. */
-.md-split { display: grid; grid-template-columns: 3fr 1fr; gap: 20px; align-items: start; }
+/* align-items is left at its default `stretch` on purpose: that is what makes
+   the clip card exactly as tall as the panel beside it, whatever that panel
+   happens to contain on this tab. */
+.md-split { display: grid; grid-template-columns: 3fr 1fr; gap: 20px; }
 .md-split > * { min-width: 0; }
 
 /* --------------------------------------------------------------- sources */
@@ -343,14 +346,30 @@ a { color: var(--md-primary); }
    is deliberately cheap: 396 KB of H.264 that never competes with the content.
    The poster paints immediately and the video itself is not fetched until
    window.load (see app.js), so it cannot delay first paint on a slow link. */
-.md-clip-card { padding: 16px; }
+/* A column, so the heading and caption keep their natural heights and the video
+   absorbs whatever is left over. That is what pins the caption to the bottom of
+   the video rather than letting a gap open between them when the panel next
+   door is tall. */
+.md-clip-card { padding: 16px; display: flex; flex-direction: column; }
 .md-clip-card h3 { margin: 0 0 10px; font-size: 14px; color: var(--md-text-muted); font-weight: 600; }
 .md-clip {
-  display: block; width: 100%; height: auto; border-radius: var(--md-radius);
-  /* The clip's own background, so the poster-to-video swap shows no flash. */
-  background: #fcfaf6;
+  /* min-height: 0 is what lets this shrink below the video's intrinsic height
+     inside a flex column -- without it the card refuses to be shorter than the
+     video and the matched height breaks on the shorter tabs. */
+  /* height: auto is load-bearing. The <video> carries width/height attributes so
+     the browser can reserve the right box before the poster arrives, and the
+     height one is a presentation hint that CSS must override explicitly -- with
+     it left alone the element is a fixed 552px tall, which silently beats both
+     the intrinsic aspect ratio and any aspect-ratio declared here. */
+  display: block; width: 100%; height: auto; flex: 1 1 auto; min-height: 0;
+  border-radius: var(--md-radius);
+  /* Letterboxed rather than cropped or squashed: the extra space is the panel's
+     own white, and the clip's background is now that same white, so where the
+     video stops and the card starts is invisible. */
+  object-fit: contain;
+  background: var(--md-surface);
 }
-.md-clip-cap { margin: 10px 0 0; font-size: 12px; line-height: 1.5; color: var(--md-text-muted); }
+.md-clip-cap { flex: 0 0 auto; margin: 10px 0 0; font-size: 12px; line-height: 1.5; color: var(--md-text-muted); }
 
 /* ---------------------------------------------------------------- mobile */
 
@@ -361,6 +380,9 @@ a { color: var(--md-primary); }
      stretched to the full width of the page. */
   .md-split { grid-template-columns: 1fr; }
   .md-clip-card { max-width: 360px; }
+  /* Stacked, there is no neighbour to match, so the video goes back to its own
+     height instead of growing into a column of empty white. */
+  .md-clip { flex: 0 0 auto; }
   .md-readout { position: static; order: -1; }
   .md-readout dl { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 0 16px; }
 }

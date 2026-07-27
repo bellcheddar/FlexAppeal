@@ -6,6 +6,11 @@
    to the example, so only those live here. A second copy of the results markup
    would drift from the real one within a release. #}
 
+{# The banner leads all three tabs. It lives here rather than in analysis.html's
+   results branch because that branch also renders a real upload, which opens on
+   the run's own header rather than on the wordmark. #}
+{% include "_banner.html" %}
+
 <div class="md-split">
 <section class="md-card md-intro md-example-lede">
   <h2>A complete run, start to finish</h2>
