@@ -185,10 +185,12 @@ bash deploy/deploy.sh
 | `deploy/gunicorn.conf.py` | Two sync workers, 300 s timeout |
 | `deploy/flexappeal-web.service` | Hardened unit with a `MemoryMax` cgroup limit |
 | `deploy/flexappeal-scratch-clean.{service,timer}` | Sweeps abandoned sessions every 15 minutes |
-| `deploy/nginx-flexappeal.conf` | Static assets from disk, rate limits, 250 MB body cap |
+| `deploy/nginx-flexappeal.conf` | Static assets from disk, rate limits, 250 MB body cap, and logging left on for `/static/` |
 | `deploy/nginx-flexappeal-limits.conf` | The rate-limit zone, which must be declared at http scope |
 
 The values duplicated across Python, nginx, gunicorn and systemd are annotated "MUST stay in sync" in both files, and `tests/test_deploy.py` enforces the agreement.
+
+`/static/` deliberately keeps `access_log` on, and a test enforces that too. The [mdeller.com launcher](https://github.com/bellcheddar/mdeller-landing) counts a visit to this app by watching its access log for `/static/app.js`: a request only a browser that rendered the page ever makes, since a scanner fetches the HTML and stops. Turning logging off for that location is invisible in every other respect and simply pins the hit count at zero.
 
 ## ✅ To Do
 

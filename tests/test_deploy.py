@@ -157,6 +157,22 @@ def test_deploy_does_not_exclude_the_vendored_javascript():
     assert "--exclude 'flexappeal/static" not in _read("deploy.sh")
 
 
+def test_static_requests_are_still_logged():
+    """`access_log off;` in the /static/ block pins this app's hit count at zero.
+
+    mdeller.com's launcher counts a visit for each app by watching its access log
+    for one request that only a rendering browser makes -- for FlexAppeal that is
+    /static/app.js, because a scanner fetches the HTML and stops. Turning logging
+    off for that location hides those requests, and the count then reads zero
+    forever with nothing anywhere to say why. This block did have it, and a
+    provision run silently undid the fix once already.
+    """
+    directives = [line for line in _read("nginx-flexappeal.conf").splitlines()
+                  if not line.lstrip().startswith("#")]
+    assert not any("access_log off" in line for line in directives), \
+        "static requests must stay in the log; mdeller.com counts hits from them"
+
+
 def test_provision_warns_when_dns_is_missing():
     """certbot proves domain control over HTTP; without the A record it fails."""
     assert "does not resolve" in _read("provision.sh")
