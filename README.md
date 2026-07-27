@@ -104,7 +104,7 @@ The command-line interface exists so every stage can be driven without a browser
 | `./FlexAppeal.py docs` | Regenerate `docs/options.md` from the option registry |
 | `./FlexAppeal.py sweep` | Remove expired scratch sessions |
 
-### Running a bundle
+### ▶️ Running a bundle
 
 ```bash
 chmod +x flexappeal_myrun.command
