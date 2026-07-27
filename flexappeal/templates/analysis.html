@@ -18,6 +18,7 @@
 {% if not results %}
   {% include "_banner.html" %}
 
+  <div class="md-split">
   <section class="md-card md-intro">
     <h2>Upload a results file</h2>
     <p>
@@ -42,6 +43,8 @@
       machine, and the <code>.fxa</code> appears in the output directory.
     </p>
   </section>
+  {% include "_clip.html" %}
+  </div>
 
 {% else %}
   {% if warnings %}

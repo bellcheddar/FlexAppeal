@@ -3,6 +3,23 @@
 Dated history. Goals and non-goals live in `PROJECT_PLAN.md`; the roadmap is the
 checkbox list in `README.md`.
 
+## 2026-07-27
+
+### Added
+
+- **A trajectory clip on every tab.** Each of the three tabs now opens with its
+  panel at 75% and a new 25% panel beside it, playing the Example run's lysozyme
+  as a cartoon ribbon. One partial (`templates/_clip.html`) renders it in all
+  three places, so they cannot drift.
+- **Deferred, cheap loading for it.** 811 KB of H.264 (480x552, 20 fps,
+  `-tune animation`, no audio), which beat both VP9 and AV1 at matched SSIM on
+  this flat cel-style artwork -- the AV1 file was 15% larger at the same
+  quality. The markup ships a 13 KB WebP poster and no source at all;
+  `static/clip.js` attaches the video only after `window.load`, so it never
+  competes with the page's own assets, and never downloads it at all for a
+  visitor who has asked for reduced motion. Tested, including a size budget so a
+  future re-export cannot quietly land the 15 MB original on every page.
+
 ## 2026-07-26
 
 ### Added

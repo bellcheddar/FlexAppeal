@@ -2,7 +2,7 @@
 
 > **Turn the whole OpenMM option surface into a form, run the simulation on your own machine, and explore what comes back.**
 
-[![live](https://img.shields.io/badge/live-flexappeal.mdeller.com-00897B?logo=icloud&logoColor=white)](https://flexappeal.mdeller.com) ![python](https://img.shields.io/badge/python-3.11-3776AB?logo=python&logoColor=white) ![OpenMM](https://img.shields.io/badge/OpenMM-8.5-467FF7) ![MDTraj](https://img.shields.io/badge/analysis-MDTraj-00897B) ![Mol*](https://img.shields.io/badge/viewer-Mol*%205.11-9b51e0) ![tests](https://img.shields.io/badge/tests-410-00897B) ![licence](https://img.shields.io/badge/licence-MIT-467FF7) ![author](https://img.shields.io/badge/author-Marc%20C.%20Deller%2C%20D.Phil.-1C244B)
+[![live](https://img.shields.io/badge/live-flexappeal.mdeller.com-00897B?logo=icloud&logoColor=white)](https://flexappeal.mdeller.com) ![python](https://img.shields.io/badge/python-3.11-3776AB?logo=python&logoColor=white) ![OpenMM](https://img.shields.io/badge/OpenMM-8.5-467FF7) ![MDTraj](https://img.shields.io/badge/analysis-MDTraj-00897B) ![Mol*](https://img.shields.io/badge/viewer-Mol*%205.11-9b51e0) ![tests](https://img.shields.io/badge/tests-417-00897B) ![licence](https://img.shields.io/badge/licence-MIT-467FF7) ![author](https://img.shields.io/badge/author-Marc%20C.%20Deller%2C%20D.Phil.-1C244B)
 
 <table>
 <tr>
@@ -37,6 +37,7 @@ The hosted application never simulates. That is a design decision, not a limitat
 | **Membranes** | POPC and six other lipids via `Modeller.addMembrane`, with pre-oriented structures fetched from OPM |
 | **Analysis without scripting** | RMSD, RMSF, radius of gyration, SASA, DSSP, hydrogen bonds, contacts, PCA, clustering, and ligand or membrane panels |
 | **Interactive** | Plotly plots and a Mol\* viewer, both vendored: the page needs no third-party network access |
+| **A trajectory beside the controls** | Every tab opens with its panel at 75% and the lysozyme run playing at 25%: 811 KB of H.264, fetched after the page has loaded and skipped entirely for reduced motion |
 
 ## 🏗️ How it works
 

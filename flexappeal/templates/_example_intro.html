@@ -6,6 +6,7 @@
    to the example, so only those live here. A second copy of the results markup
    would drift from the real one within a release. #}
 
+<div class="md-split">
 <section class="md-card md-intro md-example-lede">
   <h2>A complete run, start to finish</h2>
   <p>
@@ -59,6 +60,8 @@
     The first run installs the environment; after that it goes straight to simulating.
   </p>
 </section>
+{% include "_clip.html" %}
+</div>
 
 {% if example.captures.run or example.captures.analyse %}
 <section class="md-card md-panel is-wide md-example-terminal">

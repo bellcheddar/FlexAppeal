@@ -127,6 +127,14 @@ a { color: var(--md-primary); }
 .md-layout { display: grid; grid-template-columns: minmax(0, 1fr) 300px; gap: 24px; align-items: start; }
 .md-form { min-width: 0; }
 
+/* Each tab's opening panel, with the trajectory clip beside it: 75/25. The
+   fractions are 3fr/1fr rather than percentages so the gap comes out of the
+   grid rather than out of the columns, which is what keeps the split exact.
+   min-width: 0 on both children stops a long <pre> or a wide table in the
+   lede from blowing the 3fr column past its share. */
+.md-split { display: grid; grid-template-columns: 3fr 1fr; gap: 20px; align-items: start; }
+.md-split > * { min-width: 0; }
+
 /* --------------------------------------------------------------- sources */
 
 .md-source-tabs { display: grid; gap: 10px; margin: 20px 0; }
@@ -329,10 +337,30 @@ a { color: var(--md-primary); }
 .md-footer p { margin: 4px 0; }
 .md-footer-meta { font-size: 12px; opacity: 0.8; }
 
+/* ------------------------------------------------------------------ clip */
+
+/* The clip panel is decorative, so it carries none of the page's meaning and
+   is deliberately cheap: 811 KB of H.264 that never competes with the content.
+   The poster paints immediately and the video itself is not fetched until
+   window.load (see app.js), so it cannot delay first paint on a slow link. */
+.md-clip-card { padding: 16px; }
+.md-clip-card h3 { margin: 0 0 10px; font-size: 14px; color: var(--md-text-muted); font-weight: 600; }
+.md-clip {
+  display: block; width: 100%; height: auto; border-radius: var(--md-radius);
+  /* The clip's own background, so the poster-to-video swap shows no flash. */
+  background: #fcfaf6;
+}
+.md-clip-cap { margin: 10px 0 0; font-size: 12px; line-height: 1.5; color: var(--md-text-muted); }
+
 /* ---------------------------------------------------------------- mobile */
 
 @media (max-width: 1000px) {
   .md-layout { grid-template-columns: 1fr; }
+  /* Below this the 25% column is too narrow to read the ribbon in, so the
+     clip drops under the panel it sat beside and is capped rather than
+     stretched to the full width of the page. */
+  .md-split { grid-template-columns: 1fr; }
+  .md-clip-card { max-width: 360px; }
   .md-readout { position: static; order: -1; }
   .md-readout dl { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 0 16px; }
 }
