@@ -117,7 +117,11 @@ a { color: var(--md-primary); }
   border-radius: var(--md-radius); padding: 24px; box-shadow: var(--md-shadow-sm);
   margin-bottom: 20px;
 }
-.md-intro { max-width: 760px; margin-left: auto; margin-right: auto; }
+/* Full width, like every other card. This used to be capped at 760px and
+   centred, which only ever applied on desktop -- below 768px the cap never
+   binds and the panel already fills .md-main minus its padding. Removing it
+   makes the two agree, and the outside padding still comes from .md-main
+   (24px, 16px under 768px), so the panel never touches the viewport edge. */
 .md-intro h2 { margin-top: 0; }
 
 .md-layout { display: grid; grid-template-columns: minmax(0, 1fr) 300px; gap: 24px; align-items: start; }

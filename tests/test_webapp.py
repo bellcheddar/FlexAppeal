@@ -1016,3 +1016,32 @@ def test_the_vendored_molstar_still_registers_the_animation():
     bundle = (PACKAGE_ROOT / "static" / "vendor" / "molstar.js").read_text(errors="replace")
     assert "built-in.animate-model-index" in bundle
     assert "durationInS" in bundle, "the duration parameter has been renamed"
+
+
+def test_the_top_panel_is_full_width_on_every_tab():
+    """The opening card fills the content column, as it always did on mobile.
+
+    It used to carry max-width: 760px with auto margins, which only ever took
+    effect on desktop -- below 768px the cap never binds. So the two layouts
+    disagreed for no reason anyone chose. The outside padding comes from
+    .md-main (24px, 16px under 768px), not from the card, so removing the cap
+    cannot push it against the viewport edge.
+    """
+    from flexappeal.webapp import PACKAGE_ROOT
+
+    css = (PACKAGE_ROOT / "static" / "brand.css").read_text()
+    rules = [line for line in css.splitlines()
+             if line.strip().startswith(".md-intro") and "{" in line]
+    assert rules, ".md-intro has gone missing entirely"
+    for rule in rules:
+        assert "max-width" not in rule, f"the top panel is still capped: {rule.strip()}"
+
+    # .md-main is what supplies the outside padding and the overall cap.
+    assert ".md-main { max-width: 1400px; margin: 0 auto; padding: 24px; }" in css
+
+
+def test_every_tab_uses_that_same_top_panel(client):
+    """Prepare, Analysis and Example must not drift apart on this."""
+    for path in ("/", "/analysis", "/example"):
+        html = client.get(path).get_data(as_text=True)
+        assert "md-card md-intro" in html, f"{path} has no md-intro top panel"
