@@ -4,16 +4,21 @@
   and skipped entirely for anyone who has asked for less motion.
 
   No <source> element on purpose. The poster paints on first render and clip.js
-  sets .src after window.load, so the 811 KB never competes with the page's own
+  sets .src after window.load, so the 396 KB never competes with the page's own
   assets and a reduced-motion visitor never downloads it at all. With
   JavaScript off the poster simply stays, which is the same still image.
 #}
 <aside class="md-card md-clip-card">
-  <h3>10 ns of lysozyme</h3>
+  <h3>Lysozyme, in motion</h3>
   <video class="md-clip" muted loop playsinline preload="none"
          width="480" height="552"
          poster="{{ asset('lysozyme-poster.webp') }}"
          data-src="{{ asset('lysozyme.mp4') }}"
-         aria-label="Hen egg-white lysozyme moving through a 10 nanosecond molecular dynamics trajectory, drawn as a cartoon ribbon"></video>
-  <p class="md-clip-cap">The example run on the Example tab, played back. Cartoon ribbon, secondary structure coloured.</p>
+         aria-label="Hen egg-white lysozyme moving through a molecular dynamics trajectory, drawn as a cartoon ribbon"></video>
+  {# Half the run, not all of it: the clip is the first 25 s of a 50 s playback,
+     trimmed rather than sped up because doubling the speed costs 58% more bytes
+     for motion nobody is reading frame by frame. Said plainly here because this
+     is the one page element that is decorative, and the rest of the site's
+     numbers are not. #}
+  <p class="md-clip-cap">The first half of the Example tab's 10&nbsp;ns run, played back. Cartoon ribbon, secondary structure coloured.</p>
 </aside>

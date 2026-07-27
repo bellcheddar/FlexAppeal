@@ -37,7 +37,7 @@ The hosted application never simulates. That is a design decision, not a limitat
 | **Membranes** | POPC and six other lipids via `Modeller.addMembrane`, with pre-oriented structures fetched from OPM |
 | **Analysis without scripting** | RMSD, RMSF, radius of gyration, SASA, DSSP, hydrogen bonds, contacts, PCA, clustering, and ligand or membrane panels |
 | **Interactive** | Plotly plots and a Mol\* viewer, both vendored: the page needs no third-party network access |
-| **A trajectory beside the controls** | Every tab opens with its panel at 75% and the lysozyme run playing at 25%: 811 KB of H.264, fetched after the page has loaded and skipped entirely for reduced motion |
+| **A trajectory beside the controls** | Every tab opens with its panel at 75% and the lysozyme run playing at 25%: 396 KB of H.264, fetched after the page has loaded and skipped entirely for reduced motion |
 
 ## 🏗️ How it works
 

@@ -2,7 +2,7 @@
  *
  * The <video> in _clip.html ships with a poster and no src, so the browser
  * renders the still immediately and fetches nothing. This attaches the real
- * source only after window.load, which means the 811 KB cannot compete with
+ * source only after window.load, which means the 396 KB cannot compete with
  * the page's own CSS, JavaScript or (on the Analysis tab) the several-megabyte
  * Mol* and Plotly bundles for bandwidth during first paint.
  *

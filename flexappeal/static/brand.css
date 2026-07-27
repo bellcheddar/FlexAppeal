@@ -340,7 +340,7 @@ a { color: var(--md-primary); }
 /* ------------------------------------------------------------------ clip */
 
 /* The clip panel is decorative, so it carries none of the page's meaning and
-   is deliberately cheap: 811 KB of H.264 that never competes with the content.
+   is deliberately cheap: 396 KB of H.264 that never competes with the content.
    The poster paints immediately and the video itself is not fetched until
    window.load (see app.js), so it cannot delay first paint on a slow link. */
 .md-clip-card { padding: 16px; }

@@ -11,7 +11,7 @@ checkbox list in `README.md`.
   panel at 75% and a new 25% panel beside it, playing the Example run's lysozyme
   as a cartoon ribbon. One partial (`templates/_clip.html`) renders it in all
   three places, so they cannot drift.
-- **Deferred, cheap loading for it.** 811 KB of H.264 (480x552, 20 fps,
+- **Deferred, cheap loading for it.** 396 KB of H.264 (25 s, 480x552, 20 fps,
   `-tune animation`, no audio), which beat both VP9 and AV1 at matched SSIM on
   this flat cel-style artwork -- the AV1 file was 15% larger at the same
   quality. The markup ships a 13 KB WebP poster and no source at all;
@@ -19,6 +19,12 @@ checkbox list in `README.md`.
   competes with the page's own assets, and never downloads it at all for a
   visitor who has asked for reduced motion. Tested, including a size budget so a
   future re-export cannot quietly land the 15 MB original on every page.
+  It is the first 25 s of the 50 s playback, so it covers half the run rather
+  than all of it: doubling the speed to fit the whole trajectory into the same
+  25 s cost 58% more bytes, and the caption says which it is. The trajectory is
+  a real one, so there is no seamless loop point anywhere in it -- measured, not
+  assumed, and mirroring it into a palindrome would have meant showing the
+  molecule running backwards half the time.
 
 ## 2026-07-26
 

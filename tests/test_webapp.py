@@ -1097,7 +1097,7 @@ def test_the_clip_is_not_fetched_with_the_page(client):
 def test_the_clip_stays_small():
     """Re-encoding it is easy; re-encoding it carelessly is easier.
 
-    811 KB at the time of writing: 480x552, 20 fps, H.264 with -tune animation,
+    396 KB at the time of writing: 25 s, 480x552, 20 fps, H.264 with -tune animation,
     which beat both VP9 and AV1 at matched SSIM on this flat cel-style artwork.
     The budget is here so a future re-export cannot quietly land a 15 MB file
     on every page of the site.
@@ -1106,5 +1106,5 @@ def test_the_clip_stays_small():
 
     clip = PACKAGE_ROOT / "static" / "lysozyme.mp4"
     poster = PACKAGE_ROOT / "static" / "lysozyme-poster.webp"
-    assert clip.stat().st_size < 900_000, f"the clip has grown to {clip.stat().st_size:,} bytes"
+    assert clip.stat().st_size < 500_000, f"the clip has grown to {clip.stat().st_size:,} bytes"
     assert poster.stat().st_size < 40_000, "the poster is meant to paint instantly"
