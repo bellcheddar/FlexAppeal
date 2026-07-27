@@ -18,7 +18,6 @@ committed, not a written-up description of one.
 | `analyse.log.gz` | The same for the analysis pass |
 | `screenshots/*.html` | Terminal captures for the web page, named by phase (`run-*`, `analyse-*`) |
 | `output/*.fxa` | The results file, which is what the Example tab renders |
-| `media/lysozyme.webp` | The rotating cartoon on the Example tab: animated WebP with a real alpha channel, keyed from a flat-background source |
 | `rebuild.sh` | Regenerates all of the above |
 
 ## Why it is committed rather than generated on demand
@@ -37,11 +36,6 @@ correct long after it had stopped being true.
 ```bash
 bash examples/lysozyme_10ns/rebuild.sh
 ```
-
-The animation is only re-keyed if its source video is to hand (set
-`ANIMATION_SOURCE`, default `~/Desktop/lysozyme.mp4`); otherwise the committed
-`media/` is left alone, since the keyed WebP is the deliverable and the source
-is not in the repository.
 
 Roughly ninety minutes on an M1 Max, most of it the simulation. It needs the
 development environment (`pixi install`), not the bundle's own: the bundle would

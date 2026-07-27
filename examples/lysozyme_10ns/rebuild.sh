@@ -77,20 +77,6 @@ step "rendering the terminal captures"
 pixi run python scripts/terminal_capture.py "$HERE/terminal.log" \
   --out "$HERE/screenshots"
 
-# The animation's source is a 15.8 MB H.264 file that is not in the repository
-# -- the keyed WebP is the deliverable and is committed. Regenerated only when
-# the source happens to be present, so a rebuild without it leaves the existing
-# animation alone rather than deleting it.
-ANIMATION_SOURCE="${ANIMATION_SOURCE:-$HOME/Desktop/lysozyme.mp4}"
-if [ -f "$ANIMATION_SOURCE" ]; then
-  step "keying the animation from $ANIMATION_SOURCE"
-  pixi run python scripts/key_video.py "$ANIMATION_SOURCE" \
-    --out-dir "$HERE/media" --name lysozyme --width 440 --fps 8 --quality 40
-else
-  info_missing="the animation source is not at $ANIMATION_SOURCE"
-  printf "%s\n" "${BLUE}i${RESET} ${info_missing}; keeping the committed media/"
-fi
-
 step "compressing the raw captures"
 gzip -9 -f -k "$HERE/terminal.log" "$HERE/analyse.log"
 

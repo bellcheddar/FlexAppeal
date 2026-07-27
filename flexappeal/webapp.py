@@ -28,7 +28,7 @@ from typing import Any
 
 from flask import (
     Blueprint, Flask, abort, current_app, jsonify, redirect,
-    render_template, request, send_file, send_from_directory, url_for,
+    render_template, request, send_file, url_for,
 )
 
 from . import options as opts
@@ -479,12 +479,6 @@ def _example_option_tables(config: dict) -> list[dict]:
     return tables
 
 
-def _example_animation() -> str | None:
-    """The keyed animation's filename, if it has been generated."""
-    animation = EXAMPLE_DIR / "media" / "lysozyme.webp"
-    return animation.name if animation.is_file() else None
-
-
 def _example_captures() -> dict[str, list[str]]:
     """The recorded terminal output, grouped by which script produced it.
 
@@ -505,26 +499,6 @@ def _example_captures() -> dict[str, list[str]]:
     return grouped
 
 
-@analysis_bp.route("/example/media/<path:name>", methods=["GET"])
-def example_media(name: str):
-    """Serve the example's animation.
-
-    It lives beside the run that produced it rather than in static/, because it
-    is example data and rebuild.sh regenerates it there. send_from_directory
-    resolves and confines the path, so the <path:> converter cannot be used to
-    walk out of the directory.
-    """
-    media = EXAMPLE_DIR / "media"
-    if not media.is_dir():
-        abort(404)
-    response = send_from_directory(media, name)
-    # Immutable in the same sense as /static: the bytes at this URL only change
-    # when the example is rebuilt, and then the file name is the same but the
-    # page that references it is revalidated on every visit anyway.
-    response.headers["Cache-Control"] = "public, max-age=31536000, immutable"
-    return response
-
-
 @analysis_bp.route("/example", methods=["GET"])
 def example_page():
     if not EXAMPLE_FXA.is_file():
@@ -539,7 +513,6 @@ def example_page():
         "analysis.html",
         active="example",
         example={
-            "animation": _example_animation(),
             "tables": _example_option_tables(config),
             "captures": _example_captures(),
             "manifest": results.manifest,
