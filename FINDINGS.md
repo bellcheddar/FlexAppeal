@@ -73,6 +73,36 @@ TM Cα only. The inactive model lands at **0.20 Å** and the active at **2.51 Å
 That 2.3 Å gap is the difference this build exists to measure, visible before
 any simulation.
 
+### 1.5 The R-spine threshold has the same fault as the DFG one
+
+Section 5.4 calls the regulatory spine `assembled` if every consecutive pair of
+side-chain centroids is within 6.0 Å. Measured on ABL1's own reference set, the
+pair that carries the call is DFG-Phe to HRD-His, and it separates the states
+completely:
+
+| class | DFG-Phe to HRD-His centroid | inside 6.0 Å |
+|---|---|---|
+| active | 5.33 to 5.89, median 5.70 | 12 of 12 |
+| inactive | 9.53 to 11.08, median 9.86 | 0 of 45 |
+
+So 6.0 Å is a correct threshold for crystal structures. It is also a tenth of an
+angstrom above the top of the active range, which leaves no room for a side chain
+that is breathing, and that is what broke it: frames of the apo DFG-in trajectory
+read **6.03 to 6.69 Å**, plainly on the active side of a 3.6 Å gap, and every one
+of them was called `broken`. The whole-protein score then reported a standing
+`conflict` on the DFG motif, where the geometry said active at s = +0.755 and the
+rule said inactive, for 43 frames out of 43.
+
+The threshold is moved into the empty region between the clusters, at 7.7 Å,
+which is the same correction D010 made to the DFG criterion and for the same
+reason: a crystal structure is one minimised conformation and an MD frame at 300
+K is not. Checked both ways afterwards, the references still classify perfectly
+(5 of 5 active `assembled`, 14 of 14 inactive `broken`) and the trajectory's
+standing conflict disappears.
+
+The crystal value is kept beside it as `R_SPINE_CONTACT_CRYSTAL_A` so a
+structure-only comparison can still use the published number.
+
 ### 1.4 Positive controls
 
 | control | result |
@@ -80,6 +110,7 @@ any simulation.
 | P1 DFG label against KLIFS | 17 / 17 after D010 |
 | P2 αC label against KLIFS | 17 / 17 |
 | P3 TM3–TM6 state separation, leave-one-out | 100 / 100 at an 11.39 Å threshold |
+| R-spine label against KLIFS state, after recalibration | 5 / 5 active, 14 / 14 inactive |
 
 ---
 

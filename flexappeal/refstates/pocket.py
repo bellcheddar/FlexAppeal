@@ -41,7 +41,25 @@ _LABEL = re.compile(r"^(?P<region>.+)\.(?P<index>\d+)$")
 # Section 5.4's R-spine, named the way the kinase literature names it. Each entry
 # is resolved below from the pocket map rather than from a residue number.
 R_SPINE_ORDER = ("beta4", "alphaC_plus4", "DFG_Phe", "HRD_His")
-R_SPINE_CONTACT_A = 6.0
+
+# Section 5.4 puts this at 6.0 A. Measured on ABL1's own reference set, the
+# DFG-Phe to HRD-His centroid distance separates the states completely:
+#
+#     active    5.33 to 5.89 A, median 5.70   (12 of 12 inside 6.0)
+#     inactive  9.53 to 11.08 A, median 9.86  (0 of 45 inside 6.0)
+#
+# So 6.0 A is correct for crystal structures, and it sits a tenth of an angstrom
+# above the top of the active range, which leaves no room for a side chain that
+# is breathing. Trajectory frames of the apo DFG-in system read 6.03 to 6.69 A,
+# plainly on the active side of a 3.6 A gap, and a 6.0 A line called all of them
+# broken.
+#
+# The threshold is therefore placed in the empty region between the clusters
+# rather than at the edge of one, which is the same correction D010 made to the
+# DFG criterion and for the same reason. A crystal structure is one minimised
+# conformation; an MD frame at 300 K is not.
+R_SPINE_CONTACT_A = 7.7
+R_SPINE_CONTACT_CRYSTAL_A = 6.0
 
 # The C-lobe helices section 5.4 names as the superposition core. Only alphaE of
 # the three is inside the KLIFS pocket, so the other two are found by DSSP on the
@@ -303,4 +321,5 @@ def r_spine_state(chain, spine: dict[str, int]) -> dict[str, Any]:
     else:
         state = "broken"
     return {"state": state, "pairs": pairs,
+            "threshold_a": R_SPINE_CONTACT_A,
             "residues": {k: v for k, v in sorted(spine.items())}}

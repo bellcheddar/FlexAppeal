@@ -495,3 +495,28 @@ cell is present.
 
 The relaxation platform is still pinned to the CPU, now for the reason in D013
 rather than for precision: it leaves the GPU free for production.
+
+## D015: the R-spine contact threshold is 7.7 A, not 6.0
+
+Section 5.4 calls the regulatory spine `assembled` if every consecutive pair of
+side-chain centroids is within 6.0 A. On ABL1's reference set the pair that
+decides the call, DFG-Phe to HRD-His, separates the states completely: active
+5.33 to 5.89 A, inactive 9.53 to 11.08 A, nothing in a 3.6 A gap between them.
+
+So 6.0 A is right for crystal structures and sits a tenth of an angstrom above
+the top of the active range. That left no room for a side chain that is
+breathing, and trajectory frames of the apo DFG-in system read 6.03 to 6.69 A,
+clearly on the active side of the gap, and were all called `broken`. The score
+then carried a standing `conflict` on the DFG motif for all 43 frames: geometry
+active at s = +0.755, rule inactive.
+
+Moved to 7.7 A, in the middle of the empty region rather than at the edge of the
+active cluster. This is the same correction D010 made to the DFG criterion and
+for the same reason: a crystal structure is one minimised conformation and an MD
+frame at 300 K is not, so a threshold calibrated on crystals needs to sit where
+crystals are absent.
+
+Checked both ways. The references still classify perfectly at the new threshold,
+5 of 5 active `assembled` and 14 of 14 inactive `broken`, and the trajectory's
+standing conflict disappears. The published 6.0 A is kept as
+`R_SPINE_CONTACT_CRYSTAL_A` for structure-only comparisons.
