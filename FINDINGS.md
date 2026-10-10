@@ -454,6 +454,34 @@ Two things on that list were found to be wrong by writing the check rather than
 by reading the code, and both were mine: the drift criterion at one sigma, and
 the paint test's race. Neither would have been visible from inspection.
 
+### 2.7 The receptor state map had only one axis
+
+Section 5.6 asks for the GPCR map to be the TM3-TM6 cleft distance against the
+NPxxY RMSD to inactive, which is the plane Dror et al. draw their state maps on.
+Only the first of those was available: the cleft distance is in the phase 1
+manifest and the NPxxY RMSD was nowhere, so the endpoint returned 100 points
+with `y: None`.
+
+That is a failure that reports success. The endpoint returns 200, the panel
+renders, and nothing is drawn in it, which is the same shape as the empty-panel
+problem found by the browser QC except that no status code reveals it.
+
+The second axis is now computed from the reference coordinates during the
+analysis, since they are already aligned into one frame, rather than being added
+as another manifest field to keep in step. A reference is not compared with
+itself, which matters: without that exclusion every inactive structure would
+sit at zero and the map would be two lines rather than two clouds.
+
+Both axes separate the states cleanly:
+
+| state | n | cleft distance | NPxxY RMSD to inactive |
+|---|---|---|---|
+| active | 71 | 15.84 Å | 2.79 Å |
+| inactive | 22 | 8.25 Å | 0.15 Å |
+
+A point missing either axis is left out rather than sent as null, and a map with
+nothing left returns 404 so the panel is hidden rather than blank.
+
 ## 5. Production runs
 
 Tier 2 started at 17:04 on 10 October, in section 5.3's priority order: β2AR

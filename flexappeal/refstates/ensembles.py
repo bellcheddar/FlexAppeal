@@ -311,3 +311,44 @@ def align_to_common_frame(ensembles: dict[str, MotifEnsemble]) -> dict[str, Any]
                                 if residuals else None,
             "max_core_rmsd_a": round(float(np.max(list(residuals.values()))), 3)
                                if residuals else None}
+
+
+def rmsd_to_nearest(ensembles: dict[str, MotifEnsemble], motif: str,
+                    state: str) -> dict[str, float]:
+    """Per reference, its motif RMSD to the nearest reference of one state.
+
+    The second axis of section 5.6's GPCR state map, which wants the TM3-TM6
+    cleft distance against the NPxxY RMSD to inactive. The cleft distance comes
+    from the phase 1 manifest; this is the other half, and it is computed from
+    the reference coordinates rather than stored, because they are already
+    aligned into one frame and recomputing is cheaper than another manifest
+    field to keep in step.
+
+    A reference is not compared with itself, so an inactive structure's distance
+    to the inactive set is its distance to the *other* inactive structures. The
+    alternative is a column of zeros down one state, which would make the map
+    look like two lines rather than two clouds.
+    """
+    import numpy as np
+
+    from .traj import rmsd
+
+    targets = ensembles.get(state)
+    if targets is None:
+        return {}
+
+    out: dict[str, float] = {}
+    for holder in ensembles.values():
+        for code, motifs in holder.by_code.items():
+            mine = motifs.get(motif)
+            if mine is None:
+                continue
+            distances = [
+                rmsd(np.asarray(mine, dtype=float),
+                     np.asarray(theirs[motif], dtype=float))
+                for other, theirs in targets.by_code.items()
+                if other != code and theirs.get(motif) is not None
+                and len(theirs[motif]) == len(mine)]
+            if distances:
+                out[code] = float(min(distances))
+    return out

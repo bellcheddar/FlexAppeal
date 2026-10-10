@@ -897,3 +897,59 @@ def test_degrees_of_freedom_subtracts_constraints(tmp_path: Path):
     # 3 * 10 moving - 2 constraints - 3 for the COM remover.
     assert drift.degrees_of_freedom(path) == 25
     assert drift.degrees_of_freedom(tmp_path / "absent.xml") is None
+
+
+def test_the_state_map_never_sends_a_point_it_cannot_plot(tmp_path: Path):
+    """A point with no y renders as nothing while the endpoint returns 200.
+
+    The receptor map had 100 points with `y: None`, so the panel would have
+    appeared empty on a page that reported success. Points missing either axis
+    are left out instead, and a map with none left is a 404 so the panel is
+    hidden rather than blank.
+    """
+    from flexappeal.webapp import create_app
+
+    path = tmp_path / "t.db"
+    store.ingest_analysis(path, _analysis_payload(), system_id="b2ar", run_id="r",
+                          family="gpcr", environment="POPC")
+    with store.connect(path) as connection:
+        # One complete, one missing the second axis.
+        store.put_reference(connection, "b2ar:3SN6", "b2ar", pdb="3SN6",
+                            source_state="active", our_state="active",
+                            metrics={"tm3_tm6": 15.4, "npxxy_to_inactive": 2.8})
+        store.put_reference(connection, "b2ar:2RH1", "b2ar", pdb="2RH1",
+                            source_state="inactive", our_state="inactive",
+                            metrics={"tm3_tm6": 8.4})
+
+    app = create_app()
+    app.config["REFSTATES_DB"] = str(path)
+    payload = app.test_client().get("/refstates/map/b2ar.json").get_json()
+
+    assert [p["pdb"] for p in payload["points"]] == ["3SN6"]
+    assert all(p["y"] is not None for p in payload["points"])
+    assert payload["axes"][1], "the receptor map must name its second axis"
+
+
+def test_rmsd_to_nearest_never_compares_a_reference_with_itself():
+    """Otherwise one state's column is all zeros and the map is two lines."""
+    import numpy as np
+
+    from flexappeal.refstates import ensembles as ens
+
+    built = {}
+    for state, offsets in (("active", (0.0, 0.5)), ("inactive", (6.0, 6.4))):
+        holder = ens.MotifEnsemble(state=state)
+        for index, offset in enumerate(offsets):
+            holder.by_code[f"{state[:3].upper()}{index}"] = {
+                ens.CORE_KEY: np.zeros((4, 3)),
+                "NPxxY": np.array([[offset, 0.0, 0.0]] * 4),
+            }
+        built[state] = holder
+
+    found = ens.rmsd_to_nearest(built, "NPxxY", "inactive")
+    # An inactive structure's distance to the inactive set is its distance to
+    # the other inactive structure, 0.4, not zero.
+    assert found["INA0"] == pytest.approx(0.4, abs=1e-6)
+    assert found["INA1"] == pytest.approx(0.4, abs=1e-6)
+    # And an active one is genuinely far.
+    assert found["ACT0"] == pytest.approx(6.0, abs=1e-6)

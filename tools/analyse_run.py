@@ -265,8 +265,19 @@ def gpcr_setup(start_pdb: Path):
     rigidity = core_agreement(cores)
     log(f"core agreement across {rigidity.get('n')} references: mean "
         f"{rigidity.get('mean_rmsd_a')} A, worst {rigidity.get('max_rmsd_a')} A")
+
+    # Section 5.6's second map axis: NPxxY RMSD to the nearest inactive
+    # reference. Without it the receptor map is a row of points with no y and
+    # the panel renders empty while the endpoint returns 200.
+    npxxy = ensembles.rmsd_to_nearest(built, "NPxxY", "inactive")
+    if npxxy:
+        log(f"  map axis: NPxxY RMSD to nearest inactive for "
+            f"{len(npxxy)} references, "
+            f"{min(npxxy.values()):.2f} to {max(npxxy.values()):.2f} A")
     return (motif_residues, core, built, numbering,
-            {"rigidity": rigidity, "alignment": alignment})
+            {"rigidity": rigidity, "alignment": alignment,
+             "map_axis": {"motif": "NPxxY", "against": "inactive",
+                          "values": npxxy}})
 
 
 # Section 6.3: coordinates for the web at a 1 ns stride, full resolution kept
@@ -460,7 +471,7 @@ def main() -> int:
     if dssp_payload:
         payload["dssp"] = dssp_payload
     payload["ensembles"] = {state: e.as_row() for state, e in built.items()}
-    payload["core_agreement"] = agreement
+    payload["report"] = agreement
     path = out_dir / f"{args.name}.json"
     path.write_text(json.dumps(payload, indent=2))
 

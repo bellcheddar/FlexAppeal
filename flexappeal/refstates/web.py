@@ -286,9 +286,10 @@ def state_map(system_id: str):
             axes = ("DFG-Phe to alphaC-Glu+4 Calpha (A)",
                     "DFG-Phe to catalytic Lys Calpha (A)")
         else:
-            x, y = metrics.get("tm3_tm6"), None
-            axes = ("TM3-TM6 Calpha distance 3.50 to 6.34 (A)", "")
-        if x is None:
+            x, y = metrics.get("tm3_tm6"), metrics.get("npxxy_to_inactive")
+            axes = ("TM3-TM6 Calpha distance 3.50 to 6.34 (A)",
+                    "NPxxY RMSD to the nearest inactive reference (A)")
+        if x is None or (system_id != "abl1" and y is None):
             continue
         points.append({"pdb": row["pdb"], "x": x, "y": y,
                        "state": row.get("source_state") or row.get("our_state")})

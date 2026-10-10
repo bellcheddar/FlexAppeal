@@ -186,6 +186,16 @@ def main() -> int:
         log(f"{name}: {counts['motifs']} motifs, {counts['references']} "
             f"references, {counts['frames']} frame rows ({fields['status']})")
 
+        # Section 5.6's second map axis, computed during the analysis and
+        # merged into the manifest rows so both axes live on the same record.
+        map_axis = ((analysis.get("report") or {}).get("map_axis")
+                    or (analysis.get("core_agreement") or {}).get("map_axis")
+                    or {})
+        axis_values = map_axis.get("values") or {}
+        if axis_values:
+            log(f"  map axis {map_axis.get('motif')} to nearest "
+                f"{map_axis.get('against')}: {len(axis_values)} references")
+
         if manifest:
             agreed = annotated = 0
             with store.connect(Path(args.db)) as connection:
@@ -195,6 +205,8 @@ def main() -> int:
                             else our_receptor_state(row))
                     metrics = {k: v for k, v in row.items()
                                if k not in ("pdb", "chain", "note", "status")}
+                    if code in axis_values:
+                        metrics["npxxy_to_inactive"] = axis_values[code]
                     store.put_reference(
                         connection, f"{meta['system_id']}:{code}",
                         meta["system_id"], pdb=code,
