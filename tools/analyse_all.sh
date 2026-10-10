@@ -10,6 +10,13 @@
 set -u
 cd /Users/dellboy/Documents/Vibe_Coding/FlexAppeal
 
+# --skip-membrane for the streaming passes. The state analysis loads protein and
+# ligand only, which is a few megabytes, while the bilayer QC needs the full
+# solvated trajectory and that is most of a gigabyte once a 50 ns membrane row
+# is under way. Cheap enough to run every half hour one way, not the other.
+SKIP_MEMBRANE=""
+if [ "${1:-}" = "--skip-membrane" ]; then SKIP_MEMBRANE="--skip-membrane"; fi
+
 # A case statement rather than associative arrays: macOS ships bash 3.2, which
 # has none, and `declare -A` there silently creates a plain array so the first
 # lookup fails under `set -u`.
@@ -65,7 +72,7 @@ fi
 names=()
 for run in "${ingested[@]}"; do names+=(--name "$run"); done
 echo "[$(date +%H:%M:%S)] ingesting ${ingested[*]}"
-pixi run python tools/ingest.py "${names[@]}"
+pixi run python tools/ingest.py "${names[@]}" $SKIP_MEMBRANE
 
 pixi run python - <<'PY'
 import sqlite3
