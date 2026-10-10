@@ -720,3 +720,81 @@ def test_the_runner_treats_a_checkpoint_as_the_resume_point(tmp_path: Path):
     assert resume < heating, "equilibration is reached before the resume check"
     assert "loadCheckpoint" in source
     assert "already at" in source, "a completed run must report and stop"
+
+
+# ===========================================================================
+#  Section 10's page QC, as far as it goes without a browser
+# ===========================================================================
+#
+# Section 10 asks for Playwright at two viewports with no console errors, and
+# axe-core with no serious or critical violations. Neither can run here:
+# playwright is not in the environment and there is no preinstalled Chromium,
+# and the spec says never to run `playwright install`. Recorded as a gap in
+# FINDINGS rather than skipped quietly.
+#
+# What is checkable server-side is the part that causes most console errors in
+# practice, a referenced asset that is not there, and the subset of axe-core's
+# rules that are properties of the markup rather than of the rendered page.
+
+REFSTATES_PAGES = ["/refstates/", "/refstates/about"]
+
+
+def _page_client(tmp_path: Path):
+    from flexappeal.webapp import create_app
+
+    path = tmp_path / "t.db"
+    store.ingest_analysis(path, _analysis_payload(), system_id="s", run_id="r",
+                          family="kinase", environment="water")
+    app = create_app()
+    app.config["REFSTATES_DB"] = str(path)
+    return app.test_client()
+
+
+def test_every_referenced_asset_resolves(tmp_path: Path):
+    """A 404 on a script or stylesheet is the usual cause of a console error."""
+    import re
+
+    client = _page_client(tmp_path)
+    missing = []
+    for url in REFSTATES_PAGES + ["/refstates/run/r", "/refstates/references/s"]:
+        response = client.get(url)
+        if response.status_code != 200:
+            continue
+        html = response.get_data(as_text=True)
+        for ref in set(re.findall(r'(?:src|href)="(/static/[^"]+)"', html)):
+            if client.get(ref).status_code != 200:
+                missing.append(f"{url} -> {ref}")
+    assert not missing, f"referenced but not served: {missing}"
+
+
+def test_the_pages_meet_the_markup_rules_axe_would_check(tmp_path: Path):
+    """The subset of axe-core's serious rules that live in the markup.
+
+    Not a substitute for axe-core, and FINDINGS says so. These are the ones a
+    template can get wrong and a server can see: a table without header scope,
+    an image without alt text, a page without a language.
+    """
+    import re
+
+    client = _page_client(tmp_path)
+    problems = []
+    for url in REFSTATES_PAGES + ["/refstates/run/r", "/refstates/references/s"]:
+        response = client.get(url)
+        if response.status_code != 200:
+            continue
+        html = response.get_data(as_text=True)
+        if not re.search(r'<html[^>]+lang=', html):
+            problems.append(f"{url}: <html> has no lang")
+        for image in re.findall(r"<img[^>]*>", html):
+            if "alt=" not in image:
+                problems.append(f"{url}: an img has no alt")
+        # Every th in these pages is a header for a row or a column, and
+        # axe-core flags one without a scope in a table that has both.
+        # `<th(?=[\s>])` so the pattern does not also match `<thead>`, which
+        # it did on the first run.
+        for header in re.findall(r"<th(?=[\s>])[^>]*>", html):
+            if "scope=" not in header:
+                problems.append(f"{url}: a th has no scope: {header}")
+        if "<table" in html and "<thead" not in html and "scope=\"row\"" not in html:
+            problems.append(f"{url}: a table has neither a thead nor row headers")
+    assert not problems, problems

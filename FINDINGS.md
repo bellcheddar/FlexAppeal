@@ -372,6 +372,32 @@ itself. The error named a NaN coordinate and nothing about a box.
 
 ---
 
+## 4b. QC that could not be run here
+
+Section 10 asks for Playwright screenshots at 1440x900 and 390x844 with no
+console errors, and axe-core with no serious or critical violations. Neither
+ran: `playwright` is not in this environment and there is no preinstalled
+Chromium, and section 10 says never to run `playwright install`. So the
+instruction and the capability conflict, and the honest outcome is that this
+item is outstanding rather than quietly passed.
+
+What was done instead, server-side, is the part that catches most of what those
+tools would:
+
+- Every `/static/` asset referenced by any reference-states page is fetched and
+  has to return 200. A missing script or stylesheet is the usual cause of a
+  console error, and this is the whole of that class that a server can see.
+- The subset of axe-core's serious rules that are properties of the markup
+  rather than of the rendered page: a language on `<html>`, alt text on every
+  image, a scope on every table header, and no table without either a header
+  row or row headers.
+
+This is not a substitute for either tool. What it cannot see is anything that
+only exists once the page is running: a JavaScript exception, contrast ratios,
+focus order, or an ARIA relationship that resolves at runtime. Running the real
+checks needs either a Chromium already on the machine or approval to download
+one.
+
 ## 5. Production runs
 
 Pending. This section will carry the per-row speed, the energy drift, the
