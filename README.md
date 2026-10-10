@@ -36,6 +36,7 @@ The hosted application never simulates. That is a design decision, not a limitat
 | **Ligands** | Chemistry from the RCSB Chemical Component Dictionary, parameterised with OpenFF Sage, GAFF2 or espaloma |
 | **Membranes** | POPC and six other lipids via `Modeller.addMembrane`, with pre-oriented structures fetched from OPM |
 | **Analysis without scripting** | RMSD, RMSF, radius of gyration, SASA, DSSP, hydrogen bonds, contacts, PCA, clustering, and ligand or membrane panels |
+| **Graded study packages** | `flexappeal package` collects finished runs into one file that DeepFlex renders as a graded report: pose, occupancy, interactions, energy, convergence and conformation, ranked within each receptor |
 | **Interactive** | Plotly plots and a Mol\* viewer, both vendored: the page needs no third-party network access |
 | **A trajectory beside the controls** | Every tab opens with its panel at 75% and the lysozyme run playing at 25%: 396 KB of H.264, fetched after the page has loaded and skipped entirely for reduced motion |
 
@@ -162,6 +163,38 @@ Everything lands in one directory beside the bundle:
 | `state.chk` | Checkpoint, for resuming |
 | `system.xml`, `integrator.xml`, `final_state.xml` | Full serialisation, for exact reproduction or extension |
 | `run_manifest.json` | Versions, platform, achieved ns/day, wall time |
+
+## 🔬 Study panels
+
+A version 1 `.fxa` is one system, and the Analysis tab plots how it moved. A
+version 2 package is a study of several receptor-ligand complexes, and
+[DeepFlex](https://deepflex.mdeller.com) renders it as a graded report. What
+`flexappeal package` measures, and the panel each number feeds:
+
+| Panel | What it carries |
+|---|---|
+| **Grade and six sub-scores** | pose, occupancy, interactions, energy, convergence and conformation. FlexAppeal supplies the measurements and nothing else: the weights and the bands live in DeepFlex, so a grade has one definition rather than one per writer |
+| **League table** | every ligand ranked within its own receptor. A rank is a place in a cohort, which is why a package carries many complexes and not one |
+| **Pose** | ligand RMSD to its starting pose (median, 90th centile, maximum and drift slope) after superposing on the pocket Calpha, and beside it the same RMSD fitted on the ligand itself. The two apart are what separate the ligand moving from the ligand changing shape |
+| **Occupancy** | contacts retained per frame, the fraction of scored frames still in the pocket, exit events, and how far the ligand centroid wandered |
+| **Interactions** | a per-frame fingerprint of polar, ionic and hydrophobic contacts: occupancy and mean lifetime per residue, similarity to the first frame, and a barcode of the busiest twenty-eight |
+| **Convergence** | the scored window split four ways with the divergence between the blocks, plus pose clusters and whether the dominant pose changed and then held |
+| **Conformation** | MMFF94 ligand strain in excess of the starting pose, the rotatable-bond count and the torsion flip rate |
+| **Receptor flexibility** | Calpha RMSD, radius of gyration, per-residue RMSF with the pocket residues marked, a frame-against-frame RMSD matrix and a residue cross-correlation matrix |
+| **3D viewer** | the pocket cropped to 10 A at the first and last frame, plus the trajectory as one multi-model PDB, superposed so the receptor holds still and what moves is the ligand |
+| **Ligand diagram** | a 2D depiction with each atom shaded by how far it moved |
+
+Three things hold across all of it. Every length is in angstrom and every time in
+nanoseconds. Every scored number is measured from the first equilibrated frame
+onward, and the file records which frame that was, so a chart and the number
+printed beside it describe the same window. And a measurement FlexAppeal cannot
+make is left out rather than written as zero, which DeepFlex reports as a pending
+sub-score instead of reading a nought as a result.
+
+There is one such gap. The binding energies need every frame rescored in implicit
+solvent, which this pipeline does not do, so `--energies` carries them in from
+wherever a study computed them. Without it the energy sub-score is pending and the
+other five are unaffected.
 
 ## 🧪 Validation
 

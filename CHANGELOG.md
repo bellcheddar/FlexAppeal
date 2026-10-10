@@ -23,8 +23,8 @@ checkbox list in `README.md`.
   on ingest and tells the uploader it did. Refusing them here instead means the
   mistake is caught by this repository's own test suite rather than by somebody's
   upload: `.sdf`, `.mol2`, `.prmtop`, `.xtc` and the rest are refused by suffix,
-  and any manifest field whose name contains `smiles`, `inchi`, `molblock`,
-  `molfile`, `tripos` or `sdf` is refused at any depth. Compound names travel in
+  and any manifest field whose name promises a structure string is refused at any
+  depth, on the substring list in `fxa2.CHEMISTRY_ROOTS`. Compound names travel in
   clear, which is the line: a name says *which* compound, not what it is.
 - **The conformance checklist from section 10 of the spec, as a test.** All
   fourteen checks, including the one that catches a het code left behind on a
@@ -288,6 +288,12 @@ checkbox list in `README.md`.
   scalar against the series rather than against a fixed number, because which
   frame the detector picks is its business: what has to hold is that the count
   starts at `equil_start_frame`.
+
+### Added
+
+- **A `Study panels` section in the README**, naming each panel a version 2
+  package populates and the measurements behind it, plus the one gap (the binding
+  energies) and how `--energies` fills it.
 
 ### Changed
 

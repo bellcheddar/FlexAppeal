@@ -461,15 +461,8 @@ With energies supplied, every group except the receptor panels and
 ## Two files deliberately left untracked
 
 `DEEPFLEX_FXA2_SPEC.md` and `FXA2_BUILD_PROMPT.md` are both in the working tree and
-neither is committed. `flexappeal/fxa2.py` cites the spec by filename, so a public
-reader currently has a dangling reference, and that is a decision for Marc rather
-than one to take quietly:
-
-- The **spec** is a format document and reads clean: benzamidine, 3PTB, TRY1_BOVIN,
-  GIPR and GLP1R are all public, and no compound from the unpublished series appears
-  in it. Committing it is defensible and would make the citation resolve.
-- The **build prompt** says in as many words that DeepFlex is private because it
-  discusses an unpublished compound series. That is Marc's to publish or not.
-
-`git add DEEPFLEX_FXA2_SPEC.md` is the whole fix if he wants the citation to resolve.
-Nothing is pushed either way.
+neither is committed. `flexappeal/fxa2.py` cites the spec by filename, so a reader
+of this repository has a dangling reference, and whether to resolve it is a
+decision for Marc rather than one to take quietly. The spec is a format document;
+the build prompt is a working note. `git add DEEPFLEX_FXA2_SPEC.md` is the whole
+fix if the citation should resolve.
