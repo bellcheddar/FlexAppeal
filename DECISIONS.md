@@ -420,3 +420,78 @@ The fit RMSDs are themselves a check worth keeping: the inactive model lands on
 the inactive OPM reference at **0.20 Å** and the active at **2.51 Å**. That 2.3 Å
 gap is the activation difference this build exists to measure, showing up before
 any simulation has run.
+
+---
+
+## D012: the membrane systems are 190 k atoms, not the 80 to 110 k expected
+
+Section 5.1 expects "roughly 80 to 110 k atoms" and prescribes a response to more
+than 150 k: reduce `minimumPadding` to 1.2 nm and log it. That is what happens,
+and both systems still land well above the window:
+
+| system | atoms | lipids | waters | box, nm |
+|---|---|---|---|---|
+| β2AR apo (active) | 194,626 | 476 | 41,788 | 12.74 × 13.37 × 11.77 |
+| β2AR carazolol (inactive) | 188,352 | 476 | 39,686 | 12.74 × 13.37 × 11.39 |
+
+Two causes, and neither is fixable by padding.
+
+**Height.** ICL3 is fully modelled in the GPCRdb refined models and hangs down
+to z = -61 Å, 35 Å below the next lowest element. Everything else spans -42 to
++32 Å. The loop alone sets the box height, so the box is 11.8 nm rather than the
+9.8 nm the receptor would otherwise need.
+
+**Width.** `addMembrane` tiles whole copies of a pre-equilibrated patch, so the
+lateral box is an integer number of patches. The receptor is 5.9 nm across and
+one patch is about 6.4, so anything but a negligible padding needs two patches
+each way and the lateral box is 12.7 × 13.4 nm at any padding worth using.
+
+Kept as built rather than trimmed. Section 4.3 says to keep what the refined
+model contains and flag the loop, which is what `icl3_excluded_from_rmsd` already
+does, and a receptor whose ICL3 is deleted to save water is a different construct
+from the one the annotation describes. The cost is compute, which is measured
+rather than extrapolated: see the Tier 1 figures in BUILD_LOG.md.
+
+## D013: the MD queue is strictly sequential
+
+There is one GPU. The β2AR smoke test and the ABL1 production run shared it for
+fifteen minutes, and the smoke test got 8% of a core and never reached its first
+frame while ABL1 slowed from 213 to 205 ns/day. Section 2.3's concurrency is
+between MD and *analysis*, not between two MD runs, and the system building that
+runs alongside is CPU work for the same reason.
+
+`tools/queue_md.py` therefore runs one row at a time, skips a row that already
+has `run.json`, and can be killed and restarted because `run_md.py` resumes from
+its own checkpoint. Four rows at 50 ns is most of a day and the machine sleeps,
+so resumability is the difference between losing a nanosecond and losing a row.
+
+Tier 1 is run before the long runs rather than after, which cost less than one
+nanosecond of ABL1: the membrane protocol in section 5.2 is substantially
+different from the water one, with a membrane barostat and a six-step restraint
+release, and none of it had ever been stepped. Finding a fault in it after five
+hours of ABL1 would have been five hours spent to learn the same thing.
+
+## D014: `addMembrane` believed a placeholder unit cell, and produced NaN
+
+Both membrane builds died at `addMembrane`'s inflation relaxation with "Particle
+coordinate is NaN" on its very first step. Worth recording because the first two
+hypotheses were wrong and the third was invisible from the error.
+
+Not a clash: the assembly going in minimised cleanly from 150,000 to 8,286
+kJ/mol, and the sub-1.6 Å contacts a clash check reported were peptide bonds.
+
+Not precision: Apple's OpenCL is single-precision only and `addMembrane` creates
+its own context without specifying a platform, which was a plausible cause and a
+real property of this machine. It fails identically on the CPU platform at double
+precision.
+
+The cause is that gemmi writes a placeholder `CRYST1` of 1 1 1 for a `P 1`
+structure with no cell. `addMembrane` takes the box height as the larger of the
+patch height and the existing cell plus padding, so with a cell present at all it
+took 7 nm from the patch rather than sizing from the receptor, which is 9.4 nm
+tall. The receptor wrapped through the periodic boundary onto itself. Clearing the
+cell makes `addMembrane` size z from the protein, which is what it does when no
+cell is present.
+
+The relaxation platform is still pinned to the CPU, now for the reason in D013
+rather than for precision: it leaves the GPU free for production.
