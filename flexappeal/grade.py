@@ -171,6 +171,9 @@ class Grade:
     # Whether the energy sub-score came from the absolute thresholds rather than
     # a percentile. Said on the row, so a reader knows which instrument it was.
     energy_absolute: bool = False
+    # The rotatable-bond count, where the run reported one. Zero is a real
+    # measurement and is what explains a pending conformation sub-score.
+    n_rotatable_bonds: int | None = None
 
     # The inputs behind each sub-score, so the meter can show what it read.
     inputs: dict[str, Any] = field(default_factory=dict)
@@ -275,6 +278,9 @@ def score_one(measured) -> Grade | None:
     # is 1.02 pooled standard deviations, and within one pocket these energies do
     # not separate the reference agonists from the rest, which is why nothing
     # anchors -60 beyond the spread of the data.
+    rotatable = metrics.get("n_rotatable_bonds")
+    if isinstance(rotatable, int):
+        result.n_rotatable_bonds = rotatable
     result.energy_dg = metrics.get("mmpbsa_gb_dg")
     result.energy_sd = metrics.get("mmpbsa_gb_sd")
     if result.energy_dg is not None:
@@ -342,6 +348,7 @@ def meter(graded: Grade | None) -> dict[str, Any] | None:
         return None
 
     rows = []
+    metrics_rotatable = graded.n_rotatable_bonds
     for key, weight in WEIGHTS.items():
         value = graded.subscores.get(key)
         row = {
@@ -357,6 +364,14 @@ def meter(graded: Grade | None) -> dict[str, Any] | None:
             "reason": "not measured here",
             "measured": None,
         }
+        if key == "conformation" and value is None:
+            # Say which kind of gap it is. A rigid ligand has no torsional
+            # strain to measure and no torsion to flip, which is a fact about
+            # the molecule; reporting it as zero strain would be full marks.
+            row["reason"] = (
+                "the ligand has no rotatable bond"
+                if metrics_rotatable == 0 else
+                "no strain measurement in this file")
         if key == "energy" and graded.energy_dg is not None:
             # Measured but not scored, which is a different statement from not
             # measured and the one the page used to get wrong.

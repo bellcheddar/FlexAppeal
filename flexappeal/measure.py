@@ -1296,9 +1296,13 @@ def strain_records(mol, traj, atoms: np.ndarray, start: int, time_ns: np.ndarray
         # was collecting 5% of its grade for a quantity nobody computed. The keys
         # are omitted instead and the sub-score goes pending, which is the
         # answer the format gives for any measurement not made.
-        return {}, {}, [
+        #
+        # The count itself is reported, because zero rotatable bonds is a true
+        # measurement rather than a missing one, and it is what lets the grade
+        # say *why* the sub-score is pending instead of only that it is.
+        return {"n_rotatable_bonds": 0}, {}, [
             "the ligand has no rotatable bond, so it has no torsional strain to "
-            "measure and no torsion to flip. Both conformation inputs are "
+            "measure and no torsion to flip. Both scored conformation inputs are "
             "omitted rather than reported as zero, which would have been full "
             "marks for a measurement that cannot be made, so the conformation "
             "sub-score is pending and its weight is spread over the others"

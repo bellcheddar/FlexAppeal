@@ -1800,7 +1800,11 @@ def test_a_rigid_ligand_omits_its_strain_rather_than_reporting_zero():
         ring, _Traj(), np.arange(ring.GetNumAtoms()), 0,
         np.array([0.0, 1.0, 2.0, 3.0]))
 
-    assert metrics == {}, metrics
+    # The count is reported, because zero rotatable bonds is a true measurement.
+    # The two scored inputs are not.
+    assert metrics == {"n_rotatable_bonds": 0}, metrics
+    assert "strain_kcal" not in metrics
+    assert "flips_per_ns_per_torsion" not in metrics
     assert conformer == {}
     assert any("omitted rather than reported as zero" in n for n in notes), notes
 
@@ -1824,3 +1828,9 @@ def test_the_conformation_subscore_is_pending_for_a_rigid_ligand():
     assert "conformation" in g.pending
     assert "conformation" not in g.weights_used
     assert g.score == pytest.approx(100.0)
+
+    # And the row says why, rather than leaving a reader to ask.
+    _M.metrics["n_rotatable_bonds"] = 0
+    row = next(r for r in grade.meter(grade.score_one(_M()))["rows"]
+               if r["key"] == "conformation")
+    assert row["reason"] == "the ligand has no rotatable bond"
