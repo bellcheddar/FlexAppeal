@@ -4,10 +4,10 @@ Running log for the version 2 package writer, specified in `DEEPFLEX_FXA2_SPEC.m
 and driven by `FXA2_BUILD_PROMPT.md`. Rewritten at every step boundary, so an
 interrupted session can be resumed from this file alone.
 
-**Current step:** 4 of 10 (`series/` and `traj/<cid>_scrub.pdb`).
+**Current step:** 5 of 10 (`S_int`, `summary/`, `barcode/`).
 **Validator last reported:** accepted. **pose 100%, occupancy 100%, ranking 100%,
-grade 50%.** Interactions, energy, convergence, conformation, receptor panels and
-payload are at 0%, which is steps 4 to 9.
+grade 50%, payload 20%.** Interactions, energy, convergence, conformation and
+receptor panels are at 0%, which is steps 5 to 9.
 
 ---
 
@@ -35,7 +35,7 @@ Section 12 of the spec, which is also the commit boundaries.
 - [x] 1. Writer skeleton: manifest, member layout, the zip, the limits, round trip.
 - [x] 2. `metrics/`, `pocket/`, one pocket PDB, one complex. **Validated.**
 - [ ] 3. The scored window, `S_pose`, `S_occ`.
-- [ ] 4. `series/` and `traj/<cid>_scrub.pdb`.
+- [x] 4. `series/` and `traj/<cid>_scrub.pdb`.
 - [ ] 5. `S_int`, `summary/`, `barcode/`.
 - [ ] 6. `S_E`, the energies.
 - [ ] 7. `S_conv`, the block split and the pose clusters.
@@ -146,6 +146,15 @@ fraction of frames retaining a quarter of whatever was counted at frame 0 and S_
 is a ramp on that fraction rather than a percentile against DeepFlex's cohort. The
 displayed count will differ from a `.dfx`-sourced run, and that is worth one line
 on the DeepFlex side deciding which definition the column means.
+
+### D9. The time axis, when the trajectory has none
+
+An `.xtc` carries its own frame times and they are the right answer. Some writers
+leave them at zero, and a time axis of all zeros collapses every chart to a single
+point without anything raising, so the fallback is the configured
+`traj_interval` and the last resort is the frame index. Both fallbacks add a note
+saying which was used, because an x axis labelled nanoseconds that is really frame
+numbers is the kind of error a reader cannot see.
 
 ## Divergences between the spec and the reader that actually ingests these files
 

@@ -457,6 +457,28 @@ def _atoms_of(topology, residue_indices, *, name: str | None = None,
     return np.array(sorted(out), dtype=int)
 
 
+def time_axis(traj, frame_spacing_ps: float | None) -> tuple[np.ndarray, str | None]:
+    """Nanoseconds per frame, from the trajectory or from the configured spacing.
+
+    An `.xtc` carries its own times and they are the right answer. Some writers
+    leave them at zero, and a time axis of all zeros collapses every chart to a
+    single point without anything raising, so the configured frame spacing is the
+    fallback and the frame index is the last resort. Returns the axis and a note
+    when it is not the trajectory's own.
+    """
+    time_ps = np.asarray(traj.time, dtype=np.float64)
+    if len(time_ps) > 1 and np.all(np.diff(time_ps) > 0):
+        return time_ps / 1000.0, None
+    if frame_spacing_ps:
+        return (np.arange(traj.n_frames, dtype=np.float64) * float(frame_spacing_ps)
+                / 1000.0), (
+            f"the trajectory carries no usable time stamps, so the time axis is "
+            f"built from the configured frame spacing of {frame_spacing_ps:g} ps")
+    return np.arange(traj.n_frames, dtype=np.float64), (
+        "the trajectory carries no usable time stamps and no frame spacing was "
+        "configured, so every time here is a frame index and not nanoseconds")
+
+
 def _slope_per_ns(values: np.ndarray, time_ns: np.ndarray) -> float | None:
     """A least-squares slope, or None when there is nothing to fit."""
     if len(values) < 3:
@@ -494,7 +516,8 @@ def residue_contacts(traj, ligand_residue: int,
 
 
 def measure_complex(traj, *, complex_id: str, receptor: str, ligand_id: str,
-                    ligand_resnames: list[str]) -> Measured:
+                    ligand_resnames: list[str],
+                    frame_spacing_ps: float | None = None) -> Measured:
     """Measure one receptor-ligand complex.
 
     Raises nothing: a complex that cannot be measured comes back as a failure
@@ -502,13 +525,14 @@ def measure_complex(traj, *, complex_id: str, receptor: str, ligand_id: str,
     must not cost the other nineteen.
     """
     try:
-        return _measure(traj, complex_id, receptor, ligand_id, ligand_resnames)
+        return _measure(traj, complex_id, receptor, ligand_id, ligand_resnames,
+                        frame_spacing_ps)
     except MeasureError as exc:
         return failed(complex_id, receptor, ligand_id, str(exc))
 
 
-def _measure(traj, cid: str, receptor: str, ligand: str,
-             resnames: list[str]) -> Measured:
+def _measure(traj, cid: str, receptor: str, ligand: str, resnames: list[str],
+             frame_spacing_ps: float | None) -> Measured:
     atoms, heavy, fragmented = ligand_atoms(traj.topology, resnames)
     pocket = pocket_residues(traj, heavy)
 
@@ -540,7 +564,9 @@ def _measure(traj, cid: str, receptor: str, ligand: str,
             "fragment was measured and the rest ignored"
         )
 
-    time_ns = np.asarray(traj.time, dtype=np.float64) / 1000.0
+    time_ns, time_note = time_axis(traj, frame_spacing_ps)
+    if time_note:
+        notes.append(time_note)
 
     # ---- the periodic-boundary gate, before anything is superposed ----------
     #
@@ -676,6 +702,31 @@ def _measure(traj, cid: str, receptor: str, ligand: str,
     if traj.n_frames > 1:
         structures[f"{cid}_pocket_last.pdb"] = pocket_pdb(
             traj, traj.n_frames - 1, crop_atoms, resnames)
+        # The trajectory as one multi-model PDB, cropped to the pocket and
+        # superposed on it, so the receptor holds still and what moves is the
+        # ligand. Written from the pocket-fitted copy for that reason. Without
+        # this member the viewer shows a single frame and the trajectory control
+        # is absent.
+        structures[f"{cid}_scrub.pdb"] = scrub_pdb(pose_fit, crop_atoms, resnames)
+
+    # The whole trajectory, not the scored window: DeepFlex draws the discarded
+    # head in a different colour, which is how a reader sees what was thrown
+    # away. It decimates to about 400 points for the wire itself.
+    series = {
+        "time_ns": time_ns.astype(np.float64),
+        "pose_rmsd_a": pose_rmsd.astype(np.float32),
+        "inplace_rmsd_a": inplace_rmsd.astype(np.float32),
+        "receptor_rmsd_a": receptor_rmsd.astype(np.float32),
+        "com_drift_a": com_drift.astype(np.float32),
+        "pocket_offset_a": pocket_offset.astype(np.float32),
+        "contacts": contacts.astype(np.int16),
+        "in_pocket": in_pocket.astype(np.int8),
+        # Over the ligand's heavy atoms, which is what the fluctuation was
+        # measured on: a hydrogen's RMSF is its parent's plus a libration.
+        "ligand_rmsf_a": ligand_rmsf.astype(np.float32),
+        "equil_start_frame": np.array([start], dtype=np.int64),
+        "native_contact_threshold": np.array([threshold], dtype=np.int64),
+    }
 
     if notes:
         metrics["notes"] = notes
@@ -683,5 +734,5 @@ def _measure(traj, cid: str, receptor: str, ligand: str,
     return Measured(
         complex_id=cid, receptor=receptor, ligand_id=ligand,
         metrics=metrics, pocket=pocket_record, structures=structures,
-        notes=notes,
+        series=series, notes=notes,
     )

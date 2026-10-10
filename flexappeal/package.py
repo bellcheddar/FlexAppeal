@@ -408,6 +408,7 @@ def assemble(sources: list[Source], *, package_name: str,
         measured = measure.measure_complex(
             source.trajectory, complex_id=cid, receptor=receptor,
             ligand_id=ligand, ligand_resnames=resnames,
+            frame_spacing_ps=source.frame_spacing_ps,
         )
         supplied = _energies_for(energies, compound, receptor)
         if supplied:

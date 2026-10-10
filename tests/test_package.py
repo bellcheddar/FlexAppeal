@@ -654,3 +654,131 @@ def test_every_scored_quantity_uses_the_window_and_not_the_whole_run(deposited):
     assert metrics["in_pocket_fraction"] == pytest.approx(0.0, abs=0.15)
     # And the window is reported, so a reader can see what was thrown away.
     assert "ceiling" in metrics["equil_method"] or metrics["equil_start_frame"] < 10
+
+
+# ---------------------------------------------------------------------------
+#  series/ and the multi-model trajectory, sections 5.1 and 6.2
+# ---------------------------------------------------------------------------
+
+
+def test_the_series_carries_every_key_at_the_stated_dtype(written):
+    read_back = fxa2.read(written)
+    for cid in read_back.complexes:
+        series = read_back.arrays(f"series/{cid}.npz")
+        assert series is not None
+        for key, dtype in fxa2._SERIES_REQUIRED.items():
+            assert key in series, key
+            assert series[key].dtype.name == dtype, (key, series[key].dtype)
+
+
+def test_the_series_covers_the_whole_trajectory_not_the_window(written):
+    """DeepFlex draws the discarded head in a different colour, which is how a
+    reader sees what was thrown away."""
+    read_back = fxa2.read(written)
+    for cid in read_back.complexes:
+        series = read_back.arrays(f"series/{cid}.npz")
+        metrics = read_back.metrics(cid)
+        assert len(series["time_ns"]) == metrics["n_frames"]
+        assert series["equil_start_frame"][0] == metrics["equil_start_frame"]
+
+
+def test_the_series_and_the_scalars_agree(written):
+    """The scalar is the series reduced over the window, so they must match.
+
+    Two codepaths that disagree here would mean the chart and the number beside
+    it describe different trajectories.
+    """
+    read_back = fxa2.read(written)
+    for cid in read_back.complexes:
+        series = read_back.arrays(f"series/{cid}.npz")
+        metrics = read_back.metrics(cid)
+        window = series["pose_rmsd_a"][metrics["equil_start_frame"]:]
+        assert float(np.median(window)) == pytest.approx(
+            metrics["ligand_rmsd_median"], rel=1e-5)
+        assert float(window.max()) == pytest.approx(metrics["ligand_rmsd_max"], rel=1e-5)
+
+
+def test_the_native_contact_threshold_is_a_quarter_rounded_up(written):
+    read_back = fxa2.read(written)
+    for cid in read_back.complexes:
+        series = read_back.arrays(f"series/{cid}.npz")
+        metrics = read_back.metrics(cid)
+        expected = max(1, int(np.ceil(metrics["n_native_contacts"] * 0.25)))
+        assert series["native_contact_threshold"][0] == expected
+        assert np.array_equal(series["in_pocket"],
+                              (series["contacts"] >= expected).astype(np.int8))
+
+
+def test_the_ligand_rmsf_is_per_heavy_atom(written):
+    read_back = fxa2.read(written)
+    cid = read_back.complexes[0]
+    series = read_back.arrays(f"series/{cid}.npz")
+    metrics = read_back.metrics(cid)
+    assert 0 < len(series["ligand_rmsf_a"]) <= read_back.pocket(cid)["n_ligand_atoms"]
+    assert float(series["ligand_rmsf_a"].max()) == pytest.approx(
+        metrics["ligand_rmsf_max"], rel=1e-5)
+
+
+def test_the_trajectory_is_one_multi_model_pdb(written):
+    """One file, not one per frame.
+
+    The viewer steps the model index, which is a parameter update; a file per
+    frame makes it tear the structure down and rebuild it, so the canvas blanks
+    and the camera jumps on every step.
+    """
+    read_back = fxa2.read(written)
+    for cid in read_back.complexes:
+        text = read_back.members[f"traj/{cid}_scrub.pdb"].decode()
+        models = text.count("\nMODEL ") + text.startswith("MODEL ")
+        assert models > 1
+        assert models <= 110, models
+        assert text.count("ENDMDL") == models
+
+
+def test_the_trajectory_crop_matches_the_pocket_crop(written):
+    """Same atom selection as the pocket PDB, so the viewer can swap between them."""
+    read_back = fxa2.read(written)
+    cid = read_back.complexes[0]
+    pocket = read_back.pocket_pdb(cid)
+    scrub = read_back.members[f"traj/{cid}_scrub.pdb"].decode()
+
+    def atom_names(text):
+        return [line[12:26] for line in text.splitlines() if line.startswith("ATOM")]
+
+    first_model = scrub.split("ENDMDL")[0]
+    assert atom_names(first_model) == atom_names(pocket)
+
+
+def test_the_trajectory_names_its_ligand_lig_in_every_model(written):
+    read_back = fxa2.read(written)
+    text = read_back.members[f"traj/{read_back.complexes[0]}_scrub.pdb"].decode()
+    for line in text.splitlines():
+        if line[:6].strip() in ("ATOM", "HETATM", "TER"):
+            assert line[17:20].strip() not in ("BEN", "AMD"), line
+    assert any(line[17:20].strip() == "LIG" for line in text.splitlines()
+               if line.startswith("TER"))
+
+
+def test_a_trajectory_with_no_time_stamps_falls_back_to_the_frame_spacing(deposited):
+    """A time axis of all zeros collapses every chart without anything raising."""
+    import mdtraj as md
+
+    traj = _translated(deposited, [[0, 0, 0]] * 12)
+    blank = md.Trajectory(
+        xyz=traj.xyz, topology=traj.topology, time=np.zeros(traj.n_frames),
+        unitcell_lengths=traj.unitcell_lengths, unitcell_angles=traj.unitcell_angles)
+
+    axis, note = measure.time_axis(blank, 20.0)
+    assert axis[1] == pytest.approx(0.02)          # 20 ps is 0.02 ns
+    assert "frame spacing" in note
+
+    axis, note = measure.time_axis(blank, None)
+    assert axis[1] == 1.0
+    assert "frame index" in note
+
+
+def test_a_trajectory_with_its_own_time_stamps_keeps_them(deposited):
+    traj = _translated(deposited, [[0, 0, 0]] * 12)      # 10 ps apart
+    axis, note = measure.time_axis(traj, 999.0)
+    assert note is None
+    assert axis[1] == pytest.approx(0.01)

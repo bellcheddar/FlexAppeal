@@ -128,6 +128,24 @@ checkbox list in `README.md`.
   any superposition for the same family of reason: `superpose` rotates coordinates
   and leaves the unitcell vectors alone, so a periodic distance taken afterwards
   applies stale box vectors to rotated coordinates.
+- **`series/<cid>.npz` and the trajectory the viewer can step through.** The
+  per-frame series covers the **whole** trajectory rather than the scored window,
+  because DeepFlex draws the discarded head in a different colour and that is how a
+  reader sees what was thrown away. A test asserts the scalar and the series agree:
+  the median of `pose_rmsd_a` over the window has to equal `ligand_rmsd_median`, or
+  the chart and the number beside it describe different trajectories.
+- **One multi-model PDB, not one file per frame.** Around a hundred models, cropped
+  to the pocket and written from the pocket-fitted copy so the receptor holds still
+  and what moves is the ligand. The viewer steps the model index, which is a
+  parameter update; a file per frame makes it tear the structure down and rebuild
+  it, so the canvas blanks and the camera jumps on every step. Without the member
+  the viewer shows a single frame and the trajectory control is absent.
+- **A time axis that is checked rather than assumed.** An `.xtc` carries its own
+  frame times and they are used. Some writers leave them at zero, and a time axis
+  of all zeros collapses every chart to a single point without anything raising, so
+  the fallback is the configured frame spacing and the last resort is the frame
+  index. Both fallbacks add a note saying which, because an axis labelled
+  nanoseconds that is really frame numbers is an error a reader cannot see.
 
 ## 2026-07-27
 
