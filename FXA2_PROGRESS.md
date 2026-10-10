@@ -4,13 +4,18 @@ Running log for the version 2 package writer, specified in `DEEPFLEX_FXA2_SPEC.m
 and driven by `FXA2_BUILD_PROMPT.md`. Rewritten at every step boundary, so an
 interrupted session can be resumed from this file alone.
 
-**Current step:** 9 of 10 (`panels/`, the receptor matrices).
+**Current step:** 10 of 10 (`annotations/` and `depictions/`, which are polish).
 **Validator last reported:** accepted, with `--energies` supplied, and
 **"every sub-score populated: this file would produce a full report."**
-grade, pose, occupancy, interactions, energy, convergence, conformation and
-ranking all **100%**; payload **60%**. Receptor panels are at 0%, which is step 9,
-and `pocket_traj_path` is the one column a spec-conformant file cannot fill
-(divergence 5 below).
+
+| Group | |
+|---|---|
+| grade, pose, occupancy, interactions, energy, convergence, conformation, receptor panels, ranking | **100%** |
+| payload | **80%**, missing only `pocket_traj_path` |
+
+`pocket_traj_path` is the one column a spec-conformant file cannot fill: it is
+read from `structures/<cid>_pocket.xtc` and section 8 bans `.xtc` members
+outright. Divergence 5 below, and it belongs on the DeepFlex side.
 
 ---
 
@@ -43,7 +48,7 @@ Section 12 of the spec, which is also the commit boundaries.
 - [ ] 6. `S_E`, the energies.
 - [x] 7. `S_conv`, the block split and the pose clusters.
 - [x] 8. `S_conf`, the strain excess and the torsions.
-- [ ] 9. `panels/`, the receptor matrices.
+- [x] 9. `panels/`, the receptor matrices.
 - [ ] 10. `annotations/` and `depictions/`.
 
 ## Decisions taken
@@ -335,6 +340,16 @@ spelling, and whatever the reader reads today.
    `payload` group tops out at 80%. The fix belongs on the DeepFlex side: the
    column should accept the multi-model `_scrub.pdb` that section 6.2 asks for,
    which is what the viewer itself already loads by name.
+
+### D16. No tracked distance
+
+`distance_a`, `distance_select_a`, `tracked_distance_mean` and
+`tracked_distance_select_mean` are all omitted. In DeepFlex's pipeline the tracked
+distance is a pair of atoms somebody chose for that study; FlexAppeal's option
+registry has no equivalent, and inventing one (the ligand centroid to the pocket
+centroid, say) would put a number on the tracked-distance panel that nobody asked
+for and that is already in `series/` as `pocket_offset_a`. The cost is that one
+panel, which the spec's own table names.
 
 ## What FlexAppeal cannot compute
 

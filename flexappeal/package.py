@@ -419,9 +419,8 @@ def assemble(sources: list[Source], *, package_name: str,
             with_energies.append(cid)
         terms = _energy_terms(energies, compound, receptor)
         if terms:
-            summary = dict(measured.panels_summary or {})
-            summary["mmpbsa_terms"] = terms
-            measured.panels_summary = summary
+            measured.panels_summary = {**(measured.panels_summary or {}),
+                                       "mmpbsa_terms": terms}
         _add(package, measured, panel_lines, conformer_lines)
         package.register_receptor(
             receptor,

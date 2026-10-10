@@ -105,6 +105,12 @@ HYSTERESIS_DEG = 20.0
 # says which was simulated, so the first assignment that sanitises is taken.
 CANDIDATE_CHARGES = (0, 1, -1, 2, -2)
 
+# --- receptor panels --------------------------------------------------------
+# Both matrices are reduced to at most this on a side before being written. A
+# 2,000-frame 2D RMSD is four million floats and the panel is a few hundred
+# pixels wide, so the reduction belongs here rather than at the far end.
+MAX_PANEL_SIDE = fxa2.MAX_MATRIX_SIDE
+
 
 class MeasureError(ValueError):
     """A complex could not be measured. Recorded as a failure, not a bad grade."""
@@ -1217,6 +1223,106 @@ def strain_records(traj, atoms: np.ndarray, start: int, time_ns: np.ndarray
 
 
 # ===========================================================================
+#  Receptor panels, section 5.2
+# ===========================================================================
+
+
+def _summarise(values: np.ndarray | None) -> dict[str, float | None]:
+    """The five numbers the layer manifest carries for a series."""
+    if values is None or values.size == 0:
+        return {"mean": None, "sd": None, "min": None, "max": None, "last": None}
+    return {
+        "mean": float(np.mean(values)), "sd": float(np.std(values)),
+        "min": float(np.min(values)), "max": float(np.max(values)),
+        "last": float(values[-1]),
+    }
+
+
+def receptor_panels(traj, fitted, receptor_ca: np.ndarray, start: int,
+                    time_ns: np.ndarray, rmsd_ca: np.ndarray
+                    ) -> tuple[dict[str, np.ndarray], dict[str, Any]]:
+    """The receptor's own flexibility: series, per-residue RMSF and two matrices.
+
+    `fitted` is the trajectory already superposed on the receptor Calpha, so the
+    RMSF and the correlations describe internal motion rather than the whole
+    molecule tumbling.
+    """
+    import mdtraj as md  # noqa: PLC0415
+
+    topology = traj.topology
+    protein = topology.select("protein")
+
+    arrays: dict[str, np.ndarray] = {
+        "time_ns": time_ns.astype(np.float32),
+        "rmsd_ca_a": rmsd_ca.astype(np.float32),
+    }
+    summary: dict[str, Any] = {"rmsd_ca": _summarise(rmsd_ca[start:])}
+
+    if len(protein):
+        radgyr = md.compute_rg(traj.atom_slice(protein)) * 10.0
+        arrays["radgyr_a"] = radgyr.astype(np.float32)
+        summary["radgyr"] = _summarise(radgyr[start:])
+
+    # Per-residue Calpha fluctuation about the mean position over the scored
+    # window. `rmsf_resid` and `rmsf_a` must be the same length and the same
+    # order, and the report marks pocket residues on this plot by looking their
+    # numbers up in pocket/<cid>.json, so the numbering has to agree with it:
+    # resSeq in both, ascending.
+    if len(receptor_ca) >= 3:
+        coords = fitted.xyz[start:][:, receptor_ca, :] * 10.0
+        mean_position = coords.mean(axis=0)
+        fluctuation = np.sqrt(((coords - mean_position) ** 2).sum(axis=2).mean(axis=0))
+        resids = np.array([topology.atom(int(i)).residue.resSeq for i in receptor_ca],
+                          dtype=np.int32)
+        order = np.argsort(resids, kind="stable")
+        arrays["rmsf_resid"] = resids[order]
+        arrays["rmsf_a"] = fluctuation[order].astype(np.float32)
+        summary["rmsf"] = _summarise(fluctuation)
+        summary["n_rmsf_residues"] = int(len(resids))
+
+        # Frame against frame Calpha RMSD, reduced before it is written.
+        stride = max(1, int(np.ceil(traj.n_frames / MAX_PANEL_SIDE)))
+        sample = fitted[::stride]
+        matrix = np.empty((sample.n_frames, sample.n_frames), dtype=np.float32)
+        for frame in range(sample.n_frames):
+            matrix[frame] = md.rmsd(sample, sample, frame,
+                                    atom_indices=receptor_ca) * 10.0
+        arrays["rmsd_2d"] = matrix
+
+        # Residue cross-correlation, from the same fitted Calpha displacements.
+        # Residues are decimated rather than the matrix being cropped, so the
+        # panel still spans the whole chain when there are more than 500 of them.
+        block = max(1, int(np.ceil(len(receptor_ca) / MAX_PANEL_SIDE)))
+        selected = np.arange(len(receptor_ca))[::block]
+        displacement = (coords[:, selected, :] - mean_position[selected]).reshape(
+            coords.shape[0], -1, 3)
+        dot = np.einsum("fid,fjd->ij", displacement, displacement) / coords.shape[0]
+        variance = np.sqrt(np.diag(dot))
+        with np.errstate(divide="ignore", invalid="ignore"):
+            correlation = dot / np.outer(variance, variance)
+        arrays["cross_correlation"] = np.nan_to_num(
+            np.clip(correlation, -1.0, 1.0), nan=0.0).astype(np.float32)
+        arrays["dccm_resid"] = resids[order][selected] if len(order) == len(resids) \
+            else resids[selected]
+
+        # The first two principal components of the fitted Calpha coordinates,
+        # over the whole trajectory so the discarded head is visible on the plot
+        # with everything else.
+        whole = fitted.xyz[:, receptor_ca, :].reshape(traj.n_frames, -1) * 10.0
+        centred = whole - whole.mean(axis=0)
+        if traj.n_frames > 2:
+            # SVD rather than an eigendecomposition of the covariance: the
+            # covariance of 3N coordinates is 3N by 3N, which for a 200-residue
+            # receptor is a 600 by 600 matrix built to extract two vectors.
+            _, _, components = np.linalg.svd(centred, full_matrices=False)
+            projection = centred @ components[:2].T
+            arrays["pc1_package"] = projection[:, 0].astype(np.float32)
+            arrays["pc2_package"] = projection[:, 1].astype(np.float32)
+
+    return arrays, summary
+
+
+# ===========================================================================
 #  The whole measurement for one complex
 # ===========================================================================
 
@@ -1308,7 +1414,8 @@ def _measure(traj, cid: str, receptor: str, ligand: str, resnames: list[str],
     pose_fit = _fit(traj, pocket_ca)
     pose_rmsd = _drift_rmsd(pose_fit, heavy)
     inplace_rmsd = _drift_rmsd(_fit(traj, heavy), heavy)
-    receptor_rmsd = _drift_rmsd(_fit(traj, receptor_ca), receptor_ca) \
+    receptor_fit = _fit(traj, receptor_ca) if len(receptor_ca) >= 3 else pose_fit
+    receptor_rmsd = _drift_rmsd(receptor_fit, receptor_ca) \
         if len(receptor_ca) >= 3 else np.zeros(traj.n_frames)
 
     # Centroid displacement, measured from the ligand's OWN frame-0 centroid and
@@ -1444,6 +1551,20 @@ def _measure(traj, cid: str, receptor: str, ligand: str, resnames: list[str],
         structures[f"{cid}_cluster{record['cluster_id']}.pdb"] = pocket_pdb(
             pose_fit, frame, crop_atoms, resnames)
 
+    # ---- the receptor's own panels -----------------------------------------
+    panels, panels_summary = receptor_panels(
+        traj, receptor_fit, receptor_ca, start, time_ns, receptor_rmsd)
+    for key, series_key in (("rmsd_ca", "rmsd_ca"), ("radgyr", "radgyr"),
+                            ("rmsf", "rmsf_ca")):
+        block = panels_summary.get(key) or {}
+        if block.get("mean") is not None:
+            metrics[f"{series_key}_mean"] = block["mean"]
+            metrics[f"{series_key}_max"] = block["max"]
+            if series_key == "radgyr":
+                metrics["radgyr_sd"] = block["sd"]
+    if panels_summary.get("n_rmsf_residues"):
+        metrics["n_rmsf_residues"] = panels_summary["n_rmsf_residues"]
+
     # ---- ligand strain -----------------------------------------------------
     strain_metrics, conformer, strain_notes = strain_records(
         traj, atoms, start, time_ns)
@@ -1493,5 +1614,6 @@ def _measure(traj, cid: str, receptor: str, ligand: str, resnames: list[str],
         metrics=metrics, pocket=pocket_record, structures=structures,
         series=series, interactions=interactions, summary=summary,
         barcode=barcode, conformer=conformer or None,
-        conformer_summary=conformer_line or None, notes=notes,
+        conformer_summary=conformer_line or None,
+        panels=panels or None, panels_summary=panels_summary or None, notes=notes,
     )

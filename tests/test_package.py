@@ -1262,3 +1262,124 @@ def test_a_torsion_tracks_the_heaviest_neighbour(real_source):
     for i, j, k, l in torsions:
         assert mol.GetAtomWithIdx(i).GetMass() == pytest.approx(heaviest_mass(j, k))
         assert mol.GetAtomWithIdx(l).GetMass() == pytest.approx(heaviest_mass(k, j))
+
+
+# ---------------------------------------------------------------------------
+#  panels/: the receptor's own flexibility, section 5.2
+# ---------------------------------------------------------------------------
+
+
+def test_the_panels_carry_the_series_and_both_matrices(written):
+    read_back = fxa2.read(written)
+    for cid in read_back.complexes:
+        panels = read_back.arrays(f"panels/{cid}.npz")
+        assert panels is not None
+        frames = read_back.metrics(cid)["n_frames"]
+        for key in ("time_ns", "rmsd_ca_a", "radgyr_a", "pc1_package",
+                    "pc2_package"):
+            assert panels[key].dtype == np.float32, key
+            assert panels[key].shape == (frames,), key
+        for key in ("rmsd_2d", "cross_correlation"):
+            assert panels[key].dtype == np.float32
+        assert panels["rmsf_resid"].dtype == np.int32
+        assert panels["dccm_resid"].dtype == np.int32
+
+
+def test_the_rmsf_arrays_share_a_length_and_an_order(written):
+    """The report marks pocket residues on this plot by number, so the two
+    arrays have to be the same length and the same order."""
+    read_back = fxa2.read(written)
+    for cid in read_back.complexes:
+        panels = read_back.arrays(f"panels/{cid}.npz")
+        assert panels["rmsf_resid"].shape == panels["rmsf_a"].shape
+        resids = panels["rmsf_resid"]
+        assert list(resids) == sorted(resids)
+
+
+def test_the_rmsf_numbering_agrees_with_the_pocket(written):
+    """The pocket residues are marked on this plot by looking their numbers up.
+
+    If the two disagree, the plot marks the wrong residues or none, and nothing
+    about either file on its own would look wrong.
+    """
+    read_back = fxa2.read(written)
+    for cid in read_back.complexes:
+        panels = read_back.arrays(f"panels/{cid}.npz")
+        pocket = set(read_back.pocket(cid)["pocket_residues_filtered"])
+        assert pocket <= set(int(r) for r in panels["rmsf_resid"]), cid
+
+
+def test_both_matrices_are_square_and_within_five_hundred(written):
+    read_back = fxa2.read(written)
+    for cid in read_back.complexes:
+        panels = read_back.arrays(f"panels/{cid}.npz")
+        for key in ("rmsd_2d", "cross_correlation"):
+            matrix = panels[key]
+            assert matrix.ndim == 2
+            assert matrix.shape[0] == matrix.shape[1]
+            assert matrix.shape[0] <= 500, (key, matrix.shape)
+        assert panels["dccm_resid"].shape[0] == panels["cross_correlation"].shape[0]
+
+
+def test_the_two_dimensional_rmsd_is_a_distance_matrix(written):
+    read_back = fxa2.read(written)
+    matrix = read_back.arrays(f"panels/{read_back.complexes[0]}.npz")["rmsd_2d"]
+    # A frame against itself is zero to within MDTraj's quaternion solver, which
+    # leaves a few thousandths of an angstrom on some frames.
+    assert np.allclose(np.diag(matrix), 0.0, atol=0.05)
+    assert np.allclose(matrix, matrix.T, atol=1e-3)
+    assert matrix.min() >= 0.0
+
+
+def test_the_cross_correlation_is_a_correlation(written):
+    read_back = fxa2.read(written)
+    matrix = read_back.arrays(
+        f"panels/{read_back.complexes[0]}.npz")["cross_correlation"]
+    assert np.allclose(np.diag(matrix), 1.0, atol=1e-3)
+    assert matrix.min() >= -1.0 and matrix.max() <= 1.0
+    assert np.allclose(matrix, matrix.T, atol=1e-3)
+
+
+def test_the_radius_of_gyration_is_in_angstrom(written):
+    """Trypsin's is about 16 A. In nanometres it would read 1.6."""
+    read_back = fxa2.read(written)
+    for cid in read_back.complexes:
+        assert 14.0 < read_back.metrics(cid)["radgyr_mean"] < 19.0
+
+
+def test_the_panel_scalars_are_the_series_over_the_window(written):
+    read_back = fxa2.read(written)
+    for cid in read_back.complexes:
+        panels = read_back.arrays(f"panels/{cid}.npz")
+        metrics = read_back.metrics(cid)
+        start = metrics["equil_start_frame"]
+        assert float(panels["rmsd_ca_a"][start:].mean()) == pytest.approx(
+            metrics["rmsd_ca_mean"], rel=1e-4)
+        assert float(panels["radgyr_a"][start:].mean()) == pytest.approx(
+            metrics["radgyr_mean"], rel=1e-4)
+        assert float(panels["rmsf_a"].max()) == pytest.approx(
+            metrics["rmsf_ca_max"], rel=1e-4)
+        assert metrics["n_rmsf_residues"] == len(panels["rmsf_resid"])
+
+
+def test_the_panels_manifest_carries_the_summaries(written):
+    """DeepFlex reads the receptor flexibility rows from here, not from metrics/."""
+    read_back = fxa2.read(written)
+    lines = read_back.members["manifests/panels.jsonl"].decode().splitlines()
+    assert len(lines) == len(read_back.complexes)
+    for line in lines:
+        record = json.loads(line)
+        assert record["complex_id"] in read_back.complexes
+        for key in ("rmsd_ca", "radgyr", "rmsf"):
+            assert set(record[key]) == {"mean", "sd", "min", "max", "last"}
+        assert record["n_rmsf_residues"] > 0
+
+
+def test_the_conformer_manifest_is_written_when_the_strain_was_measured(real_source):
+    """The six conformation columns are read from here and stayed NULL without it."""
+    built, _ = package.assemble([real_source], package_name="real")
+    assert "manifests/conformer.jsonl" in built.members
+    record = json.loads(
+        built.members["manifests/conformer.jsonl"].decode().splitlines()[0])
+    assert record["n_rotatable"] == 2
+    assert "strain_kcal" in record

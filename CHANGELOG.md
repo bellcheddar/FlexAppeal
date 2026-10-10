@@ -233,6 +233,26 @@ checkbox list in `README.md`.
   with `openff-toolkit`, so the solve does not change. Named for the same reason as
   `rich` and `psutil` beside it, and imported lazily, so a build without it leaves
   the conformation sub-score pending rather than failing.
+- **`panels/`: the receptor's own flexibility.** Calpha RMSD, radius of gyration,
+  per-residue RMSF, a frame-against-frame RMSD matrix, a residue cross-correlation
+  matrix and the first two principal components, all from the receptor-fitted copy
+  so they describe internal motion rather than the whole molecule tumbling.
+
+  Both matrices are reduced to at most 500 on a side before being written, because
+  a 2,000-frame 2D RMSD is four million floats and the panel is a few hundred
+  pixels wide. The cross-correlation decimates *residues* rather than cropping the
+  matrix, so a receptor with more than 500 of them still gets a panel spanning the
+  whole chain rather than its first quarter. The components come from an SVD of the
+  centred coordinates rather than an eigendecomposition of their covariance, which
+  for a 200-residue receptor would build a 600 by 600 matrix to extract two
+  vectors.
+
+  `rmsf_resid` and `rmsf_a` share a length and an order, and a test asserts the
+  numbering agrees with `pocket/<cid>.json`: the report marks pocket residues on
+  this plot by looking their numbers up, so a disagreement marks the wrong
+  residues or none, and nothing about either file on its own would look wrong.
+  Trypsin's radius of gyration comes out at 16.3 A, which is the published value
+  and reads 1.6 if the unit conversion is missed.
 
 ## 2026-07-27
 
