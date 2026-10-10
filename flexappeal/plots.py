@@ -1203,7 +1203,15 @@ def build_binding(measured) -> list[dict[str, Any]]:
         figure = _plain(figure)
         figure["layout"]["title"] = {"text": ""}
         figure["layout"]["margin"] = dict(figure["layout"].get("margin", {}), t=12)
-        panels.append({"id": key, "title": title, "figure": figure,
+        # Namespaced, because these panels share a page with `build_all`'s and
+        # the id becomes a DOM id. `clusters` collided: the whole-system panels
+        # already use it for conformational clustering, so a ligand run rendered
+        # two elements with id="plot-clusters". Both still drew, because the
+        # bootstrap walks nodes rather than ids, but the document was invalid and
+        # anything reaching for one by id found whichever came first. Prefixing
+        # here makes the clash impossible rather than fixing the one instance of
+        # it that happened to exist.
+        panels.append({"id": f"binding-{key}", "title": title, "figure": figure,
                        "blurb": blurb, "wide": wide})
 
     add("pose", "Ligand pose", pose_stability(measured),

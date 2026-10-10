@@ -335,6 +335,14 @@ checkbox list in `README.md`.
   Loading a frame as a structure instead is what makes a scrub flash and jump.
   Dragging pauses the loop, because a loop that keeps advancing under the hand on
   the control is fighting it.
+- **The binding panel ids are namespaced**, because the id becomes a DOM id and
+  these panels share a page with the whole-system ones. `clusters` collided:
+  conformational clustering above, pose clustering below, two elements with
+  `id="plot-clusters"`. Both still drew, because the bootstrap walks nodes rather
+  than ids, which is exactly why it went unnoticed; the document was invalid and
+  anything reaching for one by id found whichever came first. A test now asserts
+  no plot id appears twice on a page, so the next collision fails rather than
+  renders.
 - **The cursor is appended to each panel's own shapes, not substituted for
   them.** Several binding panels carry their own: the shaded equilibration head,
   the 5 Å drift gate, the contact threshold. Replacing the list wiped all of them

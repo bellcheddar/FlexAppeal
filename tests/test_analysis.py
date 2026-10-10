@@ -332,9 +332,10 @@ def test_every_binding_panel_builds_for_a_real_complex(measured):
     panels = plots.build_binding(measured)
     ids = {panel["id"] for panel in panels}
     # The six sub-score inputs, the matrices and the ligand's own chemistry.
-    assert {"pose", "centroid", "occupancy", "interactions", "barcode",
-            "clusters", "strain", "torsions", "ligand_rmsf", "pocket_rmsf",
-            "rmsd_2d", "dccm"} <= ids
+    assert {"binding-pose", "binding-centroid", "binding-occupancy",
+            "binding-interactions", "binding-barcode", "binding-clusters",
+            "binding-strain", "binding-torsions", "binding-ligand_rmsf",
+            "binding-pocket_rmsf", "binding-rmsd_2d", "binding-dccm"} <= ids
 
 
 def test_every_binding_panel_is_json_serialisable(measured):
@@ -368,7 +369,7 @@ def test_the_page_weight_stays_reasonable(measured):
 
 def test_the_matrices_are_reduced_for_the_wire(measured):
     panels = {p["id"]: p for p in plots.build_binding(measured)}
-    for key in ("rmsd_2d", "dccm"):
+    for key in ("binding-rmsd_2d", "binding-dccm"):
         z = panels[key]["figure"]["data"][0]["z"]
         assert len(z) <= plots.WIRE_MATRIX_SIDE, (key, len(z))
         assert len(z[0]) == len(z), "a reduced matrix must stay square"
@@ -377,7 +378,7 @@ def test_the_matrices_are_reduced_for_the_wire(measured):
 def test_the_matrix_axes_stay_the_same_length_as_the_matrix(measured):
     """A decimated matrix with an undecimated axis silently mislabels every cell."""
     panels = {p["id"]: p for p in plots.build_binding(measured)}
-    for key in ("rmsd_2d", "dccm"):
+    for key in ("binding-rmsd_2d", "binding-dccm"):
         trace = panels[key]["figure"]["data"][0]
         assert len(trace["x"]) == len(trace["z"]), key
         assert len(trace["y"]) == len(trace["z"]), key
@@ -386,7 +387,7 @@ def test_the_matrix_axes_stay_the_same_length_as_the_matrix(measured):
 def test_the_pose_panel_shows_both_fits(measured):
     """Fitted on the pocket and fitted on the ligand: the pair is the point."""
     panels = {p["id"]: p for p in plots.build_binding(measured)}
-    names = {trace["name"] for trace in panels["pose"]["figure"]["data"]}
+    names = {trace["name"] for trace in panels["binding-pose"]["figure"]["data"]}
     assert names == {"pocket fit", "ligand fit"}
 
 
@@ -395,21 +396,21 @@ def test_the_discarded_head_is_shaded_on_the_scored_panels(measured):
     if measured.metrics["equil_start_frame"] == 0:
         pytest.skip("nothing was discarded in this run")
     panels = {p["id"]: p for p in plots.build_binding(measured)}
-    shapes = panels["pose"]["figure"]["layout"]["shapes"]
+    shapes = panels["binding-pose"]["figure"]["layout"]["shapes"]
     assert any(s["type"] == "rect" for s in shapes)
 
 
 def test_the_occupancy_panel_draws_the_threshold(measured):
     """The line is what `in_pocket_fraction` counts, so it has to be visible."""
     panels = {p["id"]: p for p in plots.build_binding(measured)}
-    shapes = panels["occupancy"]["figure"]["layout"]["shapes"]
+    shapes = panels["binding-occupancy"]["figure"]["layout"]["shapes"]
     assert any(s["type"] == "line" for s in shapes)
 
 
 def test_the_interaction_panel_is_ordered_by_occupancy(measured):
     """The question is which contacts carried the pose, not where they sit."""
     panels = {p["id"]: p for p in plots.build_binding(measured)}
-    values = panels["interactions"]["figure"]["data"][0]["x"]
+    values = panels["binding-interactions"]["figure"]["data"][0]["x"]
     assert values == sorted(values)
     assert all(0.0 <= v <= 1.0 for v in values)
 
@@ -452,10 +453,11 @@ def test_the_panels_survive_a_server_without_scipy_or_rdkit():
                 sys.modules[name] = module
 
     # The nine that need neither still draw.
-    assert {"pose", "centroid", "occupancy", "interactions", "barcode",
-            "ligand_rmsf", "pocket_rmsf", "rmsd_2d", "dccm"} <= ids
+    assert {"binding-pose", "binding-centroid", "binding-occupancy",
+            "binding-interactions", "binding-barcode", "binding-ligand_rmsf",
+            "binding-pocket_rmsf", "binding-rmsd_2d", "binding-dccm"} <= ids
     # The three that do are absent rather than broken.
-    assert not ids & {"clusters", "strain", "torsions"}
+    assert not ids & {"binding-clusters", "binding-strain", "binding-torsions"}
 
 
 def test_a_measurement_that_raises_costs_the_panels_not_the_page(monkeypatch):

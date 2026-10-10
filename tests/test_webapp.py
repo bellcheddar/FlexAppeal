@@ -1270,7 +1270,7 @@ def test_a_ligand_upload_shows_the_binding_panels(client):
     assert "The binding site" in body
     assert "The whole system" in body
     for panel in ("pose", "occupancy", "interactions", "barcode"):
-        assert f'id="plot-{panel}"' in body, panel
+        assert f'id="plot-binding-{panel}"' in body, panel
 
 
 def test_the_binding_section_says_there_is_no_grade(client):
@@ -1352,3 +1352,29 @@ def test_the_viewer_blurb_does_not_promise_a_slider_for_one_frame(client, tmp_pa
             rebuilt.writestr(name, blob)
     body = _analyse(client, buffer.getvalue()).get_data(as_text=True)
     assert 'id="scrub"' not in body
+
+
+def test_no_plot_id_appears_twice_on_a_page(client):
+    """A duplicate DOM id is invalid, and whoever reaches for one by id loses.
+
+    The binding panels share a page with the whole-system ones and both sets name
+    their panels, so `clusters` collided: conformational clustering above, pose
+    clustering below, two elements with id="plot-clusters". Both still drew,
+    because the bootstrap walks nodes rather than ids, which is exactly why it
+    went unnoticed.
+    """
+    import collections
+    import re
+
+    fixture = FIXTURES / "trypsin_ben.fxa"
+    if not fixture.is_file():
+        pytest.skip("tests/fixtures/trypsin_ben.fxa is missing")
+    pytest.importorskip("mdtraj")
+    from flexappeal import webapp as webapp_mod
+
+    webapp_mod._BINDING_CACHE.clear()
+    body = _analyse(client, fixture.read_bytes()).get_data(as_text=True)
+    ids = re.findall(r'id="(plot-[A-Za-z0-9_-]+)"', body)
+    repeated = [name for name, n in collections.Counter(ids).items() if n > 1]
+    assert not repeated, f"duplicate plot ids: {repeated}"
+    assert len(ids) > 15, "expected both panel groups on the page"
