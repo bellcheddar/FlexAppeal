@@ -13,7 +13,7 @@ phase and at least every 30 minutes during long compute (section 0.1 rule 5).
 | **2 Start models** | not started | ABL1 seeds (2GQG, 2HYY); β2AR refined models from GPCRdb |
 | **3 System build + smoke** | not started | Solvated ABL1, POPC-embedded β2AR, Tier 1 (1 ns per row) |
 | **4 Analysis module** | not started | `flexappeal/refstates/` over the vendored `sse_comparison` |
-| **5 Production** | not started | Tier 2, four runs at 100 ns (400 ns), two ligand-bound |
+| **5 Production** | not started | Tier 2, four runs at 50 ns (200 ns), two ligand-bound |
 | **6 App** | not started | Two entries in the existing Runs library, trajectory explorer |
 | **7 Findings** | not started | `FINDINGS.md`, deliverables |
 
@@ -45,19 +45,20 @@ than a build problem.
 
 Two things the spec leaves to run time and that shape everything after them:
 
-1. **Compute budget (Gate G1): inside the ceiling, but only just.** The matrix is
-   four runs (D007, D008): ABL1 with imatinib from DFG-out and apo from DFG-in,
-   β2AR with carazolol from inactive and apo from active. 400 ns in total.
+1. **Compute budget (Gate G1): settled, with real headroom.** Four runs of 50 ns
+   (D007, D008, D009): ABL1 with imatinib from DFG-out and apo from DFG-in, β2AR
+   with carazolol from inactive and apo from active. 200 ns in total.
 
    | Row | Atoms | ns/day | Hours | Runs | Hours |
    |---|---|---|---|---|---|
-   | ABL1, water | ~50 k | ~152 | 15.8 | 2 | 32 |
-   | β2AR, POPC | ~95 k | ~80 | 30.0 | 2 | 60 |
-   | | | | | **4** | **92** |
+   | ABL1, water | ~50 k | ~152 | 7.9 | 2 | 16 |
+   | β2AR, POPC | ~95 k | ~80 | 15.0 | 2 | 30 |
+   | | | | | **4** | **46** |
 
-   **3.8 days against a 96 hour ceiling**, so G1 does not open on the projection.
-   Four hours of headroom is thin: the membrane rows at 70 ns/day rather than 80
-   put the total at 100 hours and open it. Phase 3 measures both systems.
+   **1.9 days against a 96 hour ceiling, with 50 hours spare.** Every run could
+   be redone once and the build would still come in at 61 hours, which matters
+   because one replica per row means a failed run costs its whole row. Phase 3
+   measures both systems and replaces these projections.
 
 2. **β2AR start models.** The spec's primary route is a GPCRdb *refined* model,
    and it says plainly that not every entry has one (2RH1 and 3SN6 both report

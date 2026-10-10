@@ -269,3 +269,39 @@ measures it.
 
 *Reverse:* add the protonation arm back as run 5, or restore D007's five-run
 matrix.
+
+---
+
+## D009 - Tier 2 is 50 ns a run, not 100
+
+**2026-10-10, phase 1.** Ruled by Marc. Four runs of 50 ns, 200 ns in total,
+about **46 GPU-hours or 1.9 days**.
+
+**The reason is not the compute saving, although there is one.** Neither length
+reaches the transitions these two systems are known for. The spec says so itself
+about the receptor: the β2AR active-to-inactive relaxation Dror 2011 measured
+happened on the microsecond scale, and section 9 already records its absence at
+100 ns as an expected limitation rather than a failure. The ABL1 DFG flip is the
+same: Shan 2009, the paper the protonation arm came from, puts it on microseconds
+too. 100 ns is twenty times short of the headline event and 50 ns is forty times
+short. Both sit in the same regime, where what is observed is motif fluctuation
+around the starting state rather than the transition, and doubling the run does
+not cross that gap.
+
+**What decided it was the single replica.** D006 and D008 left one trajectory per
+row, so a run that goes wrong costs the whole row and there is no second replica
+to carry it. At 100 ns the budget is 92 hours against a 96 hour ceiling, and one
+β2AR redo puts the build at 122 hours and opens G1. At 50 ns the budget is 46
+hours and every run could be redone once and still come in at 61. Headroom goes
+from four hours to fifty.
+
+**What it costs, stated rather than glossed.** P5's window is "the final 20 ns",
+which is a fifth of a 100 ns run and two fifths of a 50 ns one, so it is less
+independent of the start. And if a flip did happen spontaneously, a 100 ns run is
+twice as likely to catch it, which is a small difference in an already small
+probability. 500 frames at 100 ps is the same frame count the committed lysozyme
+example packs, so no panel is short of data.
+
+*Reverse:* one number in the run matrix. Re-running longer needs no change to the
+pipeline, and the analysis keys on `run_id`, so a longer re-run appears as another
+row rather than replacing anything.

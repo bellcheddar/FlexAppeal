@@ -52,3 +52,11 @@ Timestamped, one line per meaningful event, for the reference-state build
   motif would have to move back through, where dasatinib holds the state the
   kinase reaches most readily anyway. Protonation arm dropped. Four runs, 400 ns,
   projected 92 GPU-hours, inside the 96 hour ceiling with four hours to spare.
+- `15:3x` `flexappeal/refstates/sources.py` written and fetching live. ABL1
+  resolves to kinase_ID 392 and the assertion against the documented id holds.
+  Ensembles: 12 active-like, 45 DFG-out inactive, 4 Src-like from 158 structures;
+  b2AR 84 active and 32 inactive from 135, no intermediates. All four seed
+  structures land in the ensembles they should, which is the first internal
+  consistency check that the filters are not nonsense.
+- `15:4x` Marc: lock Tier 2 at 50 ns (D009). Four runs, 200 ns, 46 GPU-hours,
+  50 hours of headroom under the ceiling.
