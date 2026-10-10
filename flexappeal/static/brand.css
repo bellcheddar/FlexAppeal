@@ -506,10 +506,17 @@ a { color: var(--md-primary); }
   background: var(--md-bg-alt); border: 1px solid var(--md-border);
   margin: 6px 0 26px;
 }
+/* The composite bar, in its own band's colour, the same three as the rows and
+   the dial. A neutral gradient here while every row below was coloured made the
+   one number that carries the letter the only one you could not read at a
+   glance. */
 .md-grade-fill {
   position: absolute; inset: 0 auto 0 0; border-radius: 4px;
-  background: linear-gradient(90deg, #9fb3c8, #4a6c8f);
+  background: #4a6c8f;
 }
+.md-grade-fill.is-A { background: #00875a; }
+.md-grade-fill.is-B { background: #c08a00; }
+.md-grade-fill.is-C { background: var(--md-accent-red); }
 .md-grade-tick { position: absolute; top: -3px; bottom: -3px; width: 1px;
   background: var(--md-text-muted); }
 .md-grade-tick::after {
@@ -580,6 +587,82 @@ a { color: var(--md-primary); }
    already position: relative, but the diagram is positioned against the stage so
    that it does not become a child of Mol*'s own DOM, which Mol* rebuilds. */
 .md-viewer-stage { position: relative; }
+
+/* Mol*'s own viewport chrome, restyled onto the dark stage.
+   Its stock controls are a light-grey strip, and on a near-black canvas that
+   reads as a rendering fault; its icons are dark grey on that strip, so the
+   buttons are close to invisible against their own background. Transparent
+   panels and light icons instead.
+
+   Styled here rather than by editing the vendored molstar.css, which is pinned
+   and replaced wholesale on an upgrade.
+
+   `.msp-semi-transparent-background` is the one that matters and the one that
+   is easy to miss: it is the element the icons actually sit on, so naming only
+   the two control wrappers leaves the pale column standing and looks fixed
+   without being fixed. Taken from DeepFlex, which made exactly that mistake
+   first and recorded it. */
+#molstar-viewer .msp-plugin,
+#molstar-viewer .msp-viewport,
+#molstar-viewer .msp-viewport-controls,
+#molstar-viewer .msp-viewport-controls-buttons,
+#molstar-viewer .msp-semi-transparent-background,
+#molstar-viewer .msp-hover-box-body,
+#molstar-viewer .msp-hover-box-body .msp-flex-row,
+#molstar-viewer .msp-viewport-controls .msp-flex-row {
+  background: transparent !important;
+}
+/* One horizontal row along the top right instead of a vertical stack down the
+   side. The stack runs the full height of the stage and crosses the 2D diagram
+   in the bottom right corner; a single row reads as chrome and leaves the
+   structure the middle of the frame. */
+#molstar-viewer .msp-viewport-controls-buttons {
+  display: flex !important;
+  flex-direction: row-reverse !important;
+  align-items: flex-start !important;
+  gap: 4px !important;
+}
+#molstar-viewer .msp-viewport-controls-buttons > * {
+  display: flex !important;
+  flex-direction: row-reverse !important;
+  gap: 4px !important;
+  margin: 0 !important;
+  box-shadow: none !important;
+}
+/* The panels a control opens are positioned against their own group, so only
+   the row they sit in is turned sideways and they keep their own stacking. */
+#molstar-viewer .msp-hover-box-body,
+#molstar-viewer .msp-hover-box-body > * {
+  flex-direction: column !important;
+}
+#molstar-viewer .msp-viewport-controls-buttons .msp-btn,
+#molstar-viewer .msp-viewport-controls-buttons .msp-btn-icon,
+#molstar-viewer .msp-viewport-controls .msp-btn,
+#molstar-viewer .msp-viewport-controls .msp-btn-icon {
+  background: rgba(7, 8, 15, .72) !important;
+  color: rgba(255, 255, 255, .88) !important;
+  border: 1px solid rgba(255, 255, 255, .14) !important;
+  border-radius: var(--md-radius) !important;
+  box-shadow: none !important;
+}
+#molstar-viewer .msp-viewport-controls-buttons .msp-btn:hover,
+#molstar-viewer .msp-viewport-controls .msp-btn:hover {
+  background: rgba(16, 20, 36, .92) !important;
+  border-color: #00F5D4 !important;
+}
+#molstar-viewer .msp-viewport-controls-buttons .msp-btn svg,
+#molstar-viewer .msp-viewport-controls .msp-btn svg,
+#molstar-viewer .msp-icon svg {
+  fill: rgba(255, 255, 255, .88) !important;
+}
+/* Mol*'s own 1px frame, a pale cream that belongs to no palette here. It is on
+   `.msp-plugin-content` inside the canvas wrapper, which is why removing the
+   border from the stage leaves it standing: that one is ours and this one is
+   the vendored stylesheet's. */
+#molstar-viewer .msp-plugin-content {
+  border: 0 !important;
+  border-radius: inherit !important;
+}
 
 /* The flat ligand diagram, bottom right of the stage. In three dimensions a
    mobile tail is hidden behind whatever it is moving in front of, which is the

@@ -1503,3 +1503,53 @@ def test_no_plot_id_appears_twice_on_a_page(client):
     repeated = [name for name, n in collections.Counter(ids).items() if n > 1]
     assert not repeated, f"duplicate plot ids: {repeated}"
     assert len(ids) > 15, "expected both panel groups on the page"
+
+
+@pytest.mark.skipif(not _example_built(), reason="the example run has not been built")
+def test_the_composite_bar_and_the_dial_agree_on_the_band(client):
+    """One band, three places: the dial, the composite bar and each row.
+
+    A neutral composite bar while every row below was coloured left the one
+    number that carries the letter as the only one a reader could not take in
+    at a glance.
+    """
+    import re
+
+    pytest.importorskip("mdtraj")
+    from flexappeal import webapp as webapp_mod
+
+    webapp_mod._BINDING_CACHE.clear()
+    body = client.get("/example").get_data(as_text=True)
+
+    dial = re.search(r"md-grade-dial md-grade-(\w+)", body).group(1)
+    fill = re.search(r"md-grade-fill is-(\w+)", body).group(1)
+    assert dial == fill, (dial, fill)
+    assert dial in ("A", "B", "C")
+
+
+@pytest.mark.skipif(not _example_built(), reason="the example run has not been built")
+def test_the_viewer_chrome_is_restyled_off_the_stock_grey(client):
+    """Mol*'s stock controls are a light-grey strip with dark-grey icons, which
+    on a near-black canvas reads as a rendering fault.
+
+    `.msp-semi-transparent-background` is the one that has to be named: it is
+    the element the icons sit on, so overriding only the two control wrappers
+    leaves the pale column standing and looks fixed without being fixed.
+    """
+    from flexappeal.webapp import REPO_ROOT
+
+    css = (REPO_ROOT / "flexappeal" / "static" / "brand.css").read_text()
+    for selector in ("#molstar-viewer .msp-viewport-controls",
+                     "#molstar-viewer .msp-semi-transparent-background",
+                     "#molstar-viewer .msp-plugin-content"):
+        assert selector in css, selector
+
+
+@pytest.mark.skipif(not _example_built(), reason="the example run has not been built")
+def test_the_ligand_is_drawn_without_hydrogens(client):
+    """They treble the stick count on a small molecule and bury the heavy-atom
+    skeleton. The 2D diagram strips them too, so the two views agree."""
+    from flexappeal.webapp import REPO_ROOT
+
+    script = (REPO_ROOT / "flexappeal" / "static" / "analysis.js").read_text()
+    assert "ignoreHydrogens = true" in script

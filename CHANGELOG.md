@@ -7,6 +7,26 @@ checkbox list in `README.md`.
 
 ### Changed
 
+- **Mol*'s own viewport chrome, restyled onto the dark stage.** Its stock
+  controls are a light-grey strip with dark-grey icons, which on a near-black
+  canvas reads as a rendering fault and leaves the buttons nearly invisible
+  against their own background. Transparent panels, light icons, and the vertical
+  stack turned into one row along the top so it stops crossing the 2D diagram in
+  the bottom right.
+
+  Ported from DeepFlex, including the part that is easy to get wrong:
+  `.msp-semi-transparent-background` is the element the icons actually sit on, so
+  overriding only the two control wrappers leaves the pale column standing and
+  looks fixed without being fixed. Done in `brand.css` rather than by editing the
+  vendored `molstar.css`, which is pinned and replaced wholesale on an upgrade.
+- **The ligand is drawn without hydrogens.** On a small molecule they treble the
+  stick count and bury the heavy-atom skeleton that the pose, the contacts and
+  the diagram beside it are all about. The 2D depiction already stripped them, so
+  the two views of the ligand now show the same atoms.
+- **The composite score bar takes its band's colour too.** Every row below it was
+  coloured and the one number that carries the letter was a neutral gradient,
+  which left it the only reading on the meter you could not take in at a glance.
+
 - **Every sub-score row on the grade meter has a bar, and its number in one
   column.** The energy row had the kcal/mol inside the bar cell and an em dash in
   the score column, so it read as a gap beside five filled rows, and a

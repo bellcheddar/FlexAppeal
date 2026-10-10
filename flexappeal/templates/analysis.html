@@ -162,7 +162,8 @@
           <div class="md-grade-body">
             <div class="md-grade-scale" role="img"
                  aria-label="score {{ g.score }} of 100, band {{ g.grade }}">
-              <span class="md-grade-fill" style="width: {{ g.score }}%"></span>
+              <span class="md-grade-fill is-{{ g.band }}"
+                    style="width: {{ g.score }}%"></span>
               <span class="md-grade-tick" style="left: {{ g.b_min }}%"
                     data-label="B {{ g.b_min | int }}"></span>
               <span class="md-grade-tick" style="left: {{ g.a_min }}%"

@@ -161,6 +161,12 @@
             old.type.params.sizeFactor = NEON.stick.sizeFactor;
             old.type.params.aspectRatio = NEON.stick.aspectRatio;
             old.type.params.emissive = NEON.stick.emissive;
+            /* No hydrogens on the ligand. They treble the stick count on a
+               small molecule and bury the heavy-atom skeleton that the pose,
+               the contacts and the 2D diagram beside it are all about. The
+               diagram strips them too (measure.depiction uses RemoveHs), so
+               the two views of the ligand now show the same atoms. */
+            old.type.params.ignoreHydrogens = true;
             old.colorTheme = {
               name: 'element-symbol',
               params: {
