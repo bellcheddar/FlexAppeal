@@ -91,18 +91,28 @@ difference is the `MonteCarloMembraneBarostat`, which costs about 30 per cent.
 The earlier figure in this file was an estimate taken before production started
 and is replaced rather than kept.
 
-| row | atoms | ns/day | 50 ns costs |
-|---|---|---|---|
-| abl1_apo | 46,721 | 213 measured | 5.6 h, of which 4.3 ns is already done |
-| abl1_imatinib | ~46,700 | 213 assumed | 5.6 h |
-| b2ar_apo | 194,032 | **60 measured** | **20.0 h** |
-| b2ar_carazolol | 188,364 | 60 assumed, slightly fewer atoms | ~19.5 h |
-| | | | **≈ 50 h** |
+**Corrected to include the stages before production**, which the first version
+of this table left out. Section 5.2 puts 10 ns of NPT equilibration in front of
+every membrane run and 1 ns in front of every water run, and that is real GPU
+time: for the membrane rows it is a fifth of the row again. The gentle 0.1 ns of
+heating runs at 1 fs, so it costs four times its length at the production step.
 
-Against `MAX_COMPUTE_HOURS` of 96, with 46 hours spare. One membrane row could
-be redone and the build would still come in at 70 hours, which is the margin
-that matters because D009 dropped the replicas and a failed row now costs the
-whole row rather than a third of it.
+| row | ns/day | heat | equil | production | GPU-hours |
+|---|---|---|---|---|---|
+| abl1_apo | 213 measured | 0.5 | 1 | 50 | 5.3, with 4.3 ns already done |
+| abl1_imatinib | 213 assumed | 0.5 | 1 | 50 | 5.8 |
+| b2ar_apo | **59.8 measured** | 0.5 | 10 | 50 | **24.4** |
+| b2ar_carazolol | ~61 assumed | 0.5 | 10 | 50 | ~23.9 |
+| | | | | | **59.4** |
+
+Against `MAX_COMPUTE_HOURS` of 96, with **36.6 hours spare**. That is still
+enough to redo either ABL1 row twice over, or one membrane row with 12 hours to
+spare, which is the margin that matters because D009 dropped the replicas and a
+failed row now costs the whole row rather than a third of it.
+
+The earlier figure in this file said 50 hours. It was wrong by the
+equilibration, and is corrected rather than quietly adjusted, because the whole
+point of this section is that the number is measured.
 
 So **G1 does not open** and Tier 3 on RunPod is not needed. `deploy/runpod/`
 still gets written and not executed, as section 5.3 requires.
