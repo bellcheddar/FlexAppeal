@@ -183,7 +183,19 @@ def lipid_z_restraint(system, topology, positions, strength_kcal):
     import openmm as mm
     from openmm import unit
 
-    force = mm.CustomExternalForce("k_lipid*(z - z0)^2")
+    # Periodic in z, via periodicdistance with x and y pinned to zero so only
+    # the z separation contributes. A plain (z - z0)^2 is the bug that stopped
+    # every membrane run from starting: OpenMM wraps coordinates into the box,
+    # the lower leaflet's phosphorus sits at negative z, and wrapping moves it
+    # by one box vector. The restraint then sees a 117 A deviation on an atom
+    # that has not moved, which at 10 kcal/mol/A^2 is a force of about 98,000
+    # kJ/mol/nm on each of 238 atoms.
+    #
+    # The same reasoning is why the protein restraint uses periodicdistance:
+    # written as a plain harmonic it reported a 5,045,427,552 kJ/mol restraint
+    # term on atoms sitting exactly at their reference positions.
+    force = mm.CustomExternalForce(
+        "k_lipid*periodicdistance(0, 0, z, 0, 0, z0)^2")
     force.addGlobalParameter(
         "k_lipid", strength_kcal * unit.kilocalorie_per_mole / unit.angstrom**2)
     force.addPerParticleParameter("z0")

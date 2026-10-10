@@ -107,18 +107,30 @@ Timestamped, one line per meaningful event, for the reference-state build
     kept when the patch is tiled, so the bilayer overhangs by about 9 Å a side,
     and `addSolvent` then fills the box interior where those atoms already sit
     once the boundary applies. 235 overlapping pairs, 231 water against water,
-    460 solvent molecules of 42,022. As-built energy is **+136,000,000 kJ/mol**
-    in single precision against **-2,060,000** on the CPU at double, with water
-    oxygens carrying 200,000 kJ/mol/nm.
-- `16:0x` Finding the third one took four diagnostics and the first three
-  hypotheses were wrong, which is worth recording because each was plausible:
-  it is not precision (the unrestrained system survives on OpenCL single), not
-  minimisation depth (uncapped and capped both minimise to -2.79 M unrestrained),
-  and not the restraint formulation. The restraint is correct, and
-  `periodicdistance` is the right form rather than a plain harmonic: OpenMM
-  wraps coordinates into the box, so the plain form reported a 5,045,427,552
-  kJ/mol restraint term on atoms sitting exactly at their reference positions
-  where `periodicdistance` reported 18.
+    with water oxygens carrying 200,000 kJ/mol/nm. Repaired by deleting 246
+    molecules of 42,022, which took the as-built energy from -2,056,143 to
+    -2,213,385 kJ/mol.
+- `16:1x` **The actual blocker was the lipid z restraint**, and it took seven
+  diagnostics to get there because four plausible hypotheses were wrong first.
+  Not precision, not minimisation depth, not the periodic overlaps, and not the
+  protein restraint. Section 5.2 asks for lipid phosphorus held in z, and that
+  was written as a plain `(z - z0)^2`. OpenMM wraps coordinates into the box;
+  the lower leaflet sits at negative z and wraps by one box vector, so the
+  restraint saw a 11.77 nm deviation on 238 atoms that had not moved. At 4184
+  kJ/mol/nm^2 that is 138,000,000 kJ/mol, which is the +136,000,000 that had
+  been showing up since the first membrane attempt. Written with
+  `periodicdistance(0, 0, z, 0, 0, z0)` the same system reads -2,213,385 with
+  both restraints at exactly zero.
+- `16:1x` A reasoning error worth recording with it. The +136,000,000 was
+  attributed for several hours to single precision, on the strength of a CPU
+  run reading -2,060,000 for the same system. Those two runs did not differ in
+  precision: one had no restraints and the other had both. Nothing was ever
+  measured that showed the platforms disagreeing, and after the repair they
+  agree exactly at -2,213,385.
+- `16:1x` `periodicdistance` is the right form for both restraints rather than a
+  plain harmonic, for the same wrapping reason: written plainly the protein
+  restraint reported 5,045,427,552 kJ/mol on atoms sitting exactly at their
+  reference positions, where `periodicdistance` reported 18.
 - `16:0x` Repair added to the build rather than worked around in the protocol:
   solvent molecules overlapping another molecule's periodic image are deleted,
   water before ions so the neutralisation `addMembrane` chose is preserved, and

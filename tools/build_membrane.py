@@ -137,6 +137,98 @@ def ligand_molecule(start_pdb: Path, resname: str, sdf_path: Path):
     return molecule
 
 
+SOLVENT_RESIDUES = {"HOH", "WAT", "NA", "CL"}
+# Two heavy atoms of different molecules closer than this are overlapping rather
+# than in contact. A hydrogen bond is 2.7 A between oxygens and the shortest real
+# non-bonded heavy-atom contacts are around 2.4, so 2.2 catches only overlaps.
+CLASH_CUTOFF_A = 2.2
+
+
+def remove_periodic_clashes(modeller, *, cutoff_a: float = CLASH_CUTOFF_A) -> dict:
+    """Delete solvent molecules that overlap another molecule's periodic image.
+
+    `addMembrane` leaves these behind, and they are the reason the membrane runs
+    would not start. Whole lipid molecules are kept when the patch is tiled, so
+    the bilayer legitimately overhangs the periodic box by about 9 A on each
+    side; `addSolvent` is then called to extend the box in z and fills the box
+    interior, placing water where those overhanging atoms already sit once the
+    boundary is applied.
+
+    On the apo system this is 235 overlapping pairs, 231 of them water against
+    water, with individual water oxygens carrying 200,000 kJ/mol/nm. Deleting
+    the later molecule of each pair keeps the pre-equilibrated patch intact and
+    costs 246 molecules of 42,022, about 1 per cent of the solvent, and takes
+    the as-built energy from -2,056,143 to -2,213,385 kJ/mol.
+
+    A correction to what this comment first claimed: these overlaps were *not*
+    why the membrane runs would not start. That was the lipid z restraint, which
+    was written non-periodically and saw the wrapped lower leaflet as a 117 A
+    deviation. The +136,000,000 kJ/mol figure attributed here to single
+    precision was that restraint, and the comparison that produced it was
+    invalid: a run with no restraints on the CPU against a run with restraints
+    on OpenCL. The repair is still worth doing, because the overlaps are real
+    and the energy improves, but it is a tidy-up rather than the fix.
+
+    A clash between two molecules that are not solvent is reported and not
+    deleted: removing a lipid or part of the receptor is not a repair, and this
+    build has never seen one that was not a disulphide.
+    """
+    import numpy as np
+    from openmm import unit
+    from scipy.spatial import cKDTree
+
+    topology, positions = modeller.topology, modeller.positions
+    box = topology.getUnitCellDimensions()
+    if box is None:
+        return {"removed": 0, "note": "no periodic box; nothing to check"}
+    box = np.array(box.value_in_unit(unit.angstrom))
+
+    coords = np.array(positions.value_in_unit(unit.angstrom))
+    atoms = list(topology.atoms())
+    heavy = np.array([i for i, a in enumerate(atoms)
+                      if a.element is not None and a.element.symbol != "H"])
+    wrapped = np.mod(coords[heavy], box)
+
+    bonded = set()
+    for bond in topology.bonds():
+        first, second = bond[0].residue.index, bond[1].residue.index
+        bonded.add((first, second))
+        bonded.add((second, first))
+
+    # boxsize makes the tree periodic, which is the whole point: these pairs are
+    # only close once the boundary is applied and a plain tree does not see them.
+    pairs = cKDTree(wrapped, boxsize=box).query_pairs(cutoff_a, output_type="ndarray")
+
+    residues = list(topology.residues())
+    victims: set[int] = set()
+    structural: list[str] = []
+    found = 0
+    for i, j in pairs:
+        one, two = atoms[heavy[i]], atoms[heavy[j]]
+        first, second = one.residue.index, two.residue.index
+        if first == second or (first, second) in bonded:
+            continue
+        found += 1
+        solvent = [r for r in (first, second)
+                   if residues[r].name in SOLVENT_RESIDUES]
+        if not solvent:
+            structural.append(
+                f"{one.residue.name}{one.residue.id}:{one.name} against "
+                f"{two.residue.name}{two.residue.id}:{two.name}")
+            continue
+        # Water before ions: deleting an ion would leave the system
+        # non-neutral, and `addMembrane` has already chosen the counts that
+        # neutralise it. Otherwise the later residue, which is the one
+        # addSolvent added, so the pre-equilibrated patch is left as it was.
+        waters = [r for r in solvent if residues[r].name in ("HOH", "WAT")]
+        victims.add(max(waters) if waters else max(solvent))
+
+    if victims:
+        modeller.delete([residues[index] for index in sorted(victims)])
+    return {"clashes": found, "removed": len(victims),
+            "structural": structural[:5], "n_structural": len(structural)}
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--which", choices=("apo", "carazolol"), required=True)
@@ -278,6 +370,14 @@ def main() -> int:
         f"{EXPECTED_ATOMS[0]:,} to {EXPECTED_ATOMS[1]:,} atoms -> "
         f"{'within' if inside else 'outside, logged'}")
 
+    repair = remove_periodic_clashes(modeller)
+    log(f"periodic clash repair: {repair.get('clashes', 0)} overlapping pairs, "
+        f"{repair.get('removed', 0)} solvent molecules deleted")
+    if repair.get("n_structural"):
+        log(f"  {repair['n_structural']} clashes between non-solvent molecules, "
+            f"left in place: {'; '.join(repair['structural'])}")
+    n_atoms = modeller.topology.getNumAtoms()
+
     system = forcefield.createSystem(
         modeller.topology, nonbondedMethod=app.PME,
         nonbondedCutoff=1.0 * unit.nanometer, constraints=app.HBonds,
@@ -292,6 +392,7 @@ def main() -> int:
         "atoms": n_atoms, "lipids": lipids, "waters": waters,
         "padding_nm": padding, "box_nm": [round(v, 2) for v in box],
         "within_expected": inside, "orientation": check,
+        "clash_repair": repair,
         "forcefield": forcefield_files,
     }, indent=2))
     log(f"wrote {out_dir}/system.xml and solvated.pdb; box {[round(v,1) for v in box]} nm")
