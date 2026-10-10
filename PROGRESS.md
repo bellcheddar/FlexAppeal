@@ -9,9 +9,9 @@ phase and at least every 30 minutes during long compute (section 0.1 rule 5).
 | Phase | State | Notes |
 |---|---|---|
 | **0 Setup** | **done** | Hardware probed, BoltzMaker vendored and pinned, dependencies resolved, both suites green |
-| **1 References** | next | KLIFS and GPCRdb fetchers, reference ensembles, per-reference metrics |
-| **2 Start models** | not started | ABL1 seeds (2GQG, 2HYY); β2AR refined models from GPCRdb |
-| **3 System build + smoke** | not started | Solvated ABL1, POPC-embedded β2AR, Tier 1 (1 ns per row) |
+| **1 References** | **done** | Ensembles built; P1 17/17, P2 17/17, P3 100/100 at an 11.39 A threshold |
+| **2 Start models** | in progress | ABL1 seeds built and trimmed to a shared 233-498 span; β2AR refined models next |
+| **3 System build + smoke** | in progress | ABL1 apo solvated (46,721 atoms) and running at 220 ns/day; β2AR membrane next |
 | **4 Analysis module** | not started | `flexappeal/refstates/` over the vendored `sse_comparison` |
 | **5 Production** | not started | Tier 2, four runs at 50 ns (200 ns), two ligand-bound |
 | **6 App** | not started | Two entries in the existing Runs library, trajectory explorer |

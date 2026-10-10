@@ -74,3 +74,14 @@ Timestamped, one line per meaningful event, for the reference-state build
   through a cluster sitting at 11.1 to 11.3 A. The two classes separate by 8.5 A
   on the difference between the two anchor distances, so the call now reads the
   nearer anchor (D010). **P1 17/17, P2 17/17, both pass.**
+- `15:2x` GPCRdb generic numbering wired up and verified against the spec's own
+  worked example: `R3.50` resolves to R131, which is what section 5.5 writes.
+  Every motif residue the spec names resolves from the table, none typed.
+- `15:3x` **P3 passes at 100/100.** TM3-TM6 cleft distance (3.50 to 6.34), with
+  the threshold fitted leave-one-out: **11.39 A**, active median 15.85 against
+  inactive 8.27, so the cleft opens about 7.6 A on activation. 16 of 116 entries
+  were refused rather than measured, because their residue at 131 or 272 is not
+  the one the catalogue names: engineered constructs renumber, and a distance
+  between the wrong two residues is a number that looks fine.
+- `15:3x` **Phase 1 acceptance met**: P1 17/17, P2 17/17, P3 100/100, and both
+  ensembles above the spec's minimums.
