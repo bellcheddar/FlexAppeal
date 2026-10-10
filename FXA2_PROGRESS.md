@@ -4,12 +4,11 @@ Running log for the version 2 package writer, specified in `DEEPFLEX_FXA2_SPEC.m
 and driven by `FXA2_BUILD_PROMPT.md`. Rewritten at every step boundary, so an
 interrupted session can be resumed from this file alone.
 
-**Current step:** 7 of 10 (`S_conv`, the block split and the pose clusters).
+**Current step:** 8 of 10 (`S_conf`, the strain excess and the torsions).
 **Validator last reported:** accepted, with `--energies` supplied. **pose 100%,
-occupancy 100%, interactions 100%, energy 100%, ranking 100%, grade 75%,
-payload 40%**, 26 interaction rows, 4 energy terms. Without `--energies` the
-energy group is 0% and grade 62.5%, which is the documented gap below.
-Convergence, conformation and receptor panels are at 0%: steps 7 to 9.
+occupancy 100%, interactions 100%, energy 100%, convergence 100%, ranking 100%,
+grade 87.5%, payload 40%**, 26 interaction rows, 4 energy terms, 2 pose clusters.
+Conformation and receptor panels are at 0%: steps 8 and 9.
 
 ---
 
@@ -40,7 +39,7 @@ Section 12 of the spec, which is also the commit boundaries.
 - [x] 4. `series/` and `traj/<cid>_scrub.pdb`.
 - [x] 5. `S_int`, `summary/`, `barcode/`.
 - [ ] 6. `S_E`, the energies.
-- [ ] 7. `S_conv`, the block split and the pose clusters.
+- [x] 7. `S_conv`, the block split and the pose clusters.
 - [ ] 8. `S_conf`, the strain excess and the torsions.
 - [ ] 9. `panels/`, the receptor matrices.
 - [ ] 10. `annotations/` and `depictions/`.
@@ -207,6 +206,44 @@ The occupancy table drops one more class: a contact seen only in the discarded
 head and absent at frame 0, which would be a row at 0% and reads as a contact that
 never formed. It is still in the barcode, which covers the whole trajectory, and
 that is where a reader should see it.
+
+### D12. The convergence bin count follows the window length
+
+This one is a real trap rather than a tuning choice. A histogram divergence
+between two finite samples is biased upward by roughly the bin count over the
+sample size. At DeepFlex's fixed twenty bins, a **stationary** 400-frame window
+measures 0.086, against a threshold whose full marks are 0.05: a perfectly
+converged short run would be scored as a diverging one, and nothing about the
+output would look wrong.
+
+So the bin count holds samples-per-bin constant instead (`round(n / 90)`, floored
+at 3 and capped at 20). The divisor is chosen so a long run lands on twenty bins,
+which is DeepFlex's resolution and therefore what the spec's thresholds were
+calibrated against: a stationary 1,800-frame window reads 0.017 either way.
+Measured on stationary noise the divergence now stays under 0.02 from 60 frames to
+1,800, where a fixed twenty bins ranges from 0.09 to 0.017.
+
+Below about 60 frames the floor of three bins is reached and the bias is
+unavoidable. The record then carries a note saying the number reads worse than a
+longer run of the same trajectory would, which penalises rather than flatters a
+short run.
+
+It is the **divergence**, not the Jensen-Shannon distance. The distance is its
+square root, so a 0.06 divergence would read 0.24 as a distance: the difference
+between full marks and most of the way to none.
+
+### D13. `changed_pose_cluster` compares halves, and the detector gets there first
+
+The flag caps the grade at B on the DeepFlex side, so a false positive is
+expensive. It fires when the dominant cluster of the second half of the scored
+window differs from the first half's **and** the new one holds at least half of
+that second half.
+
+Worth knowing while testing it: a pose change exactly at the midpoint of a run is
+indistinguishable from equilibration finishing there, and `detect_equilibration`
+reasonably discards everything before it, leaving one cluster and no flag. That is
+correct behaviour rather than a miss, and it is why the test moves the pose three
+quarters of the way in.
 
 ## Divergences between the spec and the reader that actually ingests these files
 

@@ -187,6 +187,25 @@ checkbox list in `README.md`.
   file fills the energy breakdown panel from somebody else's `MMPBSA.py` output.
   Carried rather than interpreted: these are not FlexAppeal's numbers and it has no
   basis for arguing with them beyond refusing an absolute block.
+- **`S_conv`: the four-block divergence, with a bin count that is not fixed.** A
+  histogram divergence between two finite samples is biased upward by roughly the
+  bin count over the sample size, so at a fixed twenty bins a **stationary**
+  400-frame window measures 0.086 against a threshold whose full marks are 0.05: a
+  perfectly converged short run scored as a diverging one, with nothing about the
+  output looking wrong. Holding samples-per-bin constant instead keeps the bias
+  constant, and the divisor is chosen so a long run lands on twenty bins, which is
+  the resolution the spec's thresholds were calibrated against. Measured on
+  stationary noise the divergence now stays under 0.02 from 60 frames to 1,800.
+
+  It is the divergence and not the Jensen-Shannon distance, which is its square
+  root: a 0.06 divergence would read 0.24 as a distance, the difference between
+  full marks and most of the way to none.
+- **Pose clusters, and the alternative-pose flag.** Average-linkage clustering on
+  pairwise ligand RMSD, cut at 2 A, with one pocket PDB per cluster centroid so the
+  panel can link each row to a real frame. The flag compares the dominant cluster
+  of each half of the scored window and requires the second half's winner to
+  actually dominate it, because comparing the first and last frame fires on
+  ordinary thermal motion and the flag caps the grade at B.
 
 ## 2026-07-27
 

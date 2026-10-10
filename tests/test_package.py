@@ -1000,3 +1000,117 @@ def test_the_drift_slope_is_read_from_the_metrics_record(deposited, tmp_path):
     cid = built.complexes[0]
     for member in (f"metrics/{cid}.json", f"harvest/{cid}.json"):
         assert json.loads(built.members[member])["lie_drift_slope"] == 0.4
+
+
+# ---------------------------------------------------------------------------
+#  S_conv: the block split and the pose clusters, sections 4 and 6.4
+# ---------------------------------------------------------------------------
+
+
+def test_the_divergence_of_a_stationary_window_is_near_zero():
+    """Four blocks of the same distribution agree, which is what 0 means."""
+    rng = np.random.default_rng(3)
+    value, note = measure.block_divergence(rng.normal(2.0, 0.3, 400))
+    # Well under the spec's full marks at 0.05, which a fixed twenty bins would
+    # not manage on a window this short: it read 0.086 that way.
+    assert value < 0.02, value
+    assert note is None, note
+
+
+def test_the_divergence_of_a_drifting_window_is_large():
+    """Four blocks of a ramp are four different distributions."""
+    value, _ = measure.block_divergence(np.linspace(0.0, 10.0, 400))
+    assert value > 0.5, value
+
+
+def test_the_divergence_is_the_divergence_not_the_distance():
+    """The spec's thresholds are on the divergence: full marks 0.05, zero 0.30.
+
+    The Jensen-Shannon *distance* is the square root of this, so a 0.06
+    divergence would read 0.24 as a distance, which is the difference between
+    full marks and most of the way to none.
+    """
+    rng = np.random.default_rng(4)
+    a, b = rng.normal(0, 1, 2000), rng.normal(1.0, 1, 2000)
+    edges = np.histogram_bin_edges(np.concatenate([a, b]), bins=20)
+    divergence = measure.jensen_shannon(a, b, edges)
+    assert 0.0 <= divergence <= 1.0
+    assert divergence == pytest.approx(measure.jensen_shannon(b, a, edges))
+    assert measure.jensen_shannon(a, a, edges) == pytest.approx(0.0)
+
+
+def test_the_bin_count_follows_the_window_length():
+    """Twenty bins over eight samples measures the sampling, not the trajectory.
+
+    Each block would occupy two or three bins of its own, so the blocks barely
+    overlap and the divergence comes out near its maximum whatever the
+    trajectory did.
+    """
+    rng = np.random.default_rng(5)
+    short = rng.normal(2.0, 0.3, 40)
+    value, note = measure.block_divergence(short)
+    assert value < 0.4, value
+    assert "per bin per block" in note
+
+
+def test_a_window_too_short_to_split_leaves_the_subscore_pending():
+    value, note = measure.block_divergence(np.arange(12.0))
+    assert value is None
+    assert "pending" in note
+
+
+def test_a_held_pose_is_one_cluster(deposited):
+    traj = _translated(deposited, [[0, 0, 0]] * 40)
+    metrics = _measured(traj).metrics
+    assert metrics["n_pose_clusters"] == 1
+    assert metrics["dominant_cluster_population"] == pytest.approx(1.0)
+    assert metrics["changed_pose_cluster"] == 0
+
+
+def test_a_pose_that_moves_and_holds_is_flagged(deposited):
+    """Section 4 means a ligand that moves to a new pose and then HOLDS it.
+
+    Comparing the first and last frame instead fires on ordinary thermal motion,
+    so the second half's winning cluster has to actually dominate its half. The
+    flag caps the grade at B on the DeepFlex side, so a false positive is
+    expensive.
+
+    The move is three quarters of the way in rather than half way. A step exactly
+    at the midpoint is indistinguishable from equilibration finishing there, and
+    the window detector reasonably discards everything before it, leaving one
+    cluster: correct behaviour, and a poor test of this flag.
+    """
+    traj = _translated(deposited, [[0, 0, 0]] * 30 + [[4.0, 0, 0]] * 10)
+    measured = _measured(traj)
+    assert measured.metrics["n_pose_clusters"] >= 2
+    assert measured.metrics["changed_pose_cluster"] == 1
+    assert any("alternative pose" in note for note in measured.notes)
+
+
+def test_a_pose_that_wobbles_is_not_flagged(deposited):
+    """A 1 A excursion inside a 2 A linkage cutoff is one pose, not two."""
+    offsets = [[0, 0, 0]] * 10 + [[1.0, 0, 0]] * 10 + [[0, 0, 0]] * 20
+    assert _measured(_translated(deposited, offsets)).metrics[
+        "changed_pose_cluster"] == 0
+
+
+def test_the_cluster_populations_sum_to_one(written):
+    read_back = fxa2.read(written)
+    for cid in read_back.complexes:
+        clusters = read_back.metrics(cid)["pose_clusters"]
+        assert sum(c["population"] for c in clusters) == pytest.approx(1.0)
+        assert [c["population"] for c in clusters] == sorted(
+            (c["population"] for c in clusters), reverse=True)
+
+
+def test_each_cluster_centroid_is_a_real_frame_with_a_structure(written):
+    """The panel links each row to its centroid, so the frame has to exist."""
+    read_back = fxa2.read(written)
+    for cid in read_back.complexes:
+        metrics = read_back.metrics(cid)
+        for cluster in metrics["pose_clusters"]:
+            assert 0 <= cluster["centroid_frame"] < metrics["n_frames"]
+            assert cluster["centroid_frame"] >= metrics["equil_start_frame"]
+            name = f"traj/{cid}_cluster{cluster['cluster_id']}.pdb"
+            assert name in read_back.members
+            assert b"LIG" in read_back.members[name]

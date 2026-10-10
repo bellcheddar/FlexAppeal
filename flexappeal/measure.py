@@ -61,6 +61,28 @@ EQUIL_CEILING_FRACTION = 0.5
 # distance in the file is suspect.
 PBC_JUMP_A = 10.0
 
+# --- convergence and pose clusters ------------------------------------------
+# Linkage distance for the pose clusters, in angstrom, and the histogram
+# resolution for the block-split divergence. DeepFlex's own numbers again, so a
+# cluster count and a divergence here mean what they mean there.
+POSE_CLUSTER_CUTOFF_A = 2.0
+CONV_BINS = 20
+CONV_BLOCKS = 4
+# Scored frames per histogram bin. A finite-sample histogram divergence is biased
+# upward by about the bin count over the sample size, so a fixed bin count makes
+# the bias depend on the run length and a short, perfectly converged run scores
+# as a diverging one. This divisor holds the bias constant and puts a long run on
+# CONV_BINS bins, which is the resolution the spec's thresholds were calibrated
+# against.
+CONV_FRAMES_PER_BIN = 90
+# Fewer than this many frames per block and the four histograms are too sparse to
+# compare: the divergence then measures the sampling rather than the trajectory.
+MIN_FRAMES_PER_BLOCK = 6
+# The pairwise distance matrix is this many frames on a side at most. It is
+# quadratic in the frame count, and a cluster assignment does not improve past a
+# few hundred samples of the same window.
+MAX_CLUSTER_FRAMES = 400
+
 
 class MeasureError(ValueError):
     """A complex could not be measured. Recorded as a failure, not a bad grade."""
@@ -781,6 +803,168 @@ def interaction_records(traj, cid: str, ligand_heavy: np.ndarray, residue_indice
 
 
 # ===========================================================================
+#  Convergence and pose clusters, sections 4 and 6.4
+# ===========================================================================
+
+
+def jensen_shannon(a: np.ndarray, b: np.ndarray, edges: np.ndarray) -> float:
+    """JS divergence between two samples on a shared bin grid. 0 is identical.
+
+    Base-2 logarithms, so the divergence is bounded at 1 and the spec's
+    thresholds (full marks at 0.05, zero at 0.30) are on that scale. The
+    *divergence*, not the distance: the distance is its square root and would
+    read about 0.24 where this reads 0.06, which is the difference between full
+    marks and most of the way to none.
+    """
+    pa = np.histogram(a, bins=edges)[0].astype(float)
+    pb = np.histogram(b, bins=edges)[0].astype(float)
+    if pa.sum() == 0 or pb.sum() == 0:
+        return float("nan")
+    pa /= pa.sum()
+    pb /= pb.sum()
+    mean = 0.5 * (pa + pb)
+
+    def kl(p: np.ndarray, q: np.ndarray) -> float:
+        mask = p > 0
+        return float(np.sum(p[mask] * np.log2(p[mask] / q[mask])))
+
+    return 0.5 * kl(pa, mean) + 0.5 * kl(pb, mean)
+
+
+def block_divergence(window: np.ndarray) -> tuple[float | None, str | None]:
+    """Mean pairwise divergence between four equal blocks of the scored window.
+
+    With one trajectory per complex this stands in for replica agreement and is
+    weaker evidence than one: four blocks of the same run share their starting
+    conformation, so agreement between them says the run is stationary rather
+    than that it found the same answer twice. `n_strides: 1` in the manifest is
+    what tells DeepFlex to say so on the page.
+
+    The bin count follows the window length rather than sitting at twenty, and
+    that matters more than it looks. A histogram divergence between two finite
+    samples is biased upward by roughly the bin count over the sample size, so at
+    a fixed twenty bins a stationary 400-frame window reads 0.086 against a
+    threshold whose full marks are 0.05: a perfectly converged short run would be
+    scored as a diverging one.
+
+    Holding samples-per-bin constant instead keeps the bias constant, and the
+    divisor is chosen so that a long run lands on twenty bins, which is what
+    DeepFlex uses and therefore what the spec's thresholds (full marks at 0.05,
+    zero at 0.30) were calibrated against. Measured on stationary noise, that
+    keeps the divergence under 0.02 from 60 frames to 1,800.
+
+    Below about 40 frames the bias is unavoidable and the note says so: the
+    number then reads worse than a longer run of the same trajectory would, which
+    penalises rather than flatters a short run.
+    """
+    blocks = np.array_split(window, CONV_BLOCKS)
+    shortest = min(len(block) for block in blocks)
+    if shortest < MIN_FRAMES_PER_BLOCK:
+        return None, (
+            f"the scored window is {len(window)} frame(s), which leaves "
+            f"{shortest} per block against the {MIN_FRAMES_PER_BLOCK} needed, so "
+            f"the convergence sub-score is left pending rather than computed on "
+            f"histograms too sparse to compare")
+
+    bins = int(np.clip(round(len(window) / CONV_FRAMES_PER_BIN), 3, CONV_BINS))
+    # One bin grid for all four, from the whole window. Per-block grids would
+    # compare each distribution against a different ruler.
+    edges = np.histogram_bin_edges(window, bins=bins)
+    divergences = [
+        jensen_shannon(blocks[i], blocks[j], edges)
+        for i in range(CONV_BLOCKS) for j in range(i + 1, CONV_BLOCKS)
+    ]
+    divergences = [d for d in divergences if np.isfinite(d)]
+    if not divergences:
+        return None, "the four blocks were empty, so the divergence is undefined"
+
+    # Only where the bias is actually material. Holding samples-per-bin constant
+    # keeps it negligible down to about sixty frames; below that the bin count is
+    # already at its floor and the number genuinely reads worse than a longer run
+    # of the same trajectory would.
+    note = None
+    per_bin = (len(window) / CONV_BLOCKS) / bins
+    if per_bin < 10:
+        note = (
+            f"the block divergence is over {bins} bins with about {per_bin:.0f} "
+            f"frame(s) per bin per block, because the scored window is only "
+            f"{len(window)} frames. The finite-sample bias inflates it at that "
+            f"sampling, so it reads worse than a longer run of the same "
+            f"trajectory would")
+    return float(np.mean(divergences)), note
+
+
+def pose_clusters(ligand_xyz: np.ndarray, pose_rmsd: np.ndarray,
+                  start: int) -> dict[str, Any] | None:
+    """Cluster the scored window's ligand poses, and say whether the pose changed.
+
+    Average-linkage hierarchical clustering on pairwise ligand heavy-atom RMSD,
+    cut at 2 A. Returns the cluster records, the dominant population and the
+    changed-pose flag, or None when there is too little of the window to cluster.
+    """
+    from scipy.cluster.hierarchy import fcluster, linkage  # noqa: PLC0415
+    from scipy.spatial.distance import squareform  # noqa: PLC0415
+
+    n_frames = len(pose_rmsd)
+    scored = np.arange(n_frames)[start:]
+    stride = max(1, int(np.ceil(len(scored) / MAX_CLUSTER_FRAMES)))
+    frames = scored[::stride]
+    if len(frames) < 4:
+        return None
+
+    poses = ligand_xyz[frames]
+    difference = poses[:, None, :, :] - poses[None, :, :, :]
+    matrix = np.sqrt((difference ** 2).sum(axis=3).mean(axis=2))
+    np.fill_diagonal(matrix, 0.0)
+
+    labels = fcluster(linkage(squareform(matrix, checks=False), method="average"),
+                      t=POSE_CLUSTER_CUTOFF_A, criterion="distance")
+    counts = np.bincount(labels)[1:]
+    populations = counts / counts.sum()
+
+    records: list[dict[str, Any]] = []
+    for label in range(1, len(counts) + 1):
+        members = np.flatnonzero(labels == label)
+        if not len(members):
+            continue
+        # The centroid is the member with the smallest mean distance to the
+        # others, which is a real frame and can therefore be written out as a
+        # structure. An averaged set of coordinates could not.
+        within = matrix[np.ix_(members, members)]
+        centroid = int(frames[members[int(within.mean(axis=1).argmin())]])
+        records.append({
+            "cluster_id": int(label),
+            "population": float(counts[label - 1] / counts.sum()),
+            # An index into the FULL trajectory, not into the strided subsample,
+            # so the frame it names can be loaded directly.
+            "centroid_frame": centroid,
+            "rmsd_to_t0_a": float(pose_rmsd[centroid]),
+            "n_frames": int(counts[label - 1]) * stride,
+        })
+    records.sort(key=lambda entry: -entry["population"])
+
+    # The dominant cluster of each half, rather than the first and last frame.
+    # Comparing single frames fires on ordinary thermal motion; section 4 means a
+    # ligand that moves to a new pose and then HOLDS it, so the second half's
+    # winner has to actually dominate its half.
+    half = len(labels) // 2
+    changed = False
+    if half >= 2:
+        first = int(np.bincount(labels[:half]).argmax())
+        tail = np.bincount(labels[half:])
+        second = int(tail.argmax())
+        changed = bool(first != second and tail[second] / tail.sum() >= 0.5)
+
+    return {
+        "n_pose_clusters": int(len(counts)),
+        "dominant_cluster_population": float(populations.max()),
+        "changed_pose_cluster": int(changed),
+        "pose_clusters": records,
+        "centroid_frames": [record["centroid_frame"] for record in records],
+    }
+
+
+# ===========================================================================
 #  The whole measurement for one complex
 # ===========================================================================
 
@@ -955,6 +1139,27 @@ def _measure(traj, cid: str, receptor: str, ligand: str, resnames: list[str],
             f"in_pocket_fraction is a coarse measure here"
         )
 
+    # ---- convergence and the pose clusters ---------------------------------
+    divergence, divergence_note = block_divergence(window)
+    if divergence is not None:
+        metrics["conv_js_mean"] = divergence
+    if divergence_note:
+        notes.append(divergence_note)
+
+    clusters = pose_clusters(ligand_xyz, pose_rmsd, start)
+    if clusters is not None:
+        clusters.pop("centroid_frames")
+        metrics.update(clusters)
+        if clusters["changed_pose_cluster"]:
+            notes.append(
+                "the dominant pose cluster of the second half of the scored window "
+                "differs from the first half's and the new pose holds: DeepFlex "
+                "caps the grade at B and flags it as an alternative pose")
+    else:
+        notes.append(
+            "too little of the scored window to cluster the poses, so the "
+            "convergence sub-score is left pending")
+
     pocket_record = dict(pocket["record"])
     pocket_record.update({
         "complex_id": cid,
@@ -978,6 +1183,14 @@ def _measure(traj, cid: str, receptor: str, ligand: str, resnames: list[str],
         # this member the viewer shows a single frame and the trajectory control
         # is absent.
         structures[f"{cid}_scrub.pdb"] = scrub_pdb(pose_fit, crop_atoms, resnames)
+
+    # One frame per pose-cluster centroid, numbered to match `cluster_id`. The
+    # pose-cluster panel links each row to its centroid, and a row without a
+    # file is listed without a link rather than dropped.
+    for record in metrics.get("pose_clusters") or []:
+        frame = int(record["centroid_frame"])
+        structures[f"{cid}_cluster{record['cluster_id']}.pdb"] = pocket_pdb(
+            pose_fit, frame, crop_atoms, resnames)
 
     interactions, summary, barcode = interaction_records(
         traj, cid, heavy, pocket["indices_raw"], start, time_ns)
