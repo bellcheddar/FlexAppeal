@@ -78,10 +78,14 @@ _MUTATION_RE = re.compile(r"^([A-Za-z0-9]+):([A-Z]{3})-(\d+)-([A-Z]{3})$")
 # here or on someone's laptop, and a Jinja copy would be a second version of it
 # within a release. `tests/test_bundle.py` asserts the bytes match.
 #
-# All five are stdlib-only at import time. mdtraj, scipy and rdkit are imported
-# inside the functions that need them, and a ligand bundle's pixi.toml already
-# declares all three, so nothing new is pulled to make this work.
-VENDORED_MODULES = ("fxa.py", "fxa2.py", "measure.py", "options.py", "package.py")
+# All of them are stdlib-only at import time. mdtraj, scipy, rdkit, openmm and
+# ParmEd are imported inside the functions that need them, and a ligand bundle's
+# pixi.toml already declares every one, so nothing new is pulled to make this
+# work. `energy.py` additionally shells out to AmberTools, which a ligand bundle
+# installs because AM1-BCC charges need it; where it is absent the energy
+# sub-score stays pending and the other five are unaffected.
+VENDORED_MODULES = ("energy.py", "fxa.py", "fxa2.py", "measure.py",
+                    "options.py", "package.py")
 
 # The package the vendored modules land in, because they import each other
 # relatively (`from . import fxa2`) and must keep doing so unmodified.

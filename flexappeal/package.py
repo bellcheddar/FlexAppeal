@@ -87,6 +87,12 @@ class Source:
     run_manifest: dict[str, Any] = field(default_factory=dict)
     frame_spacing_ps: float | None = None
     ligand_dir: Path | None = None
+    # Where this run's files are, which only a run directory has. MM/GBSA needs
+    # the trajectory and topology on disk, the ligand SDF the run was
+    # parameterised from, and the config that names the force field -- so a
+    # source loaded from a version 1 .fxa cannot have an energy computed for it,
+    # and says so rather than quietly skipping.
+    output_dir: Path | None = None
     notes: list[str] = field(default_factory=list)
 
     @property
@@ -289,7 +295,8 @@ def load_run_directory(path: Path) -> Source:
     return Source(
         label=path.name, origin="run directory", trajectory=traj,
         config=config, structure=structure, run_manifest=run_manifest,
-        frame_spacing_ps=spacing, ligand_dir=ligand_dir, notes=notes,
+        frame_spacing_ps=spacing, ligand_dir=ligand_dir, output_dir=path,
+        notes=notes,
     )
 
 
@@ -770,18 +777,64 @@ def _add(package: fxa2.Package, measured: measure.Measured,
 
 
 def build(paths: list[Path], *, out: Path, package_name: str | None = None,
-          energies: Path | None = None, annotations: bool = False,
+          energies: Path | None = None, mmgbsa: bool = False,
+          annotations: bool = False,
           progress=None) -> tuple[Path, list[str]]:
-    """The whole command: discover, load, measure, write."""
+    """The whole command: discover, load, measure, write.
+
+    `mmgbsa` computes the binding energies here instead of taking them from a
+    file. Both routes end up in the same dict, because `assemble` already knew
+    how to accept energies supplied from a study and a second path into the file
+    would be a second thing to keep right.
+    """
     sources_paths = discover([Path(p) for p in paths])
     sources = [load(path) for path in sources_paths]
     supplied = _read_energies(energies) if energies else None
+    computed: list[str] = []
+    if mmgbsa:
+        found, computed = _compute_energies(sources, progress=progress)
+        # A supplied number wins. Somebody who passed --energies has a reason,
+        # and silently preferring this pipeline's own would hide it.
+        supplied = found | (supplied or {}) if found else supplied
     package, warnings = assemble(
         sources, package_name=package_name or Path(out).stem,
         energies=supplied, progress=progress)
+    warnings = computed + warnings
     if annotations:
         warnings.extend(annotate(package, progress=progress))
     return package.write(out), warnings
+
+
+def _compute_energies(sources: list[Source],
+                      *, progress=None) -> tuple[dict[str, Any], list[str]]:
+    """MM/GBSA for every source that has the files for it.
+
+    Only a run directory does: the calculation needs the topology and trajectory
+    on disk, the ligand SDF the run was parameterised from, and the config naming
+    the force field. A source loaded from a version 1 `.fxa` has none of those,
+    and gets a warning rather than a silent omission.
+    """
+    from . import energy as energy_mod  # noqa: PLC0415
+
+    found: dict[str, Any] = {}
+    warnings: list[str] = []
+    for source in sources:
+        if source.output_dir is None or source.ligand_dir is None:
+            warnings.append(
+                f"{source.label}: MM/GBSA needs the run directory, its ligand "
+                f"chemistry and its config, and this was loaded from a "
+                f"{source.origin}. The energy sub-score stays pending.")
+            continue
+        if not source.ligand_resnames:
+            continue
+        if progress is not None:
+            progress(f"MM/GBSA for {source.label}")
+        supplied, notes = energy_mod.for_run_directory(
+            source.ligand_dir.parent, source.output_dir,
+            receptor=source.receptor(), progress=progress)
+        found.update(supplied)
+        warnings.extend(f"{source.label}: {note}" for note in notes)
+    return found, warnings
 
 
 def _read_energies(path: Path) -> dict[str, dict[str, float]]:

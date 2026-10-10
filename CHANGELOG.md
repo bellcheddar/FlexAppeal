@@ -42,6 +42,51 @@ checkbox list in `README.md`.
 
 ### Added
 
+- **`flexappeal/energy.py`: MM/GBSA binding free energies.** The last of the six
+  sub-score inputs FlexAppeal could not produce. A ligand bundle now computes it
+  at the end of its analysis, and `flexappeal package --mmgbsa` does it from the
+  command line.
+
+  It shells out to AmberTools' `MMPBSA.py` rather than computing GB in OpenMM,
+  which is more moving parts and the right choice: the existing cohort's energies
+  came from `MMPBSA_igb_2` on a water-stripped GAFF2 topology, and a percentile
+  across a cohort measured two ways is not a percentile. Single trajectory,
+  `igb=2`, mbondi2 radii, salt at the run's own ionic strength.
+
+  Two failures found while building it, both silent:
+
+  A topology written from an OpenMM system carries `RADII` and `SCREEN` all zero,
+  because the system it came from had no implicit-solvent force to hold them.
+  MMPBSA.py then divides by them and reports every `EGB` as `nan` without
+  failing: the first real run produced a complete, well-formatted results file
+  whose every total was `nan`. `changeRadii mbondi2` fixes it and the parser now
+  refuses a `nan` and names the cause.
+
+  The simulated system constrains every bond to hydrogen, so those bonds carry no
+  force-field term and ParmEd refuses to write a topology from it. The energy
+  calculation builds its own unconstrained system, which is the right physics for
+  a single-point energy anyway.
+
+  The result is checked rather than trusted. In a single trajectory the bonded
+  terms must cancel exactly, because the receptor and ligand are read out of the
+  complex's own coordinates; a residual means the three topologies disagree about
+  the molecule, which produces a plausible number rather than an obvious failure.
+  FlexAppeal refuses the energy in that case.
+
+  Benzene in T4 lysozyme L99A: **-9.8 kcal/mol**, SEM 0.66 over 200 frames, in
+  about 80 seconds. Van der Waals -11.3 dominates with electrostatics at -1.1,
+  which is what a non-polar ligand in a buried non-polar cavity should look like;
+  experiment is about -5.2, and single-trajectory MM/GBSA with no entropy term is
+  expected to be over-negative by roughly that much. DeepFlex's ingester now
+  draws 50% of the energy page for the one-complex file against 0% before, with
+  twelve energy terms.
+
+  `S_E` itself is still pending for a cohort of one, because it is a percentile
+  and one complex has no cohort. Whether it should instead carry an absolute
+  threshold is written up as Q007 in DeepFlex, with this package's own evidence
+  against it: the two receptors' GB energies differ by about 15 kcal/mol purely
+  from being docked into different pockets.
+
 - **A ligand run now writes the version 2 package itself.** Spec section 0 was
   updated today: a run with a ligand emits version 2, including a single system,
   because a one-complex package is a first-class graded run and version 1 has

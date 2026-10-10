@@ -307,7 +307,7 @@ def cmd_package(args: argparse.Namespace) -> int:
         written, warnings = package_mod.build(
             [Path(p) for p in args.sources], out=out,
             package_name=args.name, energies=Path(args.energies) if args.energies else None,
-            annotations=args.annotate, progress=_step,
+            mmgbsa=args.mmgbsa, annotations=args.annotate, progress=_step,
         )
     except package_mod.PackageError as exc:
         _err(str(exc))
@@ -463,11 +463,18 @@ def _build_argparser() -> argparse.ArgumentParser:
                    help="run directories, version 1 .fxa files, or a directory of either")
     p.add_argument("-o", "--out", required=True, help="the .fxa to write")
     p.add_argument("-n", "--name", help="the package name shown in the report")
+    p.add_argument("--mmgbsa", action="store_true",
+                   help="compute the MM/GBSA binding energy for each run with "
+                        "AmberTools' MMPBSA.py, single trajectory at igb=2. Off "
+                        "by default because it needs AmberTools on PATH and adds "
+                        "a minute or so a complex. Without it, or without "
+                        "--energies, the energy sub-score is left pending, which "
+                        "is honest, rather than written as zero")
     p.add_argument("--energies",
                    help="a JSON file of MM/GBSA and interaction energies keyed by "
-                        "compound name. FlexAppeal cannot compute these; without "
-                        "them the energy sub-score is left pending, which is "
-                        "honest, rather than written as zero")
+                        "compound name, for numbers computed elsewhere. Takes "
+                        "precedence over --mmgbsa where both give a value: "
+                        "somebody who passed a file had a reason")
     p.add_argument("--annotate", action="store_true",
                    help="resolve each receptor's UniProt accession over the "
                         "network. Off by default: it is the only part of the "

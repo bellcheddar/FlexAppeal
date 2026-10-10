@@ -191,10 +191,27 @@ printed beside it describe the same window. And a measurement FlexAppeal cannot
 make is left out rather than written as zero, which DeepFlex reports as a pending
 sub-score instead of reading a nought as a result.
 
-There is one such gap. The binding energies need every frame rescored in implicit
-solvent, which this pipeline does not do, so `--energies` carries them in from
-wherever a study computed them. Without it the energy sub-score is pending and the
-other five are unaffected.
+The binding energies used to be the one gap. `flexappeal package --mmgbsa` now
+computes them, and a ligand bundle does it unprompted at the end of its analysis.
+
+It is AmberTools' `MMPBSA.py`, not a reimplementation, and that is the point. A
+percentile across a cohort measured two different ways is not a percentile of
+anything, so the protocol is pinned to the one that produced the numbers these
+will be ranked against: single trajectory, `igb=2`, mbondi2 radii, salt at the
+simulation's own ionic strength. There is no entropy term, which is the usual
+choice and the usual caveat -- the result is systematically over-negative and
+ranks ligands rather than predicting an affinity. Benzene in T4 lysozyme L99A
+comes out at -9.8 kcal/mol here against roughly -5.2 from experiment.
+
+How you can tell it worked: in a single-trajectory calculation the bonded terms
+cancel exactly, because the receptor and the ligand are read out of the complex's
+own coordinates. FlexAppeal refuses the result if they do not, because three
+topologies that disagree about the molecule produce a plausible number rather than
+an obvious failure.
+
+`--energies` still carries numbers in from elsewhere, and takes precedence where
+both are available. Where AmberTools is absent the energy sub-score stays pending
+and the other five are unaffected.
 
 The Analysis tab draws the same binding-site measurements for a single run, and
 grades it. Eleven panels, the 2D depiction shaded by atom mobility, a frame slider

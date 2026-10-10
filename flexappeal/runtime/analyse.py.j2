@@ -658,6 +658,13 @@ def package_v2(run_dirs):
     try:
         path, warnings = packlib.build(
             list(run_dirs), out=out, package_name=JOB_NAME,
+            # The binding energy, computed here with AmberTools' MMPBSA.py. It
+            # is the sixth sub-score and the one FlexAppeal used to leave
+            # pending for want of a number rather than for want of a cohort.
+            # AmberTools is on PATH in this environment because the ligand
+            # needed it for charges; where it is not, the energy stays pending
+            # and the other five are unaffected.
+            mmgbsa=True,
             progress=lambda message: step(message))
     except Exception as exc:                        # noqa: BLE001
         warn(f"the version 2 package could not be built ({exc}). The version 1 "
