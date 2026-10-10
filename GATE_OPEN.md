@@ -76,23 +76,25 @@ at every route.
 
 Recorded because section 0.2 asks for the projection rather than silence.
 
-Measured, not extrapolated: the membrane system runs its gentle heating at about
-249 steps per second, which is roughly 86 ns/day at the 4 fs production step.
-The Tier 1 run now finishing will give the production figure with the barostat
-on, and the table below will be corrected from its `run.json` rather than from
-this estimate.
+**Measured on the Tier 1 run, with the barostat on.** The β2AR system produces
+at **60 ns/day**, holding 303.5 to 304.3 K against a 303.15 K target and 1.017
+g/mL. That is below the 86 ns/day the heating stages suggested, and the
+difference is the `MonteCarloMembraneBarostat`, which costs about 30 per cent.
+The earlier figure in this file was an estimate taken before production started
+and is replaced rather than kept.
 
 | row | atoms | ns/day | 50 ns costs |
 |---|---|---|---|
-| abl1_apo | 46,721 | 213 measured | 5.6 h |
+| abl1_apo | 46,721 | 213 measured | 5.6 h, of which 4.3 ns is already done |
 | abl1_imatinib | ~46,700 | 213 assumed | 5.6 h |
-| b2ar_apo | 194,032 | ~86 estimated | ~14 h |
-| b2ar_carazolol | 188,xxx | ~86 estimated | ~14 h |
-| | | | **≈ 39 h** |
+| b2ar_apo | 194,032 | **60 measured** | **20.0 h** |
+| b2ar_carazolol | 188,364 | 60 assumed, slightly fewer atoms | ~19.5 h |
+| | | | **≈ 50 h** |
 
-Against `MAX_COMPUTE_HOURS` of 96, with 57 hours spare. Every row could be
-redone once and the build would still come in under the ceiling, which matters
-because D009 dropped the replicas and a failed row now costs the whole row.
+Against `MAX_COMPUTE_HOURS` of 96, with 46 hours spare. One membrane row could
+be redone and the build would still come in at 70 hours, which is the margin
+that matters because D009 dropped the replicas and a failed row now costs the
+whole row rather than a third of it.
 
 So **G1 does not open** and Tier 3 on RunPod is not needed. `deploy/runpod/`
 still gets written and not executed, as section 5.3 requires.
