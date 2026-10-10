@@ -429,7 +429,67 @@ builds its viewport controls after the structure-loading promise resolves, so
 labelling it once found no logo. Only a real browser shows that, and only after
 the page has settled. The retry is bounded rather than an observer left running.
 
-## 5. Production runs## 5. Production runs
+## 5. Production runs
 
-Pending. This section will carry the per-row speed, the energy drift, the
-membrane quality checks against section 5.8's windows, and the state traces.
+Tier 2 started at 17:04 on 10 October, in section 5.3's priority order: β2AR
+active-start first, then the ABL1 rows, then β2AR inactive. Four rows at 50 ns,
+about 59 GPU-hours. This section fills in as they land, through the streaming
+analysis in `tools/stream_analysis.sh`.
+
+### 5.1 Measured speeds
+
+| row | atoms | ns/day |
+|---|---|---|
+| ABL1 in water | 46,721 | 213 |
+| β2AR in POPC | 194,032 | 59.8 |
+
+The membrane figure is with the `MonteCarloMembraneBarostat` running. Without
+it, during the NVT heating stages, the same system does about 86 ns/day, so the
+barostat costs roughly 30 per cent. That difference is the reason the first
+compute projection in `GATE_OPEN.md` was too optimistic and was corrected.
+
+### 5.2 The bilayer behaves
+
+From the Tier 1 run, after 0.2 ns of equilibration:
+
+| measure | value | expected |
+|---|---|---|
+| area per lipid | 68.4 Å², from 71.6 as built | 60 to 68 |
+| P–P thickness | 37.6 Å | 36 to 41 |
+| leaflet balance | 238 / 238 | even |
+| waters in the hydrophobic core | 4 | a handful |
+| temperature | 303.5 to 304.3 K | 303.15 |
+| density | 1.017 g/mL | about 1.02 |
+
+Area per lipid is 0.4 Å² outside the expected window and still falling from
+where the builder left it, which is what an equilibrating bilayer should do:
+`addMembrane` removes lipids near the protein and leaves the rest with more area
+each. G6 stays closed. The full per-chunk series over the 50 ns rows will say
+whether it settles inside the window.
+
+### 5.3 One preliminary observation, on 1 ns
+
+Worth stating because it is the first real dynamics, and worth hedging for the
+same reason. The Tier 1 β2AR run is 1 ns of the active-start system, and over it
+the whole-protein score falls from **+0.593** on the static start structure to
+**+0.277**:
+
+| motif | s at 0.9 ns | nearest active | nearest inactive |
+|---|---|---|---|
+| NPxxY | +0.589 | 3SN6, 0.66 Å | 6PS0, 2.57 Å |
+| TM6 | +0.357 | 8GE8, 1.88 Å | 3PDS, 3.96 Å |
+| TM7 | +0.303 | 7DHI, 1.07 Å | 6PS4, 2.00 Å |
+| H8 | +0.188 | 8GED, 0.99 Å | 6PS4, 1.44 Å |
+| TM5 | +0.171 | 9BUY, 1.47 Å | 3PDS, 2.08 Å |
+
+The direction is what an apo receptor built from an agonist-bound active
+structure should do: 4LDE was solved with its agonist, this system has none, and
+the motifs move off the crystal geometry. It is still clearly active-like.
+
+**What this is not.** One nanosecond, one replica, and no equilibration between
+the start structure and the first frame of the comparison. Most of a 0.32 drop
+on that timescale is relaxation away from a crystal pose rather than progress
+towards the inactive state, and the inactive distances barely move. Nothing here
+distinguishes the two, and on the Dror timescale nothing at 50 ns will either.
+The 50 ns rows will show whether the drift continues or settles, which is a
+different and answerable question.
