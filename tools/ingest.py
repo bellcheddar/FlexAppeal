@@ -44,6 +44,27 @@ MANIFESTS = {"abl1": ROOT / "data" / "manifests" / "refs_abl1.jsonl",
              "b2ar": ROOT / "data" / "manifests" / "refs_b2ar.jsonl"}
 
 
+# The TM3-TM6 cleft distance that best separates the two states, fitted
+# leave-one-out on this reference set as P3. Used here to give the receptor an
+# independent state call: GPCRdb's own state is what splits the ensembles, so
+# without this the "agreement" column would be comparing the catalogue with a
+# copy of itself and reporting 116 of 116.
+GPCR_CLEFT_THRESHOLD_A = 11.39
+
+
+def our_receptor_state(row: dict) -> str | None:
+    """Our own state call for a receptor reference, from its cleft distance.
+
+    Larger means active: TM6 swings outward to open the G-protein site. None
+    where the distance could not be measured, which is 16 of the 116 entries,
+    because their residue at 3.50 or 6.34 is not the one the catalogue names.
+    """
+    distance = row.get("tm3_tm6")
+    if distance is None:
+        return None
+    return "active" if float(distance) >= GPCR_CLEFT_THRESHOLD_A else "inactive"
+
+
 def reference_rows(system_id: str) -> dict[str, dict]:
     """Per PDB code, what the catalogue said and what we computed.
 
@@ -169,8 +190,9 @@ def main() -> int:
             agreed = annotated = 0
             with store.connect(Path(args.db)) as connection:
                 for code, row in manifest.items():
-                    ours = row.get("our_dfg") or row.get("state")
                     theirs = row.get("their_dfg") or row.get("state")
+                    ours = (row.get("our_dfg") if "our_dfg" in row
+                            else our_receptor_state(row))
                     metrics = {k: v for k, v in row.items()
                                if k not in ("pdb", "chain", "note", "status")}
                     store.put_reference(
@@ -180,11 +202,18 @@ def main() -> int:
                         source="KLIFS" if meta["family"] == "kinase" else "GPCRdb",
                         source_state=theirs, our_state=ours, metrics=metrics)
                     annotated += 1
-                    if row.get("dfg_agrees") is True or (
-                            row.get("our_dfg") is None and theirs):
+                    # Agreement only where both sides have an opinion. A row
+                    # this build could not label is not a disagreement and is
+                    # not an agreement either.
+                    if ours and theirs and str(ours).lower() == str(theirs).lower():
                         agreed += 1
+            comparable = sum(
+                1 for row in manifest.values()
+                if (row.get("our_dfg") if "our_dfg" in row
+                    else our_receptor_state(row))
+                and (row.get("their_dfg") or row.get("state")))
             log(f"  {annotated} references annotated from the manifest, "
-                f"{agreed} agreeing with the catalogue")
+                f"{agreed} of {comparable} agreeing with the catalogue")
 
         if not args.skip_membrane:
             chunks = membrane_chunks(run_dir, name)
