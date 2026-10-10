@@ -1653,3 +1653,174 @@ def test_the_default_trajectory_selection_is_not_flagged(deposited):
     _, warnings_out = package.assemble([make_source(deposited)],
                                        package_name="default")
     assert not any("keeps no ligand" in w for w in warnings_out)
+
+
+# ===========================================================================
+#  Ligand symmetry
+# ===========================================================================
+#
+# A pose RMSD that matches atoms by index charges a symmetric ligand for its own
+# symmetry. The numbers below are pinned because DeepFlex's pose thresholds are
+# calibrated against this definition and its `pipeline.binding.heavy_automorphisms`
+# is the same function: one side changing alone shows two grades for one run.
+
+
+@pytest.mark.parametrize(("smiles", "expected"), [
+    ("c1ccccc1", 12),        # benzene, D6h: six rotations and six reflections
+    ("Cc1ccccc1", 2),        # toluene: the ring flip only
+    ("Cc1ccc(C)cc1", 4),     # p-xylene
+    ("c1ccc2ccccc2c1", 4),   # naphthalene
+    ("CC(=O)Nc1ccccc1", 2),  # acetanilide
+    ("CC", 2),               # ethane, over heavy atoms only
+    ("CC(C)(C)c1ccccc1", 12),  # tert-butylbenzene
+    ("OC[C@H]1OC(O)[C@H](O)[C@@H](O)[C@@H]1O", 1),  # glucose: none
+])
+def test_the_heavy_atom_automorphism_count(smiles, expected):
+    rdkit = pytest.importorskip("rdkit")
+    from rdkit import Chem
+
+    mol = Chem.AddHs(Chem.MolFromSmiles(smiles))
+    maps = measure.heavy_automorphisms(mol, mol.GetNumAtoms()) or []
+    assert len(maps) == expected, [list(m) for m in maps]
+
+
+def test_hydrogens_are_excluded_from_the_symmetry_group():
+    """Over the full graph, ethane has 72 automorphisms and not 2.
+
+    Each of the seventy would move no heavy atom at all, and the extra mappings
+    push a real molecule past the cap for nothing. The group is computed on the
+    hydrogen-stripped graph for exactly that reason.
+    """
+    pytest.importorskip("rdkit")
+    from rdkit import Chem
+
+    mol = Chem.AddHs(Chem.MolFromSmiles("CC"))
+    full = mol.GetSubstructMatches(mol, uniquify=False, maxMatches=1000)
+    assert len(full) > 60, "the premise of the stripping has changed"
+    assert len(measure.heavy_automorphisms(mol, mol.GetNumAtoms())) == 2
+
+
+def test_removehs_preserves_heavy_atom_order():
+    """The index arithmetic depends on it, so it is checked and not trusted."""
+    pytest.importorskip("rdkit")
+    from rdkit import Chem
+
+    for smiles in ("c1ccccc1", "CC(=O)Nc1ccccc1", "OCC1OC(O)C(O)C(O)C1O"):
+        mol = Chem.AddHs(Chem.MolFromSmiles(smiles))
+        heavy = [a.GetIdx() for a in mol.GetAtoms() if a.GetAtomicNum() > 1]
+        stripped = Chem.RemoveHs(Chem.Mol(mol))
+        assert stripped.GetNumAtoms() == len(heavy), smiles
+        for slot, index in enumerate(heavy):
+            assert (stripped.GetAtomWithIdx(slot).GetAtomicNum()
+                    == mol.GetAtomWithIdx(index).GetAtomicNum()), smiles
+
+
+def test_the_identity_is_always_in_the_group():
+    """What makes minimising over it safe: the symmetry-aware RMSD can only be
+    lower than the index-matched one, so a pose that moved still reads moved."""
+    pytest.importorskip("rdkit")
+    from rdkit import Chem
+
+    for smiles in ("c1ccccc1", "Cc1ccccc1", "CC"):
+        mol = Chem.AddHs(Chem.MolFromSmiles(smiles))
+        maps = measure.heavy_automorphisms(mol, mol.GetNumAtoms())
+        identity = np.arange(len(maps[0]))
+        assert any(np.array_equal(m, identity) for m in maps), smiles
+
+
+def test_the_symmetric_drift_never_exceeds_the_index_matched_one():
+    rng = np.random.default_rng(7)
+    coords = rng.normal(0, 2.0, (40, 6, 3))
+    maps = [np.array([(i + shift) % 6 for i in range(6)]) for shift in range(6)]
+    plain = measure._symmetric_drift(coords, None)
+    symmetric = measure._symmetric_drift(coords, maps)
+    assert (symmetric <= plain + 1e-9).all()
+    # And with the identity alone it is exactly the index-matched value.
+    assert measure._symmetric_drift(
+        coords, [np.arange(6)]) == pytest.approx(plain)
+
+
+def test_a_ring_rotation_is_not_counted_as_movement():
+    """The artefact, in miniature: a hexagon rotated onto itself has not moved.
+
+    Index-matched, a 60 degree rotation of a benzene ring reports the ring
+    radius. The six carbons are chemically identical, so the pose is unchanged.
+    """
+    pytest.importorskip("rdkit")
+    from rdkit import Chem
+
+    radius = 1.39
+    angles = np.arange(6) * np.pi / 3.0
+    ring = np.stack([radius * np.cos(angles), radius * np.sin(angles),
+                     np.zeros(6)], axis=1)
+    # Frame 1 is the same ring with its atoms relabelled by one position.
+    coords = np.stack([ring, np.roll(ring, 1, axis=0)])
+
+    plain = measure._symmetric_drift(coords, None)
+    assert plain[1] == pytest.approx(radius, abs=0.01), "the premise"
+
+    mol = Chem.AddHs(Chem.MolFromSmiles("c1ccccc1"))
+    maps = measure.heavy_automorphisms(mol, mol.GetNumAtoms())
+    assert measure._symmetric_drift(coords, maps)[1] == pytest.approx(0.0, abs=1e-6)
+
+
+def test_a_rigid_ligand_omits_its_strain_rather_than_reporting_zero():
+    """The method cannot measure a strain it has no torsion to restrain.
+
+    With no rotatable bond the restrained force field is the free one: both
+    minimisations start from the same coordinates and reach the same minimum, so
+    the difference is float noise. Benzene measured -4.7e-07 kcal/mol.
+
+    Reported as 0.0 that is zero excess strain, which is full marks on the
+    conformation ramp -- 5% of a grade for a quantity nobody computed. The keys
+    are omitted so the sub-score goes pending instead.
+    """
+    pytest.importorskip("rdkit")
+    from rdkit import Chem
+    from rdkit.Chem import AllChem
+
+    mol = Chem.RWMol()
+    for _ in range(6):
+        mol.AddAtom(Chem.Atom(6))
+    for i in range(6):
+        mol.AddBond(i, (i + 1) % 6,
+                    Chem.BondType.DOUBLE if i % 2 else Chem.BondType.SINGLE)
+    ring = mol.GetMol()
+    Chem.SanitizeMol(ring)
+    ring = Chem.AddHs(ring)
+    AllChem.EmbedMolecule(ring, randomSeed=1)
+
+    assert measure.rotatable_torsions(ring) == [], "the premise"
+
+    class _Traj:
+        n_frames = 4
+        xyz = np.zeros((4, ring.GetNumAtoms(), 3), dtype=np.float32)
+
+    metrics, conformer, notes = measure.strain_records(
+        ring, _Traj(), np.arange(ring.GetNumAtoms()), 0,
+        np.array([0.0, 1.0, 2.0, 3.0]))
+
+    assert metrics == {}, metrics
+    assert conformer == {}
+    assert any("omitted rather than reported as zero" in n for n in notes), notes
+
+
+def test_the_conformation_subscore_is_pending_for_a_rigid_ligand():
+    """And its weight renormalises, rather than being earned for nothing."""
+    from flexappeal import grade
+
+    class _M:
+        metrics = {"status": "ok", "equil_start_frame": 0,
+                   "ligand_rmsd_median": 1.5, "in_pocket_fraction": 0.95,
+                   "conv_js_mean": 0.05, "changed_pose_cluster": 0}
+        interactions = {"status": "ok", "n_t0_interactions": 10,
+                        "key_interaction_occupancy_mean": 0.80,
+                        "tanimoto_t0_mean": 0.80}
+        series = None
+        status = "ok"
+
+    g = grade.score_one(_M())
+    assert g.subscores["conformation"] is None
+    assert "conformation" in g.pending
+    assert "conformation" not in g.weights_used
+    assert g.score == pytest.approx(100.0)

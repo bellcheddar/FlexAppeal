@@ -445,9 +445,13 @@ def test_the_committed_example_grades_from_its_own_measurements():
     assert g is not None
     assert 0.0 <= g.score <= 100.0
     assert g.grade in ("A", "A-", "B+", "B", "B-", "C+", "C")
-    # The committed example computes its own MM/GBSA, so nothing is pending.
-    assert g.pending == []
+    # The example computes its own MM/GBSA, so the energy is scored. Its ligand
+    # has no rotatable bond, so the conformation sub-score has nothing to measure
+    # and is pending -- which is the point of that omission: it used to be
+    # reported as zero strain and collect full marks.
+    assert g.pending == ["conformation"]
     assert g.energy_dg is not None and g.energy_dg < 0.0
+    assert g.subscores["energy"] is not None
     # Benzene in a buried cavity: it cannot leave, so occupancy is full marks
     # and the pose term is what the grade turns on.
     assert g.subscores["occupancy"] == pytest.approx(100.0)

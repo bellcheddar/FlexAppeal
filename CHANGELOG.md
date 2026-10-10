@@ -212,6 +212,36 @@ checkbox list in `README.md`.
 
 ### Fixed
 
+- **The pose RMSD charged a symmetric ligand for its own symmetry.** Benzene's
+  six carbons are chemically identical, so a 60 degree ring rotation moved every
+  atom by the ring radius while changing the pose not at all. The RMSD now
+  minimises over the automorphism group of the ligand's hydrogen-stripped graph,
+  which is the standard correction and can only lower the number because the
+  identity is always in the group.
+
+  On the committed example: median pose RMSD **2.16 to 0.83 A**, `conv_js_mean`
+  **0.41 to 0.048**, pose clusters **6 to 1** at full dominance. `S_pose` 73.5 to
+  100 and `S_conv` 0 to 100. The convergence score of nought was almost entirely
+  benzene reorienting into its own symmetry images and then stopping.
+
+  Implemented in DeepFlex in the same change (D079), with the same two functions
+  and the same eight reference counts pinned by a test in each suite. 24 of that
+  package's 27 ligands carry symmetry, so it was re-measured there before
+  landing: no grade, rank or gate moved and the worst score shift was 0.78
+  points.
+- **A rigid ligand reported zero strain and collected full marks for it.** The
+  method restrains each rotatable torsion, minimises, minimises again free, and
+  takes the difference. With no rotatable bond there is nothing to restrain, so
+  the restrained force field *is* the free one: both minimisations start from the
+  same coordinates and reach the same minimum. Benzene measured -4.7e-07
+  kcal/mol.
+
+  Reported as 0.0 that is zero excess strain, which is full marks on the
+  conformation ramp -- 5% of a grade for a quantity nobody computed, and exactly
+  the stand-in the format forbids. Both conformation inputs are now omitted, the
+  sub-score goes pending and its weight renormalises. The strain and torsion
+  panels are absent rather than flat, which is what led to the question.
+
 - **The grade meter said the binding energy was not measured, when it was.** Two
   faults behind one wrong sentence. The energy was computed into the version 2
   package only, and the Analysis tab reads the version 1 payload and nothing else,

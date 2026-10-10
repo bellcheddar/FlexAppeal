@@ -493,6 +493,108 @@ def _fit(traj, fit_on: np.ndarray):
     return fitted
 
 
+# Ligand symmetry. A pose RMSD that matches atoms by index charges a symmetric
+# ligand for its own symmetry: benzene's six carbons are chemically identical, so
+# a 60 degree ring rotation moves every atom by the ring radius, 1.39 A, while
+# changing the pose not at all, and a 180 degree flip registers about 2.78 A. On
+# the committed 100 ns benzene run that inflated the median pose RMSD from 0.94 A
+# to 2.16 A and the block divergence from 0.069 to 0.357, which is the difference
+# between full marks and none on the convergence sub-score.
+#
+# The correction is the standard one: minimise over the automorphism group of the
+# ligand's own molecular graph. It can only ever lower the RMSD, so it cannot
+# flatter a pose that has genuinely moved -- the identity mapping is always in
+# the group.
+#
+# Mirrored in DeepFlex's `pipeline.binding.heavy_automorphisms`, and both are
+# pinned to the same benzene numbers by a test, because the pose thresholds are
+# calibrated against this definition and one side changing alone would show two
+# grades for one run (DeepFlex Q008).
+#
+# It is not a cosmetic correction over there either: 24 of that package's 27
+# ligands carry some heavy-atom symmetry, up to 12 mappings, so its stored
+# sub-scores move when it lands. Both sides have to change together or not at
+# all.
+#
+# Capped because the group grows multiplicatively with repeated substituents: a
+# molecule with four equivalent tert-butyls has 3^4 rotations before anything
+# else. Past the cap the index-matched RMSD is used and a note says so, which is
+# the old behaviour rather than a wrong number.
+MAX_AUTOMORPHISMS = 256
+
+
+def heavy_automorphisms(mol, n_atoms: int) -> list[np.ndarray] | None:
+    """Heavy-atom index permutations that leave the ligand's graph unchanged.
+
+    Returned as positions into the molecule's heavy atoms, in molecule atom
+    order, so a caller holding coordinates in that order can re-label them
+    directly. None where RDKit is absent, the molecule could not be typed, or the
+    group is larger than the cap.
+
+    Computed on the **hydrogen-stripped** graph, which is not a detail. The full
+    graph's automorphism group permutes equivalent hydrogens as well, so ethane
+    comes out with 72 mappings instead of 2 and tert-butylbenzene blows past any
+    sane cap, while every one of those extra mappings leaves the heavy atoms
+    exactly where they were. `RemoveHs` preserves the relative order of the heavy
+    atoms, which is what makes the index arithmetic below safe, and the test
+    suite asserts it rather than trusting it.
+
+    The identity is always in the group, which is what makes minimising over it
+    safe: the result can only be lower than the index-matched RMSD, never higher.
+
+    Graph symmetry and not chemical symmetry, so it under-corrects rather than
+    over-corrects. A carboxylate's two oxygens are resonance-equivalent but are
+    typed as =O and -O, so they are not graph-equivalent and are not swapped.
+    Under-correcting leaves a real pose change real; over-correcting would hide
+    one.
+    """
+    if mol is None:
+        return None
+    try:
+        from rdkit import Chem  # noqa: PLC0415
+    except ImportError:
+        return None
+
+    if mol.GetNumAtoms() != n_atoms:
+        return None
+
+    heavy = [atom.GetIdx() for atom in mol.GetAtoms() if atom.GetAtomicNum() > 1]
+    if len(heavy) < 2:
+        return None
+
+    try:
+        stripped = Chem.RemoveHs(mol)
+        if stripped.GetNumAtoms() != len(heavy):
+            return None
+        matches = stripped.GetSubstructMatches(
+            stripped, uniquify=False, useChirality=False,
+            maxMatches=MAX_AUTOMORPHISMS + 1)
+    except Exception:                                         # noqa: BLE001
+        return None
+
+    unique = {tuple(int(x) for x in mapping) for mapping in matches}
+    if not unique or len(unique) > MAX_AUTOMORPHISMS:
+        return None
+    return [np.array(mapping, dtype=np.int64) for mapping in sorted(unique)]
+
+
+def _symmetric_drift(coords: np.ndarray,
+                     maps: list[np.ndarray] | None) -> np.ndarray:
+    """Per-frame RMSD to frame 0, minimised over the ligand's symmetry.
+
+    `coords` is (frames, heavy atoms, 3) in angstrom, already superposed. With no
+    mappings this is the plain index-matched RMSD, which is also what the
+    identity mapping gives, so the two paths agree by construction.
+    """
+    reference = coords[0]
+    best = np.sqrt(((coords - reference) ** 2).sum(axis=2).mean(axis=1))
+    for mapping in maps or ():
+        candidate = np.sqrt(
+            ((coords[:, mapping, :] - reference) ** 2).sum(axis=2).mean(axis=1))
+        best = np.minimum(best, candidate)
+    return best
+
+
 def _drift_rmsd(fitted, measure_on: np.ndarray) -> np.ndarray:
     """Per-frame RMSD of an atom set to its own frame-0 position, in angstrom.
 
@@ -939,7 +1041,8 @@ def block_divergence(window: np.ndarray) -> tuple[float | None, str | None]:
 
 
 def pose_clusters(ligand_xyz: np.ndarray, pose_rmsd: np.ndarray,
-                  start: int) -> dict[str, Any] | None:
+                  start: int,
+                  maps: list[np.ndarray] | None = None) -> dict[str, Any] | None:
     """Cluster the scored window's ligand poses, and say whether the pose changed.
 
     Average-linkage hierarchical clustering on pairwise ligand heavy-atom RMSD,
@@ -966,6 +1069,20 @@ def pose_clusters(ligand_xyz: np.ndarray, pose_rmsd: np.ndarray,
     poses = ligand_xyz[frames]
     difference = poses[:, None, :, :] - poses[None, :, :, :]
     matrix = np.sqrt((difference ** 2).sum(axis=3).mean(axis=2))
+    # Minimised over the ligand's symmetry, for the same reason the pose RMSD is:
+    # without it two frames differing only by a ring rotation land in different
+    # clusters, and a symmetric ligand's cluster count counts its symmetry
+    # operations instead of its poses. Benzene went from six clusters to one.
+    for mapping in maps or ():
+        rotated = poses[:, mapping, :]
+        candidate = np.sqrt(
+            ((rotated[:, None, :, :] - poses[None, :, :, :]) ** 2)
+            .sum(axis=3).mean(axis=2))
+        matrix = np.minimum(matrix, candidate)
+    # The pairwise minimum is not symmetric in general -- frame i re-labelled
+    # against j need not equal j re-labelled against i -- and linkage needs a
+    # metric, so take the gentler of the two readings for each pair.
+    matrix = np.minimum(matrix, matrix.T)
     np.fill_diagonal(matrix, 0.0)
 
     labels = fcluster(linkage(squareform(matrix, checks=False), method="average"),
@@ -1167,6 +1284,26 @@ def strain_records(mol, traj, atoms: np.ndarray, start: int, time_ns: np.ndarray
         ]
 
     torsions = rotatable_torsions(mol)
+    if not torsions:
+        # No rotatable bond, so there is no torsional strain to measure and the
+        # method below cannot measure one: with no torsions to restrain, the
+        # "held" force field is the free one, both minimisations start from the
+        # same coordinates and reach the same minimum, and their difference is
+        # float noise. Benzene reported -4.7e-07 kcal/mol that way.
+        #
+        # Reporting that as 0.0 is the trap the format exists to avoid. Zero
+        # excess strain is full marks on the conformation ramp, so a rigid ligand
+        # was collecting 5% of its grade for a quantity nobody computed. The keys
+        # are omitted instead and the sub-score goes pending, which is the
+        # answer the format gives for any measurement not made.
+        return {}, {}, [
+            "the ligand has no rotatable bond, so it has no torsional strain to "
+            "measure and no torsion to flip. Both conformation inputs are "
+            "omitted rather than reported as zero, which would have been full "
+            "marks for a measurement that cannot be made, so the conformation "
+            "sub-score is pending and its weight is spread over the others"
+        ]
+
     conformer = mol.GetConformer()
 
     # Frame 0 prepended, so the reference is measured by exactly the same code
@@ -1249,10 +1386,7 @@ def strain_records(mol, traj, atoms: np.ndarray, start: int, time_ns: np.ndarray
         "coordinates and hydrogens rather than read from a chemical definition, "
         "so the MMFF94 atom typing rests on that inference"
     ]
-    if not torsions:
-        notes.append(
-            "the ligand has no rotatable bond, so the torsion-flip term is "
-            "vacuous and the conformation sub-score rests on the strain alone")
+
     return metrics, arrays, notes
 
 
@@ -1588,8 +1722,40 @@ def _measure(traj, cid: str, receptor: str, ligand: str, resnames: list[str],
     in_pocket = contacts >= threshold
 
     # ---- the three superpositions ------------------------------------------
+    #
+    # The ligand's graph is needed before the pose RMSD, not after it, because
+    # the RMSD is minimised over the ligand's own symmetry. Built here rather
+    # than at the strain step further down, which is the other thing that wants
+    # it, so the two share one inference.
+    mol = ligand_mol(traj, atoms)
+    symmetry = heavy_automorphisms(mol, len(atoms))
+    heavy_in_mol = np.array(
+        [slot for slot, index in enumerate(atoms) if index in set(heavy)],
+        dtype=np.int64)
+    # The mappings are positions into the molecule's heavy atoms; `heavy` is the
+    # topology's. Both are the ligand's heavy atoms in ascending order, so they
+    # must be the same list -- checked rather than assumed, because a mapping
+    # applied to a differently ordered array silently measures the wrong thing.
+    aligned = (len(heavy_in_mol) == len(heavy)
+               and bool(np.array_equal(np.asarray(atoms)[heavy_in_mol],
+                                       np.asarray(heavy))))
+    if symmetry is not None and not aligned:
+        # The mol's heavy atoms and the topology's disagree, so a mapping taken
+        # from one cannot be applied to the other. Index matching, with a note.
+        symmetry = None
+        notes.append(
+            "the ligand's inferred graph did not line up with its heavy atoms, "
+            "so the pose RMSD matches atoms by index. A symmetric ligand is "
+            "charged for its symmetry that way")
+
     pose_fit = _fit(traj, pocket_ca)
-    pose_rmsd = _drift_rmsd(pose_fit, heavy)
+    ligand_coords = pose_fit.xyz[:, atoms, :][:, heavy_in_mol, :] * 10.0
+    pose_rmsd = _symmetric_drift(ligand_coords, symmetry)
+    if symmetry is not None and len(symmetry) > 1:
+        notes.append(
+            f"the pose RMSD is minimised over the ligand's {len(symmetry)} "
+            f"graph symmetries, so a symmetry-equivalent reorientation is not "
+            f"counted as movement")
     inplace_rmsd = _drift_rmsd(_fit(traj, heavy), heavy)
     receptor_fit = _fit(traj, receptor_ca) if len(receptor_ca) >= 3 else pose_fit
     receptor_rmsd = _drift_rmsd(receptor_fit, receptor_ca) \
@@ -1601,7 +1767,11 @@ def _measure(traj, cid: str, receptor: str, ligand: str, resnames: list[str],
     # perfectly held pose, so measuring against it adds a constant offset and
     # the 5 A hard gate then fires on ligands that have not moved. The offset is
     # still reported, as a diagnostic rather than as a drift measure.
-    ligand_xyz = pose_fit.xyz[:, heavy, :] * 10.0
+    # The same array the pose RMSD was taken from. `heavy` and the molecule's
+    # heavy atoms are both the ligand's heavy atoms in ascending topology order,
+    # so the symmetry mappings index into this directly; the equality is checked
+    # where `heavy_in_mol` is built.
+    ligand_xyz = ligand_coords
     com = ligand_xyz.mean(axis=1)
     com_drift = np.linalg.norm(com - com[0], axis=1)
     pocket_centre = (pose_fit.xyz[0, pocket_heavy, :] * 10.0).mean(axis=0) \
@@ -1686,7 +1856,7 @@ def _measure(traj, cid: str, receptor: str, ligand: str, resnames: list[str],
     if divergence_note:
         notes.append(divergence_note)
 
-    clusters = pose_clusters(ligand_xyz, pose_rmsd, start)
+    clusters = pose_clusters(ligand_xyz, pose_rmsd, start, symmetry)
     if clusters is not None:
         clusters.pop("centroid_frames")
         metrics.update(clusters)
@@ -1747,7 +1917,7 @@ def _measure(traj, cid: str, receptor: str, ligand: str, resnames: list[str],
         metrics["n_rmsf_residues"] = panels_summary["n_rmsf_residues"]
 
     # ---- ligand strain -----------------------------------------------------
-    mol = ligand_mol(traj, atoms)
+    # `mol` comes from the superposition block above, which needed it first.
     strain_metrics, conformer, strain_notes = strain_records(
         mol, traj, atoms, start, time_ns)
     metrics.update(strain_metrics)

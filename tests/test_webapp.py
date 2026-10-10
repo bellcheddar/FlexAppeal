@@ -955,9 +955,16 @@ def test_the_example_exercises_the_binding_panels(client):
     assert "The binding site" in body
     assert "The whole system" in body
     for panel in ("pose", "centroid", "occupancy", "interactions", "barcode",
-                  "clusters", "strain", "ligand_rmsf", "pocket_rmsf",
-                  "rmsd_2d", "dccm"):
+                  "clusters", "ligand_rmsf", "pocket_rmsf", "rmsd_2d", "dccm",
+                  "energy_terms"):
         assert f'id="plot-binding-{panel}"' in body, panel
+
+    # Two cannot be drawn for this ligand and are absent rather than empty.
+    # Benzene has no rotatable bond, so there is no torsion to flip and no
+    # torsional strain the method can measure; both were reported as zero once
+    # and that was full marks on the conformation sub-score for nothing.
+    for panel in ("strain", "torsions"):
+        assert f'id="plot-binding-{panel}"' not in body, panel
 
     # The depiction and the mobility legend are the two things on the page that
     # are not a chart, and both come from the ligand rather than the trajectory.
