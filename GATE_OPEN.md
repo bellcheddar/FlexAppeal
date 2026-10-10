@@ -8,8 +8,14 @@ below needs an answer before those complete.
 
 ## G4 Publish — waiting
 
-**What it blocks.** Any `git push`. 23 commits sit on `main` locally and none
-has left this machine.
+**What it blocks.** Any `git push`. `main` is **57 commits ahead of
+`origin/main`** and none has left this machine. That is the whole
+reference-states build, from `phase 0: vendor BoltzMaker` onwards: nothing from
+it has ever been pushed, because G4 has been closed since it started.
+
+The figure in this file said 23 twice. It was wrong and I had written it from
+memory rather than from `git`, in the one file whose purpose is to carry numbers
+you can act on. Measured with `git log --oneline origin/main..HEAD`.
 
 **What is done.** Phases 0 to 4 and 6 are complete, Phase 5 is running, Phase 7
 is drafted. The spec's own acceptance criteria are met for every finished phase:
@@ -30,7 +36,7 @@ is drafted. The spec's own acceptance criteria are met for every finished phase:
 **What unblocks it.** One of:
 
 ```
-# everything, as 23 commits
+# everything, as 57 commits
 git -C /Users/dellboy/Documents/Vibe_Coding/FlexAppeal push origin main
 ```
 
