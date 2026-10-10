@@ -966,6 +966,23 @@ def test_the_example_exercises_the_binding_panels(client):
 
 
 @pytest.mark.skipif(not _example_built(), reason="the example run has not been built")
+def test_the_example_page_is_a_sane_weight(client):
+    """Twenty-six panels of a 100 ns run, and the page still has to load.
+
+    The first render of the 100 ns example was 24 MB, because every version 1
+    panel plotted one point per frame and the DSSP heat map carried a state name
+    per residue per frame. Nothing about the page said so -- it rendered
+    correctly and the tests passed. This is the check that would have caught it.
+    """
+    pytest.importorskip("mdtraj")
+    from flexappeal import webapp as webapp_mod
+
+    webapp_mod._BINDING_CACHE.clear()
+    body = client.get("/example").get_data()
+    assert len(body) < 4_000_000, f"the example page is {len(body) // 1024} KB"
+
+
+@pytest.mark.skipif(not _example_built(), reason="the example run has not been built")
 def test_the_terminal_captures_are_real_output_not_placeholders(client):
     """Each capture must carry styling from the recording and its own classes.
 

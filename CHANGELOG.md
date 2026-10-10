@@ -37,6 +37,27 @@ checkbox list in `README.md`.
   binding panel ids, the depiction and the mobility legend are on `/example`, so
   a swap back to an apo example cannot quietly stop testing them.
 
+### Fixed
+
+- **The Analysis page carried every frame of the run, and a 100 ns run made that
+  obvious.** The first render of the new example was 24 MB: 18.7 MB of it the
+  DSSP heat map, which carries a cell and a state name per residue per frame, and
+  another 2.2 MB spread over the six convergence panels. It rendered correctly
+  and the whole suite passed, which is why it needed measuring rather than
+  reading.
+
+  The version 1 panels now decimate for the page the way the binding panels
+  already did, with the helpers moved up beside the other shared ones so both
+  halves of the file reach them. Line panels keep 600 points, the DSSP heat map
+  400 columns, and the residue axis is never touched because that is the axis a
+  reader reads. The page is 1.7 MB, the 10 ns example came down too, and nothing
+  on screen changed: 600 points is more than a chart a few hundred pixels wide
+  can resolve.
+
+  The file is untouched. Every frame is still in the `.fxa` and `/reanalyse`
+  still works from the full arrays, which is the distinction: this is about the
+  wire, not about the data.
+
 ### Measured
 
 - **The OpenCL memory growth plateaus and then reverses.** The README has carried

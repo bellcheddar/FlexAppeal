@@ -367,6 +367,81 @@ def test_the_page_weight_stays_reasonable(measured):
     assert len(blob) < 400_000, f"{len(blob) // 1024} KB of panel JSON"
 
 
+def test_a_long_run_does_not_put_its_every_frame_on_the_page():
+    """A page is a few hundred pixels wide; a 100 ns run has ten thousand frames.
+
+    Undecimated, the 100 ns example came to 24 MB on one page, 18.7 of it the
+    DSSP heat map alone, which carries a cell and a state name per residue per
+    frame. The file still holds every frame -- this is about the wire, and
+    `/reanalyse` works from the full arrays.
+    """
+    import json
+
+    import numpy as np
+
+    from flexappeal import plots
+
+    frames = 10_000
+    rng = np.random.default_rng(0)
+    metrics = {
+        "time_ns": [i * 0.01 for i in range(frames)],
+        "rmsd_nm": list(rng.normal(0.2, 0.01, frames)),
+        "rgyr_nm": list(rng.normal(1.4, 0.01, frames)),
+        "sasa_total_nm2": list(rng.normal(70.0, 1.0, frames)),
+        "dssp_helix_fraction": list(rng.normal(0.4, 0.01, frames)),
+        "dssp_sheet_fraction": list(rng.normal(0.1, 0.01, frames)),
+        "pca_projection": [[float(a), float(b)] for a, b in rng.normal(0, 1, (frames, 2))],
+        "pca_variance_ratio": [0.4, 0.2],
+    }
+    arrays = {"dssp": rng.integers(0, 4, (frames, 162))}
+
+    builders = {
+        "rmsd": plots.rmsd(metrics),
+        "rgyr": plots.radius_of_gyration(metrics),
+        "sasa": plots.sasa(metrics),
+        "ss_fractions": plots.secondary_structure_fractions(metrics),
+        "pca": plots.pca(metrics),
+        "dssp": plots.dssp(metrics, arrays),
+    }
+    for name, figure in builders.items():
+        assert figure is not None, name
+        size = len(json.dumps(figure))
+        assert size < 1_000_000, f"{name} is {size // 1024} KB of JSON"
+
+    for name in ("rmsd", "rgyr", "sasa", "ss_fractions", "pca"):
+        trace = builders[name]["data"][0]
+        assert len(trace["x"]) <= plots.WIRE_SERIES_POINTS, (name, len(trace["x"]))
+
+    heatmap = builders["dssp"]["data"][0]
+    assert len(heatmap["x"]) <= plots.WIRE_HEATMAP_COLUMNS, len(heatmap["x"])
+    # The residue axis is the one a reader reads; it is never decimated.
+    assert len(heatmap["z"]) == 162
+
+
+def test_a_decimated_series_keeps_its_axis_the_same_length():
+    """A strided series against an unstrided axis draws the wrong curve."""
+    import numpy as np
+
+    from flexappeal import plots
+
+    frames = 5_000
+    metrics = {
+        "time_ns": [i * 0.02 for i in range(frames)],
+        "rmsd_nm": list(np.linspace(0.1, 0.3, frames)),
+        "dssp_helix_fraction": list(np.linspace(0.3, 0.5, frames)),
+        "dssp_sheet_fraction": list(np.linspace(0.2, 0.1, frames)),
+    }
+    for figure in (plots.rmsd(metrics),
+                   plots.secondary_structure_fractions(metrics)):
+        for trace in figure["data"]:
+            assert len(trace["x"]) == len(trace["y"]), trace.get("name")
+
+    # The decimation keeps the ends, so the axis still spans the whole run.
+    axis = plots.rmsd(metrics)["data"][0]["x"]
+    assert axis[0] == metrics["time_ns"][0]
+    assert axis[-1] >= metrics["time_ns"][-1] - 0.2
+
+
 def test_the_matrices_are_reduced_for_the_wire(measured):
     panels = {p["id"]: p for p in plots.build_binding(measured)}
     for key in ("binding-rmsd_2d", "binding-dccm"):

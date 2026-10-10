@@ -115,6 +115,55 @@ def _finite(values) -> list[float]:
     return [None if (v is None or not math.isfinite(float(v))) else float(v) for v in values]
 
 
+# --- decimation for the wire ------------------------------------------------
+# What a panel is reduced to before it is written into the page. These are about
+# the page, not about the data: the file keeps everything the run measured, and
+# the full-resolution arrays are what `/reanalyse` works from.
+#
+# The numbers come from a browser rather than from taste. A matrix is stored at
+# up to 500 on a side, which is right for a payload, but 500 by 500 is a quarter
+# of a million numbers in the HTML: for a 162-residue receptor that measured
+# 4.5 MB of JSON on one page, against a panel a few hundred pixels wide that
+# cannot show a quarter of it.
+WIRE_MATRIX_SIDE = 200
+# Points per line panel. DeepFlex decimates to about this for the same reason.
+WIRE_SERIES_POINTS = 600
+# Columns a time-against-residue heat map keeps. Lower than the line panels
+# because every column carries a cell per residue and, on the DSSP panel, a
+# state name per cell for the hover: the 100 ns example came to 18.7 MB on one
+# panel undecimated, which is the whole page budget spent on one chart.
+WIRE_HEATMAP_COLUMNS = 400
+
+
+def _wire_matrix(matrix) -> np.ndarray:
+    """Block-reduce a matrix to something a page can carry."""
+    side = matrix.shape[0]
+    if side <= WIRE_MATRIX_SIDE:
+        return matrix
+    step = int(np.ceil(side / WIRE_MATRIX_SIDE))
+    return matrix[::step, ::step]
+
+
+def _wire_stride(length: int, limit: int = WIRE_SERIES_POINTS) -> int:
+    """Frames to skip so a panel stays within `limit` points."""
+    if length <= limit:
+        return 1
+    return int(np.ceil(length / limit))
+
+
+def _thin(time, *series, limit: int = WIRE_SERIES_POINTS):
+    """One stride applied to a time axis and everything plotted against it.
+
+    Returned together on purpose. Striding the axis and the series separately
+    is how a chart ends up drawn against the wrong x, and the two calls are far
+    enough apart in a builder for that to look right while reading.
+    """
+    stride = _wire_stride(len(time), limit)
+    if stride == 1:
+        return (list(time), *[list(s) for s in series])
+    return (list(time)[::stride], *[list(s)[::stride] for s in series])
+
+
 # ===========================================================================
 #  Convergence -- from state_data.csv
 # ===========================================================================
@@ -174,11 +223,15 @@ def convergence(columns: dict[str, list[float]]) -> list[dict[str, Any]]:
         if not values or all(not math.isfinite(v) for v in values):
             continue
         colour = CATEGORICAL[index % len(CATEGORICAL)]
+        # Six of these on one page, each with a point per reporter interval:
+        # undecimated, a 100 ns run spent 2.2 MB of the page on them between
+        # them. The state file itself is packed whole and keeps every row.
+        thinned_time, thinned = _thin(time, _finite(values))
         figures.append({
             "id": f"conv-{key.split(' ')[0].lower()}",
             "title": label,
             "figure": _figure(
-                [_line(time, _finite(values), label, colour,
+                [_line(thinned_time, thinned, label, colour,
                        hover=f"%{{y:.4g}} {unit}<extra></extra>")],
                 _layout(f"{label}  ({unit})", x_label, unit,
                         margin={"l": 66, "r": 14, "t": 38, "b": 44}),
@@ -199,8 +252,9 @@ def rmsd(metrics: dict[str, Any]) -> dict[str, Any] | None:
         return None
     # Ångström reads better than nanometres for RMSD; the axis says so.
     angstrom = [v * 10.0 for v in values]
+    time, angstrom = _thin(time, _finite(angstrom))
     return _figure(
-        [_line(time, _finite(angstrom), "RMSD",
+        [_line(time, angstrom, "RMSD",
                hover="%{y:.2f} Å<extra></extra>")],
         _layout("Backbone RMSD from the reference", "Time (ns)", "RMSD (Å)"),
     )
@@ -212,8 +266,9 @@ def radius_of_gyration(metrics: dict[str, Any]) -> dict[str, Any] | None:
     if not values or not time:
         return None
     angstrom = [v * 10.0 for v in values]
+    time, angstrom = _thin(time, _finite(angstrom))
     return _figure(
-        [_line(time, _finite(angstrom), "Rg", CATEGORICAL[1],
+        [_line(time, angstrom, "Rg", CATEGORICAL[1],
                hover="%{y:.2f} Å<extra></extra>")],
         _layout("Radius of gyration", "Time (ns)", "R<sub>g</sub> (Å)"),
     )
@@ -272,8 +327,9 @@ def sasa(metrics: dict[str, Any]) -> dict[str, Any] | None:
     time = metrics.get("time_ns")
     if not values or not time:
         return None
+    time, values = _thin(time, _finite(values))
     return _figure(
-        [_line(time, _finite(values), "SASA", CATEGORICAL[2],
+        [_line(time, values, "SASA", CATEGORICAL[2],
                hover="%{y:.1f} nm²<extra></extra>")],
         _layout("Solvent-accessible surface area", "Time (ns)", "SASA (nm²)"),
     )
@@ -315,6 +371,17 @@ def dssp(metrics: dict[str, Any], arrays: dict[str, np.ndarray]) -> dict[str, An
         return None
 
     resids = metrics.get("contact_residues") or list(range(grid.shape[1]))
+
+    # Decimate along time before anything is built from the grid. Every column
+    # costs a cell and a state name per residue, so a long run spends the whole
+    # page budget here: 10,000 frames of a 162-residue receptor came to 18.7 MB
+    # of JSON for a panel a few hundred pixels wide. The residue axis is left
+    # alone -- it is the axis a reader reads, and there are never many of them.
+    stride = _wire_stride(len(time), WIRE_HEATMAP_COLUMNS)
+    if stride > 1:
+        grid = grid[::stride]
+        time = list(time)[::stride]
+
     present = sorted({int(v) for v in np.unique(grid)})
 
     # A discrete colourscale: hard stops so no cell is drawn an interpolated
@@ -369,12 +436,16 @@ def secondary_structure_fractions(metrics: dict[str, Any]) -> dict[str, Any] | N
     if not time or (not helix and not sheet):
         return None
 
+    # One stride for both series and the axis, so the two curves stay comparable
+    # point for point as well as sharing an x.
+    time, helix, sheet = _thin(time, _finite(helix or []), _finite(sheet or []))
+
     data = []
     if helix:
-        data.append(_line(time, _finite(helix), "Helix", CATEGORICAL_ALL_PAIRS[0],
+        data.append(_line(time, helix, "Helix", CATEGORICAL_ALL_PAIRS[0],
                           hover="Helix %{y:.1%}<extra></extra>"))
     if sheet:
-        data.append(_line(time, _finite(sheet), "Sheet", CATEGORICAL_ALL_PAIRS[1],
+        data.append(_line(time, sheet, "Sheet", CATEGORICAL_ALL_PAIRS[1],
                           hover="Sheet %{y:.1%}<extra></extra>"))
 
     return _figure(data, _layout(
@@ -438,6 +509,11 @@ def pca(metrics: dict[str, Any]) -> dict[str, Any] | None:
     pc1 = [row[0] for row in projection]
     pc2 = [row[1] for row in projection]
     ratios = metrics.get("pca_variance_ratio") or [0, 0]
+
+    # Eight-pixel markers on a panel a few hundred pixels wide: past about this
+    # many the scatter is solid colour, so the extra points cost page weight and
+    # show nothing. The variance ratios still come from every frame.
+    time, pc1, pc2 = _thin(time, pc1, pc2)
 
     return _figure([{
         "type": "scatter", "mode": "markers", "name": "frames",
@@ -804,32 +880,6 @@ _ITYPE_COLOUR = {
     "Hydrophobic": CATEGORICAL[2],
     "contact": NEUTRAL,
 }
-
-
-# What a matrix is reduced to before it is written into the page. The file keeps
-# up to 500 on a side, which is right for a stored payload, but a 500 by 500
-# heatmap is a quarter of a million numbers in the HTML: for a 162-residue
-# receptor that measured 4.5 MB of JSON on one page, against a panel a few
-# hundred pixels wide that cannot show a quarter of it.
-WIRE_MATRIX_SIDE = 200
-# Points per line panel. DeepFlex decimates to about this for the same reason.
-WIRE_SERIES_POINTS = 600
-
-
-def _wire_matrix(matrix) -> np.ndarray:
-    """Block-reduce a matrix to something a page can carry."""
-    side = matrix.shape[0]
-    if side <= WIRE_MATRIX_SIDE:
-        return matrix
-    step = int(np.ceil(side / WIRE_MATRIX_SIDE))
-    return matrix[::step, ::step]
-
-
-def _wire_stride(length: int) -> int:
-    """Frames to skip so a series panel stays within `WIRE_SERIES_POINTS`."""
-    if length <= WIRE_SERIES_POINTS:
-        return 1
-    return int(np.ceil(length / WIRE_SERIES_POINTS))
 
 
 def _equil_band(start_frame: int, time_ns) -> list[dict[str, Any]]:
