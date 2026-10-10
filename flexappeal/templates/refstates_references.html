@@ -16,8 +16,12 @@
   {% if n_comparable %}
     <p>
       Agreement on this set: <strong>{{ n_agree }} of {{ n_comparable }}</strong>
-      where the catalogue states an opinion. A structure the catalogue has no
-      call for is left out of that count rather than counted as agreement.
+      where both the catalogue and this build state an opinion.
+      {% if n_unlabelled %}
+        A further {{ n_unlabelled }}
+        {{ "structure" if n_unlabelled == 1 else "structures" }} could not be
+        labelled here, which is not a disagreement and is counted separately.
+      {% endif %}
     </p>
   {% endif %}
 </section>

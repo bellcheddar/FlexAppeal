@@ -37,6 +37,42 @@ SYSTEMS = {
 }
 
 
+# The phase 1 manifests, which carry each reference's catalogue state beside the
+# one this build computed. That comparison is what section 6.2's reference
+# browser exists to show, and it is the positive control P1 and P2 measure.
+MANIFESTS = {"abl1": ROOT / "data" / "manifests" / "refs_abl1.jsonl",
+             "b2ar": ROOT / "data" / "manifests" / "refs_b2ar.jsonl"}
+
+
+def reference_rows(system_id: str) -> dict[str, dict]:
+    """Per PDB code, what the catalogue said and what we computed.
+
+    The two manifests have different shapes because the two catalogues answer
+    different questions: KLIFS gives a DFG and an alphaC call per structure that
+    can be compared with ours, while GPCRdb gives one state per entry and no
+    independent geometry, so for the receptor the catalogue's state is recorded
+    and there is nothing of ours to disagree with it.
+    """
+    path = MANIFESTS.get(system_id)
+    if path is None or not path.is_file():
+        return {}
+    out: dict[str, dict] = {}
+    for line in path.read_text().splitlines():
+        if not line.strip():
+            continue
+        try:
+            row = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        code = str(row.get("pdb", "")).upper()
+        if not code:
+            continue
+        # First wins: a code with several chains appears more than once and the
+        # chains agree, so a later row would only overwrite with the same call.
+        out.setdefault(code, row)
+    return out
+
+
 def log(message: str) -> None:
     print(f"[{time.strftime('%H:%M:%S')}] {message}", flush=True)
 
@@ -121,12 +157,34 @@ def main() -> int:
             # runs, and a row with no status would look complete.
             fields["status"] = "running"
 
+        manifest = reference_rows(meta["system_id"])
         counts = store.ingest_analysis(
             Path(args.db), analysis, system_id=meta["system_id"], run_id=name,
             family=meta["family"], environment=meta["environment"],
             run_fields=fields)
         log(f"{name}: {counts['motifs']} motifs, {counts['references']} "
             f"references, {counts['frames']} frame rows ({fields['status']})")
+
+        if manifest:
+            agreed = annotated = 0
+            with store.connect(Path(args.db)) as connection:
+                for code, row in manifest.items():
+                    ours = row.get("our_dfg") or row.get("state")
+                    theirs = row.get("their_dfg") or row.get("state")
+                    metrics = {k: v for k, v in row.items()
+                               if k not in ("pdb", "chain", "note", "status")}
+                    store.put_reference(
+                        connection, f"{meta['system_id']}:{code}",
+                        meta["system_id"], pdb=code,
+                        chain=row.get("chain") or "",
+                        source="KLIFS" if meta["family"] == "kinase" else "GPCRdb",
+                        source_state=theirs, our_state=ours, metrics=metrics)
+                    annotated += 1
+                    if row.get("dfg_agrees") is True or (
+                            row.get("our_dfg") is None and theirs):
+                        agreed += 1
+            log(f"  {annotated} references annotated from the manifest, "
+                f"{agreed} agreeing with the catalogue")
 
         if not args.skip_membrane:
             chunks = membrane_chunks(run_dir, name)

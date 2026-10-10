@@ -193,10 +193,15 @@ def references(system_id: str):
             row["metrics"] = json.loads(row.get("metrics_json") or "{}")
         except json.JSONDecodeError:
             row["metrics"] = {}
-    agree = [r for r in rows
-             if r.get("source_state") and r.get("our_state")
-             and r["source_state"].lower() == r["our_state"].lower()]
-    comparable = [r for r in rows if r.get("source_state")]
+    # Comparable means both sides state an opinion. Counting a structure this
+    # build could not label as a disagreement would read as 17 of 20 where the
+    # control's real result is 17 of 17 with three unlabelled, which are
+    # different claims.
+    comparable = [r for r in rows if r.get("source_state") and r.get("our_state")]
+    agree = [r for r in comparable
+             if r["source_state"].lower() == r["our_state"].lower()]
+    unlabelled = [r for r in rows if r.get("source_state") and not r.get("our_state")]
     return render_template(
         "refstates_references.html", references=rows, system_id=system_id,
-        n_agree=len(agree), n_comparable=len(comparable), active="refstates")
+        n_agree=len(agree), n_comparable=len(comparable),
+        n_unlabelled=len(unlabelled), active="refstates")
