@@ -1297,3 +1297,58 @@ def test_an_apo_upload_shows_no_binding_section(client):
     assert "The binding site" not in body
     # And the ordinary panels are all still there.
     assert 'id="plot-rmsd"' in body
+
+
+def test_the_viewer_carries_the_ligand_diagram_and_its_legend(client):
+    """Three dimensions cannot answer this: a mobile tail is hidden behind
+    whatever it is moving in front of."""
+    fixture = FIXTURES / "trypsin_ben.fxa"
+    if not fixture.is_file():
+        pytest.skip("tests/fixtures/trypsin_ben.fxa is missing")
+    pytest.importorskip("rdkit")
+    from flexappeal import measure, webapp as webapp_mod
+
+    webapp_mod._BINDING_CACHE.clear()
+    body = _analyse(client, fixture.read_bytes()).get_data(as_text=True)
+    assert "md-depiction" in body
+    assert "data:image/svg+xml;base64" in body
+    # Six swatches and the ceiling, and the swatches must be the colours the
+    # diagram was actually painted with: a second list of values here would be
+    # one edit away from a legend describing colours that are not on it.
+    for _, colour in measure.MOBILITY_BANDS:
+        assert f"background: {colour}" in body, colour
+    assert f"{measure.MOBILITY_CEILING}+ Å" in body
+    assert "mobility" in body
+
+
+def test_the_frame_slider_is_rendered_for_a_multi_frame_run(client):
+    """The viewer blurb promised a frame slider that did not exist."""
+    body = _analyse(client).get_data(as_text=True)
+    assert 'id="scrub"' in body
+    assert 'id="scrub-play"' in body
+    assert 'data-frames=' in body
+    # The copy and the control have to agree about what is there.
+    assert "scrub the frame slider" in body
+
+
+def test_the_viewer_blurb_does_not_promise_a_slider_for_one_frame(client, tmp_path):
+    """A single-frame structure has nothing to scrub."""
+    import io
+    import json
+    import zipfile
+
+    source = FIXTURES / "lysozyme.fxa"
+    if not source.is_file():
+        pytest.skip("tests/fixtures/lysozyme.fxa is missing")
+    buffer = io.BytesIO()
+    with zipfile.ZipFile(source) as original, \
+            zipfile.ZipFile(buffer, "w", zipfile.ZIP_DEFLATED) as rebuilt:
+        for name in original.namelist():
+            blob = original.read(name)
+            if name == "manifest.json":
+                manifest = json.loads(blob)
+                manifest["trajectory"]["frames_packed"] = 1
+                blob = json.dumps(manifest).encode()
+            rebuilt.writestr(name, blob)
+    body = _analyse(client, buffer.getvalue()).get_data(as_text=True)
+    assert 'id="scrub"' not in body

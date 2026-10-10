@@ -32,7 +32,7 @@ from flask import (
 )
 
 from . import options as opts
-from . import analysis, bundle, fxa, plots, schema, sources, structure
+from . import analysis, bundle, fxa, measure, plots, schema, sources, structure
 from .options import FLEXAPPEAL_VERSION
 
 # MUST stay in sync with `client_max_body_size` in deploy/nginx-flexappeal.conf.
@@ -398,7 +398,7 @@ def analysis_page():
     (path / "results.fxa").write_bytes(content)
 
     summary = fxa.summarise(results)
-    binding, binding_notes = _binding_panels(results, content, results.job_name)
+    binding = _binding_panels(results, content, results.job_name)
     return render_template(
         "analysis.html",
         active="analysis",
@@ -407,7 +407,8 @@ def analysis_page():
         token=token,
         tiles=plots.tiles(summary, results.metrics),
         binding=binding,
-        binding_notes=binding_notes,
+        mobility_bands=MOBILITY_BANDS,
+        mobility_ceiling=MOBILITY_CEILING,
         panels=plots.build_all(results)["panels"],
         convergence=plots.convergence(
             plots.parse_state_data(results.members["state_data.csv"])
@@ -425,43 +426,59 @@ def analysis_page():
 # process and a re-uploaded file is not measured twice; the built panels are
 # cached rather than the measurement, because they are the part the template
 # needs and they are two orders of magnitude smaller.
-_BINDING_CACHE: dict[str, tuple[list, list[str]]] = {}
+_BINDING_CACHE: dict[str, dict[str, Any]] = {}
 _BINDING_CACHE_MAX = 4
 
+# The mobility legend's swatches, read from the measurement module rather than
+# written out here. The diagram is painted with those exact values, so a second
+# list would be one edit away from a legend that describes colours the diagram
+# does not have.
+MOBILITY_BANDS = measure.MOBILITY_BANDS
+MOBILITY_CEILING = measure.MOBILITY_CEILING
 
-def _binding_panels(results, content: bytes, label: str) -> tuple[list, list[str]]:
-    """The binding-site panels for one results file, and any caveats.
 
-    Returns `([], [])` for a run with no ligand: that is not a failure, it is a
-    run with no binding site. A measurement that raises costs the panels and not
-    the page -- the rest of the Analysis tab is unaffected by it, and a
-    traceback here would take down a page that works.
+def _binding_panels(results, content: bytes, label: str) -> dict[str, Any]:
+    """The binding-site panels for one results file, with the ligand diagram.
+
+    Returns an empty record for a run with no ligand: that is not a failure, it
+    is a run with no binding site. A measurement that raises costs the panels
+    and not the page -- a traceback here would take down a page that works.
     """
+    import base64  # noqa: PLC0415
     import hashlib  # noqa: PLC0415
 
     key = hashlib.sha256(content).hexdigest()
     if key in _BINDING_CACHE:
         return _BINDING_CACHE[key]
 
-    panels: list = []
-    notes: list[str] = []
+    record: dict[str, Any] = {"panels": [], "notes": [], "depiction": None,
+                              "painted": False}
     try:
         from flexappeal import package as package_mod  # noqa: PLC0415
 
         measured, reasons = package_mod.measure_results(results, label)
         if measured is None:
-            notes = [r for r in reasons if "no heteroatoms" not in r]
+            record["notes"] = [r for r in reasons if "no heteroatoms" not in r]
         else:
-            panels = plots.build_binding(measured)
-            notes = list(measured.notes)
+            record["panels"] = plots.build_binding(measured)
+            record["notes"] = list(measured.notes)
+            record["painted"] = bool(measured.depiction_painted)
+            if measured.depiction_svg:
+                # A data URI rather than a route: the diagram is a few kilobytes
+                # and belongs to the page that measured it, so serving it
+                # separately would mean a second endpoint and a second lookup
+                # for something already in hand.
+                encoded = base64.b64encode(
+                    measured.depiction_svg.encode("utf-8")).decode("ascii")
+                record["depiction"] = f"data:image/svg+xml;base64,{encoded}"
     except Exception as exc:                                  # noqa: BLE001
         current_app.logger.exception("binding panels failed")
-        notes = [f"the binding-site panels could not be built ({exc})"]
+        record["notes"] = [f"the binding-site panels could not be built ({exc})"]
 
     if len(_BINDING_CACHE) >= _BINDING_CACHE_MAX:
         _BINDING_CACHE.pop(next(iter(_BINDING_CACHE)))
-    _BINDING_CACHE[key] = (panels, notes)
-    return panels, notes
+    _BINDING_CACHE[key] = record
+    return record
 
 
 # ---------------------------------------------------------------------------
@@ -569,7 +586,7 @@ def example_page():
     results = fxa.load(content, verify_checksums=False)
     summary = fxa.summarise(results)
     config = results.manifest.get("config", {})
-    binding, binding_notes = _binding_panels(results, content, results.job_name)
+    binding = _binding_panels(results, content, results.job_name)
 
     return render_template(
         "analysis.html",
@@ -585,7 +602,8 @@ def example_page():
         token=_example_session(),
         tiles=plots.tiles(summary, results.metrics),
         binding=binding,
-        binding_notes=binding_notes,
+        mobility_bands=MOBILITY_BANDS,
+        mobility_ceiling=MOBILITY_CEILING,
         panels=plots.build_all(results)["panels"],
         convergence=plots.convergence(
             plots.parse_state_data(results.members["state_data.csv"])

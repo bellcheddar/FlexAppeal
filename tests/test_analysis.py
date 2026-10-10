@@ -477,7 +477,8 @@ def test_a_measurement_that_raises_costs_the_panels_not_the_page(monkeypatch):
         if not fixture.is_file():
             pytest.skip("tests/fixtures/trypsin_ben.fxa is missing")
         content = fixture.read_bytes()
-        panels, notes = webapp._binding_panels(fxa.load(content), content, "x")
-    assert panels == []
-    assert any("could not be built" in note for note in notes)
+        record = webapp._binding_panels(fxa.load(content), content, "x")
+    assert record["panels"] == []
+    assert record["depiction"] is None
+    assert any("could not be built" in note for note in record["notes"])
     webapp._BINDING_CACHE.clear()

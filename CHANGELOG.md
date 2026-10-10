@@ -289,6 +289,57 @@ checkbox list in `README.md`.
   frame the detector picks is its business: what has to hold is that the count
   starts at `equil_start_frame`.
 
+### Added
+
+- **The structure viewer in DeepFlex's neon presentation.** Near-black ground,
+  the ligand's carbons pinned to one vivid colour, emissive sticks and a
+  translucent shell that Mol\*'s bloom pass turns into a glow, with bloom in
+  `emissive` mode so only the ligand blooms and the protein behind it stays
+  readable. The constants are DeepFlex's, which got them from BINMAN, and each
+  is tuning somebody already paid for: carbons are pinned because a
+  chain-coloured ligand can come out the same hue as its own shell and vanish
+  into the glow, and the sticks are thickened because thinner ones read as a
+  cloud of unconnected dots with the bonds present and invisible. Every step is
+  guarded, so a viewer that cannot apply it shows the default presentation
+  rather than nothing.
+- **The 2D ligand diagram, over the viewer, with a mobility legend.** Each atom
+  is shaded by how far it moved, which is the question three dimensions cannot
+  answer: a mobile tail is hidden behind whatever it is moving in front of. Six
+  swatches rather than a gradient, because the shading is banded and a reader can
+  match an atom to a band and recover a number from it. The legend reads its
+  colours from the module that paints the diagram, so it cannot come to describe
+  colours that are not on it.
+
+  The bands are **absolute**, not per-ligand. A min-to-max normalisation was the
+  first version and it is actively misleading: it paints the stillest ligand in a
+  study exactly like the twitchiest one, so the colour says where an atom sits
+  within its own molecule and nothing about how far it moved. Fixed half-angstrom
+  edges to 3 Å, matching DeepFlex, so a diagram here and one in a graded report
+  mean the same thing. Benzamidine in trypsin comes out entirely in the lowest
+  band, which is what a tightly held ligand should look like.
+
+  Drawn light on the viewer's own ground rather than as a white card floating on
+  it. One bond and one atom label came out pure black on near-black, because
+  `RemoveHs` keeps the hydrogens on a heteroatom and the palette default did not
+  reach them.
+- **A frame slider, linked to every time plot.** The viewer's blurb already
+  promised one; there wasn't one. It replaces both halves of what was there:
+  Mol\*'s own model-index animation, and a 250 ms poll that watched the frame
+  change so the plot cursor could follow. Two things driving one model index
+  fight, and the slider's position then disagrees with what is drawn; and a poll
+  could only read the frame, never set it, so there was no way to go to a frame a
+  plot made you curious about.
+
+  Stepping a model is a parameter update, so dragging drives it directly and the
+  camera is never touched: zoom and orientation stay where they were left.
+  Loading a frame as a structure instead is what makes a scrub flash and jump.
+  Dragging pauses the loop, because a loop that keeps advancing under the hand on
+  the control is fighting it.
+- **The cursor is appended to each panel's own shapes, not substituted for
+  them.** Several binding panels carry their own: the shaded equilibration head,
+  the 5 Å drift gate, the contact threshold. Replacing the list wiped all of them
+  the first time the slider moved.
+
 ### Fixed
 
 - **A ligand in the file is now simulated by default.** Three things stood between

@@ -1352,13 +1352,71 @@ def receptor_panels(traj, fitted, receptor_ca: np.ndarray, start: int,
 #  The 2D depiction, section 6.7
 # ===========================================================================
 
-# Low to high mobility. Two hues rather than a rainbow, because the quantity is
-# one-dimensional and a reader has to be able to tell which end is which without
-# a key; and because a red-green ramp is the one choice that fails for a common
-# form of colour blindness.
-MOBILITY_LOW = (0.18, 0.44, 0.71)       # blue
-MOBILITY_HIGH = (0.84, 0.37, 0.09)      # orange
+# Per-atom mobility, in six bands of half an angstrom. DeepFlex's own scale, so a
+# diagram here and one in a graded report mean the same thing, and the legend
+# beside it can carry numbers rather than "more" and "less".
+#
+# The edges are **absolute**, not per-ligand. A min-to-max normalisation was the
+# first version of this and it is actively misleading: it paints the stillest
+# ligand in a study exactly like the twitchiest one, so the colour says where an
+# atom sits within its own molecule and nothing about how far it actually moved.
+#
+# Monotonic in lightness, which is the property that makes a scale read as
+# ordered, and banded rather than continuous so a reader can match an atom to a
+# band and recover a number from it.
+MOBILITY_BANDS: tuple[tuple[float, str], ...] = (
+    (0.5, "#2F3566"),
+    (1.0, "#5B3E9E"),
+    (1.5, "#A6459B"),
+    (2.0, "#D45560"),
+    (2.5, "#FF7A5C"),
+    (3.0, "#FFC24B"),
+)
+MOBILITY_CEILING = MOBILITY_BANDS[-1][0]
 DEPICTION_SIZE = (340, 260)
+
+# The diagram's own ground and ink. Near-black to match the 3D viewer beside it,
+# with a near-white skeleton: the mobility bands are filled discs behind each
+# atom, and on a white ground they read as blobs beside the molecule rather than
+# as shading of it.
+DEPICTION_GROUND = (0.027, 0.031, 0.059, 1.0)      # #07080F, the viewer's ground
+DEPICTION_INK = (0.90, 0.92, 0.96)
+# Heteroatoms keep enough of their conventional hue to read chemically, lifted
+# for a dark ground: a pure #0000FF nitrogen is unreadable on near-black.
+_DARK_PALETTE = {
+    -1: DEPICTION_INK,                 # the default, which carbon falls under
+    # Hydrogen is listed explicitly. `RemoveHs` keeps the ones on a heteroatom,
+    # so benzamidine's amidine NH survives into the diagram, and the -1 default
+    # above did not reach it: one bond and one label came out pure black on a
+    # near-black ground, which is to say invisible.
+    1: DEPICTION_INK,
+    6: DEPICTION_INK,
+    7: (0.47, 0.64, 1.00),             # nitrogen, lifted blue
+    8: (1.00, 0.45, 0.45),             # oxygen, lifted red
+    9: (0.55, 0.95, 0.70),             # fluorine
+    15: (1.00, 0.70, 0.40),            # phosphorus
+    16: (1.00, 0.85, 0.35),            # sulfur
+    17: (0.60, 0.95, 0.55),            # chlorine
+    35: (0.90, 0.65, 0.45),            # bromine
+    53: (0.80, 0.60, 0.95),            # iodine
+}
+
+
+def mobility_colour(rmsf_a: float) -> tuple[float, float, float]:
+    """The band a per-atom RMSF falls in, as the 0-to-1 triple RDKit wants.
+
+    The top band is open-ended: an atom moving 6 A is in the same band as one
+    moving 3, because past the ceiling the distinction stops mattering to the
+    question the diagram answers.
+    """
+    held = float(np.clip(rmsf_a, 0.0, MOBILITY_CEILING))
+    for edge, colour in MOBILITY_BANDS:
+        if held < edge:
+            break
+    else:
+        colour = MOBILITY_BANDS[-1][1]
+    value = colour.lstrip("#")
+    return tuple(int(value[i:i + 2], 16) / 255.0 for i in (0, 2, 4))
 
 
 def depiction(mol, atoms: np.ndarray, heavy: np.ndarray,
@@ -1387,14 +1445,13 @@ def depiction(mol, atoms: np.ndarray, heavy: np.ndarray,
     position_of = {int(index): order for order, index in enumerate(atoms)}
     painted = False
     if len(ligand_rmsf) == len(heavy):
-        low, high = float(ligand_rmsf.min()), float(ligand_rmsf.max())
-        span = high - low
         for value, index in zip(ligand_rmsf, heavy):
             order = position_of.get(int(index))
             if order is None or order >= mol.GetNumAtoms():
                 continue
-            scaled = 0.5 if span <= 0 else (float(value) - low) / span
-            mol.GetAtomWithIdx(order).SetDoubleProp("mobility", scaled)
+            # The fluctuation in angstrom, not a normalised position within this
+            # molecule's own range: the band is what carries the meaning.
+            mol.GetAtomWithIdx(order).SetDoubleProp("mobility_a", float(value))
         painted = True
 
     try:
@@ -1406,18 +1463,28 @@ def depiction(mol, atoms: np.ndarray, heavy: np.ndarray,
     highlights: list[int] = []
     colours: dict[int, tuple[float, float, float]] = {}
     for atom in flat.GetAtoms():
-        if not atom.HasProp("mobility"):
+        if not atom.HasProp("mobility_a"):
             continue
-        scaled = atom.GetDoubleProp("mobility")
         highlights.append(atom.GetIdx())
-        colours[atom.GetIdx()] = tuple(
-            low_channel + scaled * (high_channel - low_channel)
-            for low_channel, high_channel in zip(MOBILITY_LOW, MOBILITY_HIGH))
+        colours[atom.GetIdx()] = mobility_colour(atom.GetDoubleProp("mobility_a"))
     if not highlights:
         painted = False
 
     drawer = rdMolDraw2D.MolDraw2DSVG(*DEPICTION_SIZE)
-    drawer.drawOptions().addStereoAnnotation = False
+    options = drawer.drawOptions()
+    options.addStereoAnnotation = False
+    # Drawn light on dark, to sit on the 3D viewer's own ground rather than as a
+    # white card floating on it. The mobility bands are filled discs behind each
+    # atom, so the skeleton has to be near-white for them to read as shading of
+    # the molecule instead of blobs beside it.
+    try:
+        options.setBackgroundColour(DEPICTION_GROUND)
+        options.setSymbolColour(DEPICTION_INK)
+        options.setLegendColour(DEPICTION_INK)
+        for number, colour in _DARK_PALETTE.items():
+            options.updateAtomPalette({number: colour})
+    except Exception:  # noqa: BLE001 - an older RDKit draws it light, readably
+        pass
     rdMolDraw2D.PrepareAndDrawMolecule(
         drawer, flat, highlightAtoms=highlights or None,
         highlightAtomColors=colours or None)

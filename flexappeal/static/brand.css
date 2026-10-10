@@ -482,6 +482,65 @@ a { color: var(--md-primary); }
   border: 1px solid var(--md-border); border-radius: var(--md-radius);
   overflow: hidden; background: var(--md-bg-alt);
 }
+/* The stage holds the canvas and anything that floats over it. The canvas is
+   already position: relative, but the diagram is positioned against the stage so
+   that it does not become a child of Mol*'s own DOM, which Mol* rebuilds. */
+.md-viewer-stage { position: relative; }
+
+/* The flat ligand diagram, bottom right of the stage. In three dimensions a
+   mobile tail is hidden behind whatever it is moving in front of, which is the
+   question this answers. pointer-events: none so it never intercepts a drag
+   meant for the structure behind it. */
+.md-depiction {
+  position: absolute; right: 10px; bottom: 10px; z-index: 4; margin: 0;
+  width: 190px; padding: 8px 9px 6px; pointer-events: none;
+  /* Dark, because the stage behind it is. The diagram itself is drawn light on
+     the same near-black ground, so a white card here would frame it with a halo
+     it does not need and break the one surface the viewer is meant to be. */
+  background: rgba(7, 8, 15, .78); border: 1px solid rgba(255, 255, 255, .14);
+  border-radius: var(--md-radius);
+}
+.md-depiction img { display: block; width: 100%; height: auto; }
+.md-depiction figcaption {
+  display: flex; flex-direction: column; gap: 3px; margin-top: 4px;
+}
+.md-depiction-label {
+  font-size: 10px; letter-spacing: .06em; text-transform: uppercase;
+  color: rgba(255, 255, 255, .62);
+}
+/* Six discrete swatches, not a gradient: the shading is banded, so a reader can
+   match an atom to a band and recover a number from it. A continuous strip would
+   promise a precision the diagram does not have. */
+.md-ramp { display: flex; height: 6px; border-radius: 3px; overflow: hidden; }
+.md-ramp i { flex: 1 1 0; }
+.md-ramp-ticks {
+  display: flex; justify-content: space-between;
+  font-family: 'Roboto Mono', monospace; font-size: 10px;
+  color: rgba(255, 255, 255, .62);
+}
+
+/* The frame slider. Its own row under the canvas rather than floating over it:
+   it is a control to be used, and a 480px stage has room to spare below. */
+.md-scrubber {
+  display: flex; align-items: center; gap: 12px; margin: 12px 0 0;
+}
+.md-scrubber label {
+  font-size: 10px; letter-spacing: .06em; text-transform: uppercase;
+  color: var(--md-text-muted); flex: 0 0 auto;
+}
+.md-scrubber input[type="range"] { flex: 1 1 auto; min-width: 0; accent-color: var(--md-primary); }
+.md-scrub-readout {
+  font-family: 'Roboto Mono', monospace; font-size: 12px;
+  color: var(--md-text); flex: 0 0 5.5em; text-align: right;
+}
+
+@media (max-width: 560px) {
+  /* Below this the diagram would cover most of the structure it annotates. */
+  .md-depiction { display: none; }
+  .md-scrubber { flex-wrap: wrap; }
+  .md-scrubber input[type="range"] { flex: 1 1 100%; order: 3; }
+}
+
 .md-viewer-status { font-size: 12px; color: var(--md-text-muted); margin: 10px 0 0; }
 .md-viewer-status.is-error { color: var(--md-accent-red); }
 
