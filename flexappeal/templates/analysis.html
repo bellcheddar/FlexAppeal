@@ -198,18 +198,11 @@
             </table>
           </div>
         </div>
-        <p class="md-panel-blurb">
-          Weighted and banded exactly as
-          <a href="https://deepflex.mdeller.com">DeepFlex</a> does it, from the
-          same measurements. The energy sub-score is a percentile among the other
-          ligands run against this receptor, which one complex does not have, so
-          its {{ (100 * 0.15) | int }}% is spread across the five that were
-          measured rather than filled with a neutral value. The right-hand column
-          is the weight each one actually carried.
-          {% if g.gate_applied %}
+        {% if g.gate_applied %}
+          <p class="md-panel-blurb">
             <strong>Capped {{ g.gate_applied }}:</strong> {{ g.notes | join(' ') }}
-          {% endif %}
-        </p>
+          </p>
+        {% endif %}
       {% endif %}
     </section>
     {% for panel in binding.panels %}

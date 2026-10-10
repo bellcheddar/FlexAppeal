@@ -68,6 +68,37 @@ _LIGAND_GENERATOR = {
 _MUTATION_RE = re.compile(r"^([A-Za-z0-9]+):([A-Z]{3})-(\d+)-([A-Z]{3})$")
 
 
+# The measurement library a ligand bundle carries, so the run can write a graded
+# version 2 package itself rather than leaving the user to find a FlexAppeal
+# checkout. Spec section 0: a run with a ligand must emit version 2, and a
+# one-complex package is a first-class graded run.
+#
+# Copied byte for byte out of the installed package rather than templated. These
+# are 220 KB of measurement code that has to behave identically whether it runs
+# here or on someone's laptop, and a Jinja copy would be a second version of it
+# within a release. `tests/test_bundle.py` asserts the bytes match.
+#
+# All five are stdlib-only at import time. mdtraj, scipy and rdkit are imported
+# inside the functions that need them, and a ligand bundle's pixi.toml already
+# declares all three, so nothing new is pulled to make this work.
+VENDORED_MODULES = ("fxa.py", "fxa2.py", "measure.py", "options.py", "package.py")
+
+# The package the vendored modules land in, because they import each other
+# relatively (`from . import fxa2`) and must keep doing so unmodified.
+VENDOR_PACKAGE = "fxalib"
+
+_VENDOR_INIT = b'''"""A verbatim copy of the parts of FlexAppeal that measure a binding site.
+
+Written into this bundle by `flexappeal.bundle`, not by hand, and byte for byte
+what the version of FlexAppeal that built the bundle was running. Editing
+anything in here makes this run disagree with the tool that produced it.
+
+`analyse.py` imports from it to write the version 2 package beside the version 1
+results file. Nothing else in the bundle touches it.
+"""
+'''
+
+
 class BundleError(ValueError):
     """A bundle could not be built from this configuration."""
 
@@ -403,6 +434,12 @@ def build(cfg: dict[str, Any], structure_bytes: bytes,
     for name, payload in (ligands or {}).items():
         files[f"ligands/{name}"] = payload
 
+    # Only for a run that has a ligand. An apo run writes a version 1 .fxa and
+    # that is the right and complete answer for it (spec section 0), so there is
+    # nothing here for it to do and no reason to grow its bundle.
+    if cfg.get("has_ligands"):
+        files.update(_vendored())
+
     payload_b64 = _pack(files)
     header = render("bootstrap.sh.j2", context)
     content = header.encode() + payload_b64
@@ -417,6 +454,25 @@ def build(cfg: dict[str, Any], structure_bytes: bytes,
         "flexappeal_version": FLEXAPPEAL_VERSION,
     }
     return Bundle(context["bundle_filename"], content, manifest)
+
+
+def _vendored() -> dict[str, bytes]:
+    """The measurement modules, read out of the running package.
+
+    Read at build time rather than at import, so a bundle always carries the
+    code of the FlexAppeal that built it even if the package is reloaded or
+    patched in between.
+    """
+    here = Path(__file__).resolve().parent
+    out = {f"{VENDOR_PACKAGE}/__init__.py": _VENDOR_INIT}
+    for name in VENDORED_MODULES:
+        source = here / name
+        if not source.is_file():                     # pragma: no cover
+            raise BundleError(
+                f"{name} is missing from the FlexAppeal package, so this bundle "
+                f"cannot carry the measurement library a ligand run needs.")
+        out[f"{VENDOR_PACKAGE}/{name}"] = source.read_bytes()
+    return out
 
 
 def _pack(files: dict[str, bytes]) -> bytes:

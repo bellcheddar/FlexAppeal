@@ -626,6 +626,51 @@ def pack(run_dir, traj, metrics, arrays, stride):
     return fxa
 
 
+{% if ligand_names %}
+def package_v2(run_dirs):
+    """Write the graded version 2 package beside the version 1 results files.
+
+    Spec section 0: a run with a ligand emits version 2, because version 1 has
+    nowhere to put a ligand measurement and the grade would be lost rather than
+    deferred. A one-complex package is a first-class graded run -- it gets a
+    letter, a score and five of the six sub-scores. What it does not get is a
+    league table or a rank, which are properties of a cohort.
+
+    The version 1 file is still written, and is not a duplicate of this one. It
+    carries the whole-system analysis -- backbone RMSD, radius of gyration, SASA,
+    secondary structure, the contact map, the essential dynamics -- plus the
+    topology and a decimated trajectory for the viewer, none of which a version 2
+    package has anywhere to put. The two are different reports of one run, not two
+    versions of one report, so both are produced and the Analysis tab and DeepFlex
+    each read the one meant for them.
+
+    Measured from the run directory rather than from the version 1 file, which
+    matters: the version 1 payload is decimated for viewing, and measuring a
+    pocket on it would put the grade on thinned data.
+    """
+    # The vendored copy of FlexAppeal's own measurement library, byte for byte
+    # what built this bundle. Imported here rather than at the top of the file so
+    # an apo-shaped failure in it cannot stop the version 1 file being written.
+    from fxalib import package as packlib
+
+    out = OUTPUT / f"{JOB_NAME}_package.fxa"
+    lines = []
+    try:
+        path, warnings = packlib.build(
+            list(run_dirs), out=out, package_name=JOB_NAME,
+            progress=lambda message: step(message))
+    except Exception as exc:                        # noqa: BLE001
+        warn(f"the version 2 package could not be built ({exc}). The version 1 "
+             f"results file above is unaffected and the Analysis tab reads it.")
+        return None, []
+    for line in warnings:
+        lines.append(line)
+    size_mb = path.stat().st_size / 1e6
+    ok(f"wrote {path.name} ({size_mb:.1f} MB)")
+    return path, lines
+{% endif %}
+
+
 def main():
     print()
     info(f"FlexAppeal {FLEXAPPEAL_VERSION} — analysing {JOB_NAME}")
@@ -654,11 +699,25 @@ def main():
         fail("nothing to analyse.")
         return 1
 
+{% if ligand_names %}
+    print()
+    step("building the version 2 package")
+    package_path, package_warnings = package_v2(run_dirs)
+    for line in package_warnings:
+        warn(line)
+{% else %}
+    package_path = None
+{% endif %}
+
     print()
     ok(f"{len(written)} results file(s) ready")
     for path in written:
         info(f"  {path}")
     info("upload to {{ site_url }}/analysis")
+    if package_path is not None:
+        print()
+        info(f"  {package_path}")
+        info("this one is the graded package: upload it to DeepFlex")
     return 0
 
 

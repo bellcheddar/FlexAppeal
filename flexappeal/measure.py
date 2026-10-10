@@ -66,15 +66,21 @@ PBC_JUMP_A = 10.0
 # resolution for the block-split divergence. DeepFlex's own numbers again, so a
 # cluster count and a divergence here mean what they mean there.
 POSE_CLUSTER_CUTOFF_A = 2.0
+# Twenty bins, fixed, because that is what DeepFlex uses:
+# `np.histogram_bin_edges(sp, bins=20)` in its binding layer, and the ramp this
+# number is scored on (full marks 0.05, zero 0.30) is calibrated against exactly
+# that resolution.
+#
+# This was briefly adaptive, holding samples-per-bin constant to remove the
+# finite-sample bias that inflates a short window's divergence. That fixed a real
+# bias and broke something worse: a divergence computed over a different number
+# of bins is not on the same ruler as the threshold it is compared with, so the
+# same trajectory scored 40 here and 0 in DeepFlex depending only on how many
+# frames were read. The bias is a property of the statistic that DeepFlex has
+# too, and the honest response is to say the window is thin, not to silently
+# compute a different number. See the note in `_convergence`.
 CONV_BINS = 20
 CONV_BLOCKS = 4
-# Scored frames per histogram bin. A finite-sample histogram divergence is biased
-# upward by about the bin count over the sample size, so a fixed bin count makes
-# the bias depend on the run length and a short, perfectly converged run scores
-# as a diverging one. This divisor holds the bias constant and puts a long run on
-# CONV_BINS bins, which is the resolution the spec's thresholds were calibrated
-# against.
-CONV_FRAMES_PER_BIN = 90
 # Fewer than this many frames per block and the four histograms are too sparse to
 # compare: the divergence then measures the sampling rather than the trajectory.
 MIN_FRAMES_PER_BLOCK = 6
@@ -877,22 +883,23 @@ def block_divergence(window: np.ndarray) -> tuple[float | None, str | None]:
     than that it found the same answer twice. `n_strides: 1` in the manifest is
     what tells DeepFlex to say so on the page.
 
-    The bin count follows the window length rather than sitting at twenty, and
-    that matters more than it looks. A histogram divergence between two finite
-    samples is biased upward by roughly the bin count over the sample size, so at
-    a fixed twenty bins a stationary 400-frame window reads 0.086 against a
-    threshold whose full marks are 0.05: a perfectly converged short run would be
-    scored as a diverging one.
+    Twenty bins, fixed, matching DeepFlex. A histogram divergence between two
+    finite samples is biased upward by roughly the bin count over the sample
+    size, so a short window reads high: a stationary 400-frame window comes out
+    around 0.086 against a threshold whose full marks are 0.05.
 
-    Holding samples-per-bin constant instead keeps the bias constant, and the
-    divisor is chosen so that a long run lands on twenty bins, which is what
-    DeepFlex uses and therefore what the spec's thresholds (full marks at 0.05,
-    zero at 0.30) were calibrated against. Measured on stationary noise, that
-    keeps the divergence under 0.02 from 60 frames to 1,800.
+    That bias is real and it is not corrected here, because the correction costs
+    more than it buys. The thresholds this number is scored against belong to
+    DeepFlex and are calibrated on twenty bins, so a divergence computed over a
+    different number of bins is not comparable to them -- and FlexAppeal now both
+    grades locally and writes this value into a version 2 package that DeepFlex
+    grades again. Two rulers means one trajectory with two convergence scores,
+    which is worse than one ruler with a known bias on short windows.
 
-    Below about 40 frames the bias is unavoidable and the note says so: the
-    number then reads worse than a longer run of the same trajectory would, which
-    penalises rather than flatters a short run.
+    So the bias is reported instead. Where the window is thin enough for it to
+    matter the note below says so, and says in which direction: the number reads
+    worse than a longer run of the same trajectory would, which penalises rather
+    than flatters a short run.
     """
     blocks = np.array_split(window, CONV_BLOCKS)
     shortest = min(len(block) for block in blocks)
@@ -903,7 +910,7 @@ def block_divergence(window: np.ndarray) -> tuple[float | None, str | None]:
             f"the convergence sub-score is left pending rather than computed on "
             f"histograms too sparse to compare")
 
-    bins = int(np.clip(round(len(window) / CONV_FRAMES_PER_BIN), 3, CONV_BINS))
+    bins = CONV_BINS
     # One bin grid for all four, from the whole window. Per-block grids would
     # compare each distribution against a different ruler.
     edges = np.histogram_bin_edges(window, bins=bins)
@@ -915,10 +922,10 @@ def block_divergence(window: np.ndarray) -> tuple[float | None, str | None]:
     if not divergences:
         return None, "the four blocks were empty, so the divergence is undefined"
 
-    # Only where the bias is actually material. Holding samples-per-bin constant
-    # keeps it negligible down to about sixty frames; below that the bin count is
-    # already at its floor and the number genuinely reads worse than a longer run
-    # of the same trajectory would.
+    # Only where the bias is actually material. At twenty fixed bins it is
+    # roughly the bin count over the samples per block, so it is negligible once
+    # a block holds a couple of hundred frames and material below about ten
+    # frames per bin.
     note = None
     per_bin = (len(window) / CONV_BLOCKS) / bins
     if per_bin < 10:

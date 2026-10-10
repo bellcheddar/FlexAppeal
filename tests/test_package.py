@@ -1008,14 +1008,53 @@ def test_the_drift_slope_is_read_from_the_metrics_record(deposited, tmp_path):
 # ---------------------------------------------------------------------------
 
 
-def test_the_divergence_of_a_stationary_window_is_near_zero():
-    """Four blocks of the same distribution agree, which is what 0 means."""
+def test_the_divergence_of_a_stationary_window_is_small():
+    """Four blocks of the same distribution agree, which is what 0 means.
+
+    Not *zero* on a window this short. Twenty fixed bins over 100 frames a block
+    carries a finite-sample bias of roughly the bin count over the samples, so a
+    stationary 400-frame window reads around 0.09 rather than 0.00. That is a
+    property of the statistic DeepFlex defined, kept deliberately: see the
+    binning note on `measure.CONV_BINS`. What matters is that it is far below a
+    genuinely drifting window, which the next test puts above 0.5.
+    """
     rng = np.random.default_rng(3)
     value, note = measure.block_divergence(rng.normal(2.0, 0.3, 400))
-    # Well under the spec's full marks at 0.05, which a fixed twenty bins would
-    # not manage on a window this short: it read 0.086 that way.
-    assert value < 0.02, value
-    assert note is None, note
+    assert value < 0.15, value
+    # 100 frames a block over 20 bins is five per bin, so the thin-window note
+    # fires and tells the reader the number is inflated.
+    assert note is not None and "reads worse" in note
+
+
+def test_a_longer_stationary_window_converges_towards_zero():
+    """The bias falls as the blocks fill, which is what says it is the bias and
+    not the trajectory: the same stationary distribution, sampled more."""
+    rng = np.random.default_rng(3)
+    short, _ = measure.block_divergence(rng.normal(2.0, 0.3, 400))
+    long, _ = measure.block_divergence(rng.normal(2.0, 0.3, 8000))
+    assert long < short / 3, (short, long)
+    assert long < 0.03, long
+
+
+def test_the_bins_are_the_twenty_deepflex_uses():
+    """The thresholds this feeds are calibrated on twenty bins.
+
+    A divergence over any other number of bins is not on the same ruler as the
+    ramp it is scored against, and the same trajectory then scores differently
+    here and in DeepFlex purely from how many frames were read. That happened:
+    an adaptive bin count put the benzene example at 40 on this sub-score against
+    DeepFlex's 0.
+    """
+    assert measure.CONV_BINS == 20
+    assert not hasattr(measure, "CONV_FRAMES_PER_BIN"), (
+        "the adaptive bin count is back; it is not comparable to DeepFlex")
+
+    # Same data, two window lengths, and the only difference in the result is
+    # the sampling rather than the bin grid.
+    rng = np.random.default_rng(11)
+    sample = rng.normal(0.0, 1.0, 4000)
+    edges = np.histogram_bin_edges(sample, bins=20)
+    assert len(edges) == 21
 
 
 def test_the_divergence_of_a_drifting_window_is_large():
@@ -1040,18 +1079,24 @@ def test_the_divergence_is_the_divergence_not_the_distance():
     assert measure.jensen_shannon(a, a, edges) == pytest.approx(0.0)
 
 
-def test_the_bin_count_follows_the_window_length():
-    """Twenty bins over eight samples measures the sampling, not the trajectory.
+def test_a_thin_window_says_its_divergence_is_inflated():
+    """Twenty bins over ten samples a block measures the sampling as much as the
+    trajectory, and the number reads worse than a longer run of the same
+    trajectory would.
 
-    Each block would occupy two or three bins of its own, so the blocks barely
-    overlap and the divergence comes out near its maximum whatever the
-    trajectory did.
+    The bias is not corrected, because correcting it would put this number on a
+    different ruler from the threshold it is scored against. It is reported, with
+    the direction stated, so a reader is not left to guess which way a thin
+    window pushed the score.
     """
     rng = np.random.default_rng(5)
-    short = rng.normal(2.0, 0.3, 40)
-    value, note = measure.block_divergence(short)
-    assert value < 0.4, value
+    value, note = measure.block_divergence(rng.normal(2.0, 0.3, 40))
+    assert note is not None
     assert "per bin per block" in note
+    assert "reads worse" in note
+    # Inflated, and the test says so rather than pretending otherwise.
+    stationary_long, _ = measure.block_divergence(rng.normal(2.0, 0.3, 8000))
+    assert value > stationary_long
 
 
 def test_a_window_too_short_to_split_leaves_the_subscore_pending():

@@ -548,10 +548,14 @@ def assemble(sources: list[Source], *, package_name: str,
     warnings: list[str] = []
     if len(sources) < 2:
         warnings.append(
-            "this package carries one complex. The league table, both rank columns "
-            "and the energy sub-score are percentiles within a receptor's own "
-            "cohort, so a single complex has no cohort and those panels stay empty. "
-            "A version 1 .fxa is the complete, supported path for one system."
+            "this package carries one complex, which is a first-class graded run: "
+            "it gets a letter, a score and five of the six sub-scores, because "
+            "those five are ramps against absolute thresholds and need no cohort. "
+            "What stays empty is what does need one -- the league table, both rank "
+            "columns, and the energy sub-score, which is a percentile within a "
+            "receptor's own cohort and is recorded as pending rather than scored "
+            "as zero. Collect runs into a study where you can; never hold one back "
+            "because it is alone."
         )
 
     engine = next((str(source.run_manifest.get("openmm_version") or "")

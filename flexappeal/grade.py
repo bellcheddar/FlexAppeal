@@ -8,20 +8,23 @@ pins every number against the values quoted in `DEEPFLEX_FXA2_SPEC.md` section 7
 so a drift fails here rather than showing a reader two different grades for one
 run.
 
-Why grade at all, when the Analysis tab used to say plainly that it would not.
-The earlier reasoning was that a grade has one definition and DeepFlex owns it.
-That holds for the *definition* and not for the *arithmetic*: DeepFlex already
-grades a complex whose sub-scores are incomplete by renormalising the missing
-weight away rather than filling it with a neutral value, so a lone complex with
-no cohort is a case its own scoring already covers. Running that same arithmetic
-here gives the reader the number DeepFlex would give them, which is better than
-withholding it and pointing at another site.
+A single complex is always graded, which section 0 of the spec now requires
+rather than merely permits. The arithmetic makes it possible: five of the six
+sub-scores are ramps between two absolute thresholds and compare a complex with
+nothing but those thresholds, so 85% of the weight and the letter bands
+themselves need no cohort at all.
 
-What stays DeepFlex's alone is everything that needs the cohort: the energy
-sub-score is a percentile among the other ligands against the same receptor, and
-both rank columns are positions in that cohort. One complex has neither, so
-`energy` is pending here and its 15% is renormalised across the five sub-scores
-that were measured.
+Only `S_E` does, being a percentile among the other ligands run against the same
+receptor. For a cohort of one it is recorded pending and its 15% renormalised
+across the other five, which is what DeepFlex does with any sub-score a file
+does not carry. It is specifically *not* scored as zero. That was a real defect
+on the DeepFlex side, found on 2026-10-10 and fixed, where a lone complex was
+handed the 0th percentile and quietly lost up to 15 points -- so the pending path
+below is load bearing rather than a tidy-up.
+
+What a single complex still does not get is a league table, a rank in its
+receptor, or a place in a grade distribution. Those are properties of a package,
+and a package of one has none of them.
 
 Nothing in this module may be written into a `.fxa`. Spec section 7 reserves
 `grade`, `score`, `s_*`, `gate_flag`, `gate_applied` and `pending_subscores` to
@@ -228,7 +231,9 @@ def score_one(measured) -> Grade | None:
     # --- S_E: the one sub-score a single complex cannot have -----------------
     # A percentile needs the other ligands run against the same receptor. There
     # is no honest single-complex substitute, so it stays absent and its weight
-    # is spread over the rest.
+    # is spread over the rest. Absent and not zero: a 0th percentile here costs a
+    # flawless lone complex up to 15 points, which is exactly the defect spec
+    # section 0 records against DeepFlex and had fixed.
     result.subscores["energy"] = None
 
     result.inputs = {

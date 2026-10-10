@@ -873,3 +873,90 @@ def test_an_explicit_config_still_wins_on_the_cli(trypsin, tmp_path, monkeypatch
     files = bundle.unpack(out.read_bytes())
     assert not [name for name in files if name.startswith("ligands/")]
     assert json.loads(files["config.json"])["config"]["keep_heteroatoms"] == []
+
+
+# ===========================================================================
+#  The measurement library a ligand bundle carries
+# ===========================================================================
+#
+# Spec section 0: a run with a ligand emits version 2, and a one-complex package
+# is a first-class graded run. The bundle runs on someone else's machine with no
+# FlexAppeal checkout on it, so the measurement code has to travel with it.
+
+
+def test_a_ligand_bundle_carries_the_measurement_library(trypsin):
+    cfg = _cfg(job_name="lig", keep_heteroatoms=["BEN"], has_ligands=True)
+    files = bundle.unpack(bundle.build(cfg, trypsin, "3ptb.pdb").content)
+
+    for name in bundle.VENDORED_MODULES:
+        assert f"{bundle.VENDOR_PACKAGE}/{name}" in files, name
+    # The modules import each other relatively, so the package marker has to be
+    # there or `from . import fxa2` fails on the user's machine.
+    assert f"{bundle.VENDOR_PACKAGE}/__init__.py" in files
+
+
+def test_the_vendored_modules_are_byte_identical_to_the_installed_ones(trypsin):
+    """A copy that can drift is worse than no copy.
+
+    These are 220 KB of measurement code that must behave the same whether it
+    runs on the server or in a bundle. Templating them, or keeping an edited
+    copy, would mean two versions of the grade within one release.
+    """
+    from pathlib import Path
+
+    cfg = _cfg(job_name="lig", keep_heteroatoms=["BEN"], has_ligands=True)
+    files = bundle.unpack(bundle.build(cfg, trypsin, "3ptb.pdb").content)
+
+    source_dir = Path(bundle.__file__).resolve().parent
+    for name in bundle.VENDORED_MODULES:
+        assert files[f"{bundle.VENDOR_PACKAGE}/{name}"] == (
+            source_dir / name).read_bytes(), f"{name} has drifted from the package"
+
+
+def test_an_apo_bundle_carries_none_of_it(structure):
+    """An apo run writes a version 1 .fxa and that is the complete answer for it
+    (spec section 0), so there is nothing to measure a pocket for and no reason
+    to grow the bundle by 220 KB."""
+    cfg = _cfg(job_name="apo", keep_heteroatoms=[], has_ligands=False)
+    files = bundle.unpack(bundle.build(cfg, structure, "1aki.pdb").content)
+    assert not [n for n in files if n.startswith(f"{bundle.VENDOR_PACKAGE}/")]
+
+
+def test_the_ligand_analysis_script_builds_the_version_two_package(trypsin):
+    cfg = _cfg(job_name="lig", keep_heteroatoms=["BEN"], has_ligands=True)
+    files = bundle.unpack(bundle.build(cfg, trypsin, "3ptb.pdb").content)
+    script = files["analyse.py"].decode()
+
+    assert "def package_v2(" in script
+    assert "from fxalib import package as packlib" in script
+    # Measured from the run directory, never from the version 1 file: that
+    # payload is decimated for viewing and a grade must not rest on it.
+    assert "packlib.build(" in script
+    compile(script, "analyse.py", "exec")
+
+
+def test_the_apo_analysis_script_has_no_package_step(structure):
+    cfg = _cfg(job_name="apo", keep_heteroatoms=[], has_ligands=False)
+    files = bundle.unpack(bundle.build(cfg, structure, "1aki.pdb").content)
+    script = files["analyse.py"].decode()
+    assert "package_v2" not in script
+    compile(script, "analyse.py", "exec")
+
+
+def test_a_failed_package_does_not_cost_the_version_one_file(trypsin):
+    """The version 1 file is written first and the package step is wrapped.
+
+    A pocket measurement that raises on someone's machine must cost them the
+    graded package and not the eight hours of simulation behind it.
+    """
+    cfg = _cfg(job_name="lig", keep_heteroatoms=["BEN"], has_ligands=True)
+    files = bundle.unpack(bundle.build(cfg, trypsin, "3ptb.pdb").content)
+    script = files["analyse.py"].decode()
+
+    body = script[script.index("def package_v2("):]
+    assert "except Exception" in body
+    assert "could not be built" in body
+    assert "is unaffected" in body
+    # And it is *called* after the version 1 files are packed, not before.
+    # rindex, because the first match is the def and the def comes earlier.
+    assert script.index("written.append(pack(") < script.rindex("package_v2(run_dirs)")

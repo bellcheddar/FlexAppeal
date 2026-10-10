@@ -1354,10 +1354,10 @@ def test_the_binding_section_shows_a_grade(client):
     for label in ("Pose", "Occupancy", "Interactions", "Energy",
                   "Convergence", "Conformation"):
         assert f">{label}</th>" in body, label
-    # And the page says why the energy weight was redistributed rather than
-    # leaving a reader to wonder what a struck-through 15% means.
-    assert "percentile among the other" in body
+    # The struck-through weight and the "not measured here" cell are what say
+    # the energy sub-score was redistributed rather than scored.
     assert "not measured here" in body
+    assert "<s>15%</s>" in body
 
     # The copy this replaced must be gone, both halves of it.
     assert "no grade here" not in body

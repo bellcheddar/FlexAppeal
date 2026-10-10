@@ -42,6 +42,33 @@ checkbox list in `README.md`.
 
 ### Added
 
+- **A ligand run now writes the version 2 package itself.** Spec section 0 was
+  updated today: a run with a ligand emits version 2, including a single system,
+  because a one-complex package is a first-class graded run and version 1 has
+  nowhere to put a ligand measurement. Previously only `flexappeal package` could
+  produce one, which meant a bundle user needed a FlexAppeal checkout to get a
+  grade at all.
+
+  A ligand bundle now carries `fxalib/`: `fxa.py`, `fxa2.py`, `measure.py`,
+  `options.py` and `package.py`, copied byte for byte out of the installed
+  package rather than templated, with a test asserting the bytes match. They are
+  stdlib-only at import time and a ligand bundle's environment already declares
+  mdtraj, scipy and rdkit, so nothing new is pulled. An apo bundle carries none
+  of it and stays 80 KB; a ligand bundle goes to 188 KB.
+
+  The version 1 file is still written and is not a duplicate. It carries the
+  whole-system analysis -- RMSD, radius of gyration, SASA, secondary structure,
+  the contact map, essential dynamics -- plus the topology and a decimated
+  trajectory for the viewer, none of which a version 2 package has anywhere to
+  put. Measured directly: a one-complex v2 of the benzene run is 2.5 MB of
+  binding-site material across 23 members and has no whole-system panel in it.
+  The two are different reports of one run.
+
+  The package is measured from the run directory, not from the version 1 file:
+  that payload is decimated for viewing, and a grade must not rest on thinned
+  data. Verified against DeepFlex's own ingester, which accepts the one-complex
+  file as `graded (fxa/2)` and scores it.
+
 - **A grade meter on the Analysis tab, and `flexappeal/grade.py` behind it.** The
   page used to carry a paragraph saying there was no grade on it, that this was
   deliberate, and that a study package was the way to get one. That was
@@ -110,6 +137,24 @@ checkbox list in `README.md`.
 
 
 ### Fixed
+
+- **The convergence divergence was not on DeepFlex's ruler.** `conv_js_mean` was
+  computed over an adaptive bin count, holding samples-per-bin constant to remove
+  the finite-sample bias that inflates a short window. The bias is real -- a
+  stationary 400-frame window reads 0.086 against a threshold whose full marks
+  are 0.05 -- but the correction cost more than it bought.
+
+  DeepFlex bins with `np.histogram_bin_edges(sp, bins=20)`, fixed, and the ramp
+  this value is scored on is calibrated against exactly that. A divergence over
+  any other number of bins is not comparable to it. The benzene example made that
+  concrete: the Analysis tab scored this sub-score 40 while DeepFlex scored the
+  same trajectory 0, purely because one read 500 frames and the other 2,000.
+
+  Twenty fixed bins now, matching DeepFlex, with the bias reported rather than
+  corrected: where a block holds fewer than ten frames per bin the note says so
+  and says which way it pushes. The example's grade moves from A, 83.6 to
+  **A-, 78.9**, which is the number DeepFlex gives for the same run -- the two now
+  agree to a tenth of a point, the residual being 500 frames against 2,000.
 
 - **The deploy could not repair the permissions it had just broken.** `rsync -a`
   preserves the source's modes, and a repo checked out on a Mac can be 0700, so
