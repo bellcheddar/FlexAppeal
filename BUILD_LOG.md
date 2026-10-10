@@ -26,3 +26,10 @@ Timestamped, one line per meaningful event, for the reference-state build
 - `14:1x` **Phase 0 acceptance met**: `import openmm, mdtraj, MDAnalysis, gemmi`
   passes; vendored `sse_comparison` suite 50/50 green; FlexAppeal's own suite 759
   passed after each environment change.
+- `14:3x` Run matrix recounted on a question from Marc: Tier 2 is **fifteen**
+  runs, not twelve. Section 5.3's first row is three replicas per protonation
+  arm, so ABL1 active-like is six runs by itself. 1,500 ns in total.
+- `14:3x` First compute projection, from this morning's measured 298 ns/day at
+  25,463 atoms: 322 GPU-hours, 13.4 days continuous, 3.4x the 96 hour ceiling.
+  Not treated as opening G1, because section 2.2 requires a measured budget and
+  phase 3 Tier 1 provides one.
