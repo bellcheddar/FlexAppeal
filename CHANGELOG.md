@@ -66,6 +66,19 @@ checkbox list in `README.md`.
 
 ### Fixed
 
+- **The deploy could not repair the permissions it had just broken.** `rsync -a`
+  preserves the source's modes, and a repo checked out on a Mac can be 0700, so
+  the sync landed `/opt/flexappeal` as `drwx------` owned by the syncing user.
+  The service user could then not traverse its own directory, and the deploy died
+  on `env: './.venv/bin/pip': Permission denied` -- which names neither the
+  directory nor the mode.
+
+  The chown that would have fixed it ran *after* the pip install, so the deploy
+  exited before reaching it, and every subsequent deploy failed identically until
+  someone chowned by hand. The chown now runs first, the top directory is made
+  traversable explicitly, and the sync lands files 644 and directories 755 rather
+  than whatever the Mac had.
+
 - **The Analysis page carried every frame of the run, and a 100 ns run made that
   obvious.** The first render of the new example was 24 MB: 18.7 MB of it the
   DSSP heat map, which carries a cell and a state name per residue per frame, and

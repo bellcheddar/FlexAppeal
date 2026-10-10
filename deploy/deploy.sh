@@ -32,7 +32,13 @@ echo "==> Syncing to ${DROPLET_SSH}:${DROPLET_PATH}"
 #
 # ${arr[@]+"${arr[@]}"} expands to nothing when empty without tripping `set -u`,
 # which macOS's bash 3.2 requires.
-rsync -az --delete ${SSH_OPTS[@]+"${SSH_OPTS[@]}"} \
+#
+# --chmod, because -a preserves the source's permissions and a repo checked out
+# on a Mac can easily be 0700. That lands /opt/flexappeal itself as drwx------
+# owned by the syncing user, and the service user then cannot traverse its own
+# directory: the first symptom is pip "Permission denied" two lines later, which
+# names neither the directory nor the mode.
+rsync -az --delete --chmod=D755,F644 ${SSH_OPTS[@]+"${SSH_OPTS[@]}"} \
     --exclude '.venv/' --exclude '.venv-dev/' --exclude '.pixi/' \
     --exclude '__pycache__/' --exclude '*.pyc' --exclude '.git/' \
     --exclude '.env' --exclude 'web_scratch/' --exclude '.pytest_cache/' \
@@ -50,12 +56,16 @@ if [[ ! -x .venv/bin/python ]]; then
     exit 1
 fi
 
-sudo -u flexappeal env PIP_NO_CACHE_DIR=1 ./.venv/bin/pip install --quiet -r requirements.txt
-
-# rsync runs as root, so every file it wrote is root-owned and mode 0600 --
-# rsync preserves the Mac's permissions. The service user then hits
-# PermissionError at RUNTIME rather than at deploy time, which is a confusing
-# way to find out. Chown on every deploy, not only at provisioning.
+# Ownership before pip, not after it. rsync runs as root, so every file it wrote
+# is root-owned, and the service user then hits PermissionError at RUNTIME rather
+# than at deploy time -- a confusing way to find out. Chown on every deploy, not
+# only at provisioning.
+#
+# The ordering is the part that matters. With this after the install, a deploy
+# that lands the tree unreadable fails in pip and exits before the step that
+# would have fixed it, so every subsequent deploy fails the same way until
+# someone chowns by hand. The install needs a traversable directory as much as
+# the running service does.
 #
 # The venv and live scratch sessions are pruned: nothing in this sync touched
 # them, and a blanket chown over a session an analysis has open is asking for
@@ -64,6 +74,9 @@ sudo find "${DROPLET_PATH}" \
     -path "${DROPLET_PATH}/.venv" -prune -o \
     -path "${DROPLET_PATH}/web_scratch" -prune -o \
     -exec chown flexappeal:flexappeal {} +
+sudo chmod 755 "${DROPLET_PATH}"
+
+sudo -u flexappeal env PIP_NO_CACHE_DIR=1 ./.venv/bin/pip install --quiet -r requirements.txt
 
 sudo systemctl restart flexappeal-web.service
 sleep 1
