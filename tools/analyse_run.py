@@ -80,36 +80,69 @@ def kinase_setup(start_pdb: Path, reference_pdb: str):
             maps[code] = pocket.pocket_map(catalogue, ids[code])
         return maps[code]
 
-    def motifs_for(code: str):
-        found = pocket_for(code)
-        out: dict[str, list[int]] = {}
-        for name, residues in motif_residues.items():
-            if name == "A-loop":
-                theirs = pocket.activation_loop(found)
-                # Lengths must match the trajectory's motif or the RMSD is
-                # meaningless; trimmed to the shorter and skipped if it cannot.
-                theirs = theirs[:len(residues)]
-            else:
-                theirs = found.region(name)
-            if len(theirs) == len(residues):
-                out[name] = theirs
-        return out
-
-    def core_for(code: str):
-        return scaffold_core(pocket_for(code)).residues
-
-    rows = {}
+    rows: dict[str, list] = {}
+    paths: dict[str, Path] = {}
     for which in ("active", "inactive"):
         entries = []
         for entry in ensemble_rows[which].entries:
             code = str(entry["pdb"]).upper()
             if code not in ids:
                 continue
-            path = refs.fetch_mmcif(code, KLIFS_CACHE)
-            entries.append({"pdb": code, "path": str(path),
+            paths[code] = refs.fetch_mmcif(code, KLIFS_CACHE)
+            entries.append({"pdb": code, "path": str(paths[code]),
                             "chain": entry.get("chain") or ""})
         rows[which] = entries
         log(f"{which}: {len(entries)} references")
+
+    # The activation loop runs from the DFG aspartate to the APE motif, and APE
+    # is found in each structure's own sequence, so a reference needs its own
+    # chain to resolve it. Computed without one it falls back to KLIFS's `a.l`,
+    # which is two residues, and every A-loop was then dropped for a length
+    # mismatch against the trajectory's 26 without anything saying so.
+    aloop_cache: dict[str, list[int]] = {}
+
+    def aloop_for(code: str) -> list[int]:
+        if code not in aloop_cache:
+            import gemmi as _gemmi
+
+            found = pocket_for(code)
+            try:
+                reference = _gemmi.read_structure(str(paths[code]))
+                reference.setup_entities()
+                aloop_cache[code] = pocket.activation_loop(
+                    found, reference[0][0])
+            except Exception:                                   # noqa: BLE001
+                aloop_cache[code] = pocket.activation_loop(found)
+        return aloop_cache[code]
+
+    length_notes: list[str] = []
+
+    def motifs_for(code: str):
+        found = pocket_for(code)
+        out: dict[str, list[int]] = {}
+        for name, residues in motif_residues.items():
+            if name == "A-loop":
+                theirs = aloop_for(code)
+                # Both spans start at the DFG aspartate, so taking the same
+                # number of residues from that anchor is a real residue-to-
+                # residue correspondence. Trimming the longer one's tail is
+                # only correct because of the shared anchor.
+                keep = min(len(theirs), len(residues))
+                if keep and len(theirs) != len(residues):
+                    length_notes.append(
+                        f"{code} A-loop is {len(theirs)} residues against the "
+                        f"trajectory's {len(residues)}; compared on the first "
+                        f"{keep} from the DFG aspartate")
+                theirs = theirs[:keep]
+            else:
+                theirs = found.region(name)
+            if theirs and len(theirs) == len(
+                    residues[:len(theirs)] if name == "A-loop" else residues):
+                out[name] = theirs
+        return out
+
+    def core_for(code: str):
+        return scaffold_core(pocket_for(code)).residues
 
     built = ensembles.build(rows, motif_residues_for=motifs_for,
                             core_residues_for=core_for)
@@ -126,8 +159,11 @@ def kinase_setup(start_pdb: Path, reference_pdb: str):
     log(f"core agreement across {agreement.get('n')} references: mean "
         f"{agreement.get('mean_rmsd_a')} A, worst {agreement.get('max_rmsd_a')} A "
         f"({agreement.get('worst')})")
+    if length_notes:
+        log(f"A-loop length differences: {len(length_notes)} references")
     return motif_residues, core, built, own, {"rigidity": agreement,
-                                               "alignment": alignment}
+                                              "alignment": alignment,
+                                              "aloop_notes": length_notes[:10]}
 
 
 def gpcr_setup(start_pdb: Path):
