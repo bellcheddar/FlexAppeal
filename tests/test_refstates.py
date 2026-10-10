@@ -542,3 +542,181 @@ def test_centring_is_a_no_op_for_a_bilayer_already_in_the_middle():
     centred, shift = membrane.centre_bilayer(z, box_z)
     assert abs(shift) < 1.0
     assert np.allclose(sorted(centred), sorted(z), atol=1.0)
+
+
+# ===========================================================================
+#  Section 10's named QC: metrics on geometries with known answers
+# ===========================================================================
+
+
+def _chain_from_positions(positions: dict) -> object:
+    """A gemmi chain built in the test, with named atoms at chosen positions.
+
+    `positions` maps a residue number to (residue name, {atom name: (x, y, z)}).
+    Built rather than loaded so the expected answer is arithmetic.
+    """
+    import gemmi
+
+    chain = gemmi.Chain("A")
+    for number, (name, atoms) in sorted(positions.items()):
+        residue = gemmi.Residue()
+        residue.name = name
+        residue.seqid = gemmi.SeqId(number, " ")
+        for atom_name, (x, y, z) in atoms.items():
+            atom = gemmi.Atom()
+            atom.name = atom_name
+            atom.element = gemmi.Element(atom_name[0])
+            atom.pos = gemmi.Position(x, y, z)
+            residue.add_atom(atom)
+        chain.add_residue(residue)
+    return chain
+
+
+def test_a_salt_bridge_at_a_known_distance_measures_as_that_distance():
+    """Section 10's hand-built salt bridge. 3.5 A in, 3.5 A out.
+
+    Measured between the closest heavy atoms of the two side chains, not
+    between one named atom of each: both groups are symmetric, and naming one
+    atom makes the distance depend on which way the side chain was built.
+    """
+    from flexappeal.refstates.gpcr import GenericNumbering, min_heavy_distance
+
+    numbering = GenericNumbering(entry_name="toy")
+    numbering.by_generic = {"3.50": 131, "6.30": 268}
+    numbering.residue_letter = {131: "R", 268: "E"}
+
+    chain = _chain_from_positions({
+        131: ("ARG", {"NE": (0.0, 0.0, 0.0), "CZ": (1.0, 0.0, 0.0),
+                      "NH1": (2.0, 0.0, 0.0), "NH2": (1.0, 1.0, 0.0)}),
+        # Nearest pair is NH1 at x = 2.0 against OE1 at x = 5.5, so 3.5 A.
+        268: ("GLU", {"CD": (7.0, 0.0, 0.0), "OE1": (5.5, 0.0, 0.0),
+                      "OE2": (8.0, 0.0, 0.0)}),
+    })
+    distance = min_heavy_distance(
+        chain, numbering, "3.50", "6.30",
+        first_atoms=("NE", "CZ", "NH1", "NH2"),
+        second_atoms=("CD", "OE1", "OE2"))
+    assert distance == pytest.approx(3.5, abs=1e-6)
+
+
+def test_the_ionic_lock_threshold_is_applied_at_the_right_side():
+    """4.0 A is the cut: just inside is intact, just outside is broken."""
+    from flexappeal.refstates.gpcr import (IONIC_LOCK_A, GenericNumbering,
+                                           ionic_lock)
+
+    numbering = GenericNumbering(entry_name="toy")
+    numbering.by_generic = {"3.50": 131, "6.30": 268}
+    numbering.residue_letter = {131: "R", 268: "E"}
+
+    for gap, expected in ((IONIC_LOCK_A - 0.2, "intact"),
+                          (IONIC_LOCK_A + 0.2, "broken")):
+        chain = _chain_from_positions({
+            131: ("ARG", {"NH1": (0.0, 0.0, 0.0)}),
+            268: ("GLU", {"OE1": (gap, 0.0, 0.0)}),
+        })
+        assert ionic_lock(chain, numbering)["state"] == expected, gap
+
+
+def test_a_helix_rotated_by_a_known_angle_reports_that_angle():
+    """Section 10's rotated helix. The tilt is read back from the rotation.
+
+    `receptor_tilt` measures the principal axis against z, so a helix built
+    along z and tilted by a known angle in the xz plane must report it.
+    """
+    import numpy as np
+
+    straight = np.array([[0.0, 0.0, 1.5 * i] for i in range(20)])
+    for degrees in (0.0, 15.0, 30.0, 45.0):
+        angle = np.radians(degrees)
+        rotation = np.array([[np.cos(angle), 0.0, np.sin(angle)],
+                             [0.0, 1.0, 0.0],
+                             [-np.sin(angle), 0.0, np.cos(angle)]])
+        tilted = straight @ rotation.T
+        assert membrane.receptor_tilt(tilted) == pytest.approx(degrees, abs=1e-4)
+
+
+def test_the_state_score_is_symmetric_between_two_references():
+    """Section 10's two-reference toy: s(active ref) = -s(inactive ref).
+
+    A frame sitting exactly on the active reference must score +1 and one on
+    the inactive reference -1. An asymmetry here would mean the score prefers
+    one state for a reason that is not in the data.
+    """
+    separation = 7.3
+    on_active = state.score_motif("m", active={"A": 0.0},
+                                  inactive={"I": separation}, n_residues=5)
+    on_inactive = state.score_motif("m", active={"A": separation},
+                                    inactive={"I": 0.0}, n_residues=5)
+    assert on_active.s == pytest.approx(1.0)
+    assert on_inactive.s == pytest.approx(-1.0)
+    assert on_active.s == pytest.approx(-on_inactive.s)
+
+    # And halfway between, for any separation, is exactly zero.
+    midway = state.score_motif("m", active={"A": separation / 2},
+                               inactive={"I": separation / 2}, n_residues=5)
+    assert midway.s == pytest.approx(0.0)
+    assert midway.geometric_label == "intermediate"
+
+
+def test_a_run_resumes_from_its_checkpoint(tmp_path: Path):
+    """Section 10's resume test, on a system small enough to be a unit test.
+
+    Resumability is load-bearing rather than a convenience: one replica per row
+    at 50 ns means a run that cannot resume costs its whole row, and the
+    membrane rows take 20 hours each on a machine that sleeps. This asserts the
+    property the long runs depend on, that a reloaded checkpoint continues the
+    clock rather than restarting it.
+    """
+    import openmm as mm
+    from openmm import app, unit
+
+    # Three argon-like particles with no forces: the integrator is the thing
+    # under test, not the force field.
+    system = mm.System()
+    topology = app.Topology()
+    chain = topology.addChain()
+    residue = topology.addResidue("AR", chain)
+    for _ in range(3):
+        system.addParticle(39.948 * unit.amu)
+        topology.addAtom("Ar", app.element.argon, residue)
+    positions = [mm.Vec3(0, 0, 0), mm.Vec3(0.5, 0, 0),
+                 mm.Vec3(0, 0.5, 0)] * unit.nanometer
+
+    def simulation():
+        integrator = mm.LangevinMiddleIntegrator(
+            300 * unit.kelvin, 1 / unit.picosecond, 2 * unit.femtoseconds)
+        return app.Simulation(topology, system, integrator,
+                              mm.Platform.getPlatformByName("Reference"))
+
+    first = simulation()
+    first.context.setPositions(positions)
+    first.context.setVelocitiesToTemperature(300 * unit.kelvin)
+    first.step(50)
+    checkpoint = tmp_path / "state.chk"
+    first.saveCheckpoint(str(checkpoint))
+    before = first.context.getState().getTime().value_in_unit(unit.picoseconds)
+    assert before > 0
+
+    second = simulation()
+    second.loadCheckpoint(str(checkpoint))
+    after = second.context.getState().getTime().value_in_unit(unit.picoseconds)
+    assert after == pytest.approx(before), "the clock restarted instead of resuming"
+
+    second.step(50)
+    final = second.context.getState().getTime().value_in_unit(unit.picoseconds)
+    assert final > after, "stepping after a resume did not advance the clock"
+
+
+def test_the_runner_treats_a_checkpoint_as_the_resume_point(tmp_path: Path):
+    """`run_md.py` must skip equilibration when a checkpoint exists.
+
+    Read from the source rather than by running it, because running it needs a
+    solvated system. What matters is that the resume branch comes before the
+    equilibration branch, so a resumed run does not heat an already-warm system.
+    """
+    source = (Path(__file__).resolve().parents[1] / "tools" / "run_md.py").read_text()
+    resume = source.index("if checkpoint.is_file():")
+    heating = source.index("heating to")
+    assert resume < heating, "equilibration is reached before the resume check"
+    assert "loadCheckpoint" in source
+    assert "already at" in source, "a completed run must report and stop"
