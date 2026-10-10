@@ -1,0 +1,195 @@
+{% extends "base.html" %}
+{% block title %}{{ run.run_id }}{% endblock %}
+{% block description %}Per-motif state scores for {{ run.run_id }}, measured against the experimental reference ensembles.{% endblock %}
+
+{% block content %}
+{% include "_banner.html" %}
+
+<section class="md-card md-intro">
+  <h2>{{ run.run_id }}</h2>
+  <p>{{ finding }}</p>
+  <dl class="md-stats">
+    <div><dt>Start state</dt><dd>{{ run.start_state or "unknown" }}</dd></div>
+    {% if run.start_model %}
+      <div><dt>Start model</dt><dd>{{ run.start_model }}</dd></div>
+    {% endif %}
+    {% if run.length_ns %}
+      <div><dt>Analysed</dt><dd>{{ "%.1f"|format(run.length_ns) }} ns</dd></div>
+    {% endif %}
+    {% if run.ns_per_day %}
+      <div><dt>Speed</dt><dd>{{ "%.0f"|format(run.ns_per_day) }} ns/day</dd></div>
+    {% endif %}
+    <div><dt>Status</dt><dd>{{ run.status }}</dd></div>
+  </dl>
+</section>
+
+<section class="md-card md-panel is-wide">
+  <h3>Motifs at the end of the run</h3>
+  <table class="md-table">
+    <thead>
+      <tr>
+        <th scope="col">Motif</th>
+        <th scope="col">Residues</th>
+        <th scope="col">Start <abbr title="state score: +1 active-like, -1 inactive-like">s</abbr></th>
+        <th scope="col">Final s</th>
+        <th scope="col">Final tenth mean</th>
+        <th scope="col">Label</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for motif in motifs %}
+        {% set key = motif.system_id ~ ":" ~ motif.name %}
+        {% set row = summary.motifs.get(key) if summary.motifs else none %}
+        <tr>
+          <th scope="row">{{ motif.name }}</th>
+          <td>{{ motif.n_residues if motif.n_residues else "&mdash;" | safe }}</td>
+          {% if row and row.start_s is not none %}
+            <td>{{ "%+.3f"|format(row.start_s) }}</td>
+            <td>{{ "%+.3f"|format(row.final_s) }}</td>
+            <td>{{ "%+.3f"|format(row.final_tenth_mean_s) }}</td>
+            <td>
+              <span class="md-state md-state-{{ row.final_label }}"
+                    data-shape="{{ shapes.get(row.final_label, 'circle') }}">
+                {{ row.final_label }}
+              </span>
+            </td>
+          {% else %}
+            <td colspan="4" class="md-note">not scored</td>
+          {% endif %}
+        </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  <details class="md-readmore">
+    <summary>What the state score means</summary>
+    <p>
+      For each motif, <em>s</em> compares how far it sits from the nearest active
+      reference against how far from the nearest inactive one, as
+      (d<sub>inactive</sub> &minus; d<sub>active</sub>) /
+      (d<sub>inactive</sub> + d<sub>active</sub>). It runs from +1, sitting on
+      the active references, to &minus;1 on the inactive ones. A normalised
+      difference rather than a raw gap, so a three-residue motif and a
+      twenty-residue loop land on the same axis instead of the larger one
+      dominating.
+    </p>
+    <p>
+      Both distances are measured after superposing on the structural core, so
+      what is reported is the motif moving rather than the whole protein
+      drifting. <strong>conflict</strong> means the geometry and the published
+      rule-based criterion disagree, which is shown rather than resolved.
+    </p>
+  </details>
+</section>
+
+<section class="md-card md-panel is-wide">
+  <h3>State score over time</h3>
+  <div id="state-timeline" class="md-plot" style="min-height:340px"></div>
+  <details class="md-readmore">
+    <summary>How to read this</summary>
+    <p>
+      One line per motif. Above +0.2 the geometry is calling the motif
+      active-like and below &minus;0.2 inactive-like; between them it is
+      intermediate, and the bands are drawn to show that. Raw per-frame values,
+      not smoothed.
+    </p>
+  </details>
+</section>
+
+{% if membrane %}
+  <section class="md-card md-panel is-wide">
+    <h3>Membrane health</h3>
+    <table class="md-table">
+      <thead>
+        <tr>
+          <th scope="col">From</th>
+          <th scope="col">Area per lipid</th>
+          <th scope="col">P&ndash;P thickness</th>
+          <th scope="col">Tilt</th>
+          <th scope="col">Waters in core</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for chunk in membrane %}
+          <tr>
+            <th scope="row">{{ "%.0f"|format(chunk.time_ns) }} ns</th>
+            <td>{% if chunk.apl %}{{ "%.1f"|format(chunk.apl) }} &#8491;&sup2;{% else %}&mdash;{% endif %}</td>
+            <td>{% if chunk.thickness %}{{ "%.1f"|format(chunk.thickness) }} &#8491;{% else %}&mdash;{% endif %}</td>
+            <td>{% if chunk.tilt %}{{ "%.1f"|format(chunk.tilt) }}&deg;{% else %}&mdash;{% endif %}</td>
+            <td>{% if chunk.core_waters is not none %}{{ "%.0f"|format(chunk.core_waters) }}{% else %}&mdash;{% endif %}</td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    <details class="md-readmore">
+      <summary>What these should be</summary>
+      <p>
+        POPC at 303 K is expected to give 60 to 68 &#8491;&sup2; per lipid and a
+        phosphate-to-phosphate thickness of 36 to 41 &#8491;. Area per lipid is
+        the box cross-section divided by the lipids in one leaflet, with the
+        leaflets split at their own midplane rather than at z = 0, because the
+        bilayer drifts in z under a membrane barostat.
+      </p>
+    </details>
+  </section>
+{% endif %}
+
+{% if core %}
+  <section class="md-card md-panel">
+    <h3>Superposition core</h3>
+    <p>
+      {{ core.n_residues }} C&alpha; positions. <em>{{ core.source }}</em>
+    </p>
+    <details class="md-readmore">
+      <summary>Why the core matters</summary>
+      <p>
+        Every motif distance here is measured after superposing on this core, so
+        the core is the frame of reference the whole score is expressed in. It is
+        chosen to be the part of the fold that does not move on activation; if it
+        did move, the motif distances would report the core's motion instead.
+      </p>
+    </details>
+  </section>
+{% endif %}
+{% endblock %}
+
+{% block scripts %}
+<script src="{{ url_for('static', filename='vendor/plotly.min.js') }}"></script>
+<script>
+// The bands at +/-0.2 are the decisive thresholds, drawn rather than described
+// so a reader can see which side of them a line is on without reading a number.
+(async function () {
+  const target = document.getElementById("state-timeline");
+  if (!target || typeof Plotly === "undefined") return;
+  let payload;
+  try {
+    const response = await fetch({{ url_for('refstates.frames', run_id=run.run_id) | tojson }});
+    if (!response.ok) throw new Error(response.status);
+    payload = await response.json();
+  } catch (err) {
+    target.textContent = "Per-frame data is not available for this run.";
+    return;
+  }
+  const traces = Object.entries(payload.motifs).map(([id, series]) => ({
+    x: series.time_ns, y: series.s, mode: "lines",
+    name: id.split(":").pop(), hovertemplate: "%{y:+.3f} at %{x:.1f} ns<extra>%{fullData.name}</extra>",
+  }));
+  if (!traces.length) { target.textContent = "No scored motifs in this run."; return; }
+  Plotly.newPlot(target, traces, {
+    margin: {l: 56, r: 16, t: 8, b: 44},
+    xaxis: {title: "time (ns)"},
+    yaxis: {title: "state score s", range: [-1, 1], zeroline: true},
+    shapes: [
+      {type: "rect", xref: "paper", x0: 0, x1: 1, yref: "y", y0: 0.2, y1: 1,
+       fillcolor: "rgba(60,140,90,0.08)", line: {width: 0}, layer: "below"},
+      {type: "rect", xref: "paper", x0: 0, x1: 1, yref: "y", y0: -1, y1: -0.2,
+       fillcolor: "rgba(170,70,70,0.08)", line: {width: 0}, layer: "below"},
+    ],
+    annotations: [
+      {xref: "paper", x: 0.01, y: 0.92, yref: "y", text: "active-like", showarrow: false, font: {size: 11}},
+      {xref: "paper", x: 0.01, y: -0.92, yref: "y", text: "inactive-like", showarrow: false, font: {size: 11}},
+    ],
+    legend: {orientation: "h", y: -0.22},
+  }, {displayModeBar: false, responsive: true});
+})();
+</script>
+{% endblock %}

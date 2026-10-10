@@ -1,0 +1,64 @@
+{% extends "base.html" %}
+{% block title %}Reference structures{% endblock %}
+{% block description %}Every experimental structure used as a reference, with the catalogue's own state call beside the one computed here.{% endblock %}
+
+{% block content %}
+{% include "_banner.html" %}
+
+<section class="md-card md-intro">
+  <h2>Reference structures</h2>
+  <p>
+    Every experimental structure the state scores are measured against. The
+    catalogue's own state call sits beside the one computed here, which is the
+    check that matters: if the two disagree often, the measurement is wrong
+    rather than the catalogue.
+  </p>
+  {% if n_comparable %}
+    <p>
+      Agreement on this set: <strong>{{ n_agree }} of {{ n_comparable }}</strong>
+      where the catalogue states an opinion. A structure the catalogue has no
+      call for is left out of that count rather than counted as agreement.
+    </p>
+  {% endif %}
+</section>
+
+<section class="md-card md-panel is-wide">
+  <table class="md-table">
+    <thead>
+      <tr>
+        <th scope="col">PDB</th>
+        <th scope="col">Chain</th>
+        <th scope="col">Source</th>
+        <th scope="col">Their state</th>
+        <th scope="col">Our state</th>
+        <th scope="col">Resolution</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for reference in references %}
+        <tr>
+          <th scope="row">
+            <a href="https://www.rcsb.org/structure/{{ reference.pdb }}"
+               rel="noopener">{{ reference.pdb }}</a>
+          </th>
+          <td>{{ reference.chain or "&mdash;" | safe }}</td>
+          <td>{{ reference.source or "&mdash;" | safe }}</td>
+          <td>{{ reference.source_state or "no call" }}</td>
+          <td>{{ reference.our_state or "&mdash;" | safe }}</td>
+          <td>{% if reference.resolution %}{{ "%.2f"|format(reference.resolution) }} &#8491;{% else %}&mdash;{% endif %}</td>
+        </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  <details class="md-readmore">
+    <summary>How these were chosen</summary>
+    <p>
+      Kinase references come from KLIFS, filtered to human structures at 2.8
+      &#8491; or better with a pocket quality score of at least 6 and no more
+      than five missing pocket residues. Receptor references come from GPCRdb at
+      3.6 &#8491; or better, split by the catalogue's own state assignment.
+      Nothing was hand-picked.
+    </p>
+  </details>
+</section>
+{% endblock %}

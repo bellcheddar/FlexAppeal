@@ -55,6 +55,12 @@
       <span class="md-tab-num">4</span> Runs
       <span class="md-tab-hint">every kept run, with its panels</span>
     </a>
+    <a href="{{ url_for('refstates.index') }}"
+       class="md-tab {% if active == 'refstates' %}is-active{% endif %}"
+       {% if active == 'refstates' %}aria-current="page"{% endif %}>
+      <span class="md-tab-num">5</span> Reference states
+      <span class="md-tab-hint">motifs scored against known structures</span>
+    </a>
   </div>
 </nav>
 

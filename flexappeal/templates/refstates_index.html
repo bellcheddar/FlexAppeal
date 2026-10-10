@@ -1,0 +1,90 @@
+{% extends "base.html" %}
+{% block title %}Reference states{% endblock %}
+{% block description %}Two annotated reference-state runs: ABL1 in water and the beta2-adrenergic receptor in a POPC bilayer.{% endblock %}
+
+{% block content %}
+{% include "_banner.html" %}
+
+<section class="md-card md-intro">
+  <h2>Reference states</h2>
+  <p>
+    Two systems simulated from known start states, with every motif scored
+    against the experimental structures of the same protein. The kinase motifs
+    are resolved through KLIFS and the receptor's through GPCRdb, so each
+    residue is addressed by the number the catalogue gives it rather than one
+    written here.
+  </p>
+  <p>
+    Each motif carries two readings side by side: how close it sits to the
+    nearest active and nearest inactive reference, and what the published
+    rule-based criterion says. Where they disagree the motif is marked
+    <strong>conflict</strong> rather than averaged, because a disagreement
+    between geometry and rule is the interesting case, not noise to be removed.
+  </p>
+</section>
+
+{% if not have_database %}
+  <section class="md-card md-panel">
+    <p class="md-note">
+      No analysis database on this deployment yet. The runs are built and
+      analysed locally and the database is copied across when they finish.
+    </p>
+  </section>
+{% endif %}
+
+{% for card in cards %}
+  <section class="md-card md-panel is-wide">
+    <h3>{{ card.title }}</h3>
+    <p class="md-sub">{{ card.subtitle }}</p>
+    <dl class="md-stats">
+      <div><dt>Environment</dt><dd>{{ card.system.environment or "unknown" }}</dd></div>
+      {% if card.system.n_atoms %}
+        <div><dt>Atoms</dt><dd>{{ "{:,}".format(card.system.n_atoms) }}</dd></div>
+      {% endif %}
+      <div><dt>References</dt><dd>{{ card.n_references }}</dd></div>
+      <div><dt>Runs</dt><dd>{{ card.runs | length }}</dd></div>
+    </dl>
+
+    {% if card.runs %}
+      <table class="md-table">
+        <thead>
+          <tr>
+            <th scope="col">Run</th>
+            <th scope="col">Start</th>
+            <th scope="col">Length</th>
+            <th scope="col">What happened</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for run in card.runs %}
+            <tr>
+              <th scope="row">
+                <a href="{{ url_for('refstates.run', run_id=run.run_id) }}">{{ run.run_id }}</a>
+                {% if run.status != 'complete' %}
+                  <span class="md-tag">{{ run.status }}</span>
+                {% endif %}
+              </th>
+              <td>{{ run.start_state }}{% if run.start_model %} ({{ run.start_model }}){% endif %}</td>
+              <td>{% if run.length_ns %}{{ "%.1f"|format(run.length_ns) }} ns{% else %}&mdash;{% endif %}</td>
+              <td>{{ card.findings.get(run.run_id, "") }}</td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+      <p class="md-note">
+        <a href="{{ url_for('refstates.references', system_id=card.system.system_id) }}">
+          Every reference structure used, with the catalogue's state call beside ours
+        </a>
+      </p>
+    {% else %}
+      <p class="md-note">No runs analysed for this system yet.</p>
+    {% endif %}
+  </section>
+{% endfor %}
+
+{% if not cards %}
+  <section class="md-card md-panel">
+    <p class="md-note">Nothing ingested yet.</p>
+  </section>
+{% endif %}
+{% endblock %}

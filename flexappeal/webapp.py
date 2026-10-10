@@ -881,6 +881,12 @@ def create_app() -> Flask:
     app.register_blueprint(prepare_bp)
     app.register_blueprint(api_bp)
     app.register_blueprint(analysis_bp)
+    # Additive and self-contained: it reads one SQLite file written during the
+    # reference-states build and renders an empty section when that file is not
+    # present, so the app runs unchanged on a deployment that has no database.
+    from flexappeal.refstates.web import refstates_bp
+
+    app.register_blueprint(refstates_bp)
 
     @app.after_request
     def _no_html_caching(response):
