@@ -7,18 +7,19 @@
 <section class="md-card md-intro">
   <h2>The example has not been built yet</h2>
   <p>
-    This page renders a real 10&nbsp;ns run of hen egg-white lysozyme from the results file
-    it produced. That file is not in this checkout:
+    This page renders a real molecular dynamics run from the results file it
+    produced, rather than from a screenshot. That file is not in this checkout:
   </p>
   <pre class="md-run-commands"><code>{{ path }}</code></pre>
   <p>
     It is committed to the repository, so the usual cause is a partial clone or a
     <code>git-lfs</code> checkout that has not fetched. Rebuild it with:
   </p>
-  <pre class="md-run-commands"><code>bash examples/lysozyme_10ns/rebuild.sh</code></pre>
+  <pre class="md-run-commands"><code>bash {{ rebuild }}</code></pre>
   <p class="md-submit-note">
-    That takes about an hour and a half on an Apple&nbsp;M1&nbsp;Max, most of it the
-    simulation itself. Nothing else on the site depends on it &mdash; the
+    Most of that is the simulation itself, and the script says how long it takes
+    on the machine it was written for. Nothing else on the site depends on it
+    &mdash; the
     <a href="{{ url_for('prepare.index') }}">Prepare</a> and
     <a href="{{ url_for('analysis.analysis_page') }}">Analysis</a> tabs work regardless.
   </p>

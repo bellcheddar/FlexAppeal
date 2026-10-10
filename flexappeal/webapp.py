@@ -491,8 +491,13 @@ def _binding_panels(results, content: bytes, label: str) -> dict[str, Any]:
 # plots.build_all() from the .fxa the run actually produced, so a change that
 # breaks the Analysis tab breaks this page too and cannot ship looking fine.
 
-EXAMPLE_DIR = REPO_ROOT / "examples" / "lysozyme_10ns"
-EXAMPLE_FXA = EXAMPLE_DIR / "output" / "lysozyme_10ns.fxa"
+# Which committed run the Example tab shows. One name, because the directory,
+# the results file and the bundle are all named after it: changing the example
+# used to mean finding three strings that had to agree.
+EXAMPLE_NAME = "lysozyme_10ns"
+EXAMPLE_DIR = REPO_ROOT / "examples" / EXAMPLE_NAME
+EXAMPLE_FXA = EXAMPLE_DIR / "output" / f"{EXAMPLE_NAME}.fxa"
+EXAMPLE_BUNDLE = f"examples/{EXAMPLE_NAME}/flexappeal_{EXAMPLE_NAME}.command"
 
 # The Mol* viewer and /reanalyse address the results through a session token,
 # so the example needs one. Reused across requests rather than minted per hit,
@@ -579,8 +584,10 @@ def _example_captures() -> dict[str, list[str]]:
 @analysis_bp.route("/example", methods=["GET"])
 def example_page():
     if not EXAMPLE_FXA.is_file():
-        return render_template("example_missing.html", active="example",
-                               path=EXAMPLE_FXA.relative_to(REPO_ROOT)), 200
+        return render_template(
+            "example_missing.html", active="example",
+            path=EXAMPLE_FXA.relative_to(REPO_ROOT),
+            rebuild=f"examples/{EXAMPLE_NAME}/rebuild.sh"), 200
 
     content = EXAMPLE_FXA.read_bytes()
     results = fxa.load(content, verify_checksums=False)
@@ -595,7 +602,7 @@ def example_page():
             "tables": _example_option_tables(config),
             "captures": _example_captures(),
             "manifest": results.manifest,
-            "bundle": "examples/lysozyme_10ns/flexappeal_lysozyme_10ns.command",
+            "bundle": EXAMPLE_BUNDLE,
         },
         results=results,
         summary=summary,

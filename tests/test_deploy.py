@@ -280,10 +280,14 @@ def test_the_example_artefacts_are_not_gitignored():
     if not (root / ".git").exists():
         pytest.skip("not a git checkout")
 
+    # Derived from the constant the app actually reads, so changing which run
+    # the Example tab shows cannot leave this test guarding the old one.
+    from flexappeal.webapp import EXAMPLE_NAME
+
     required = [
-        "examples/lysozyme_10ns/config.json",
-        "examples/lysozyme_10ns/flexappeal_lysozyme_10ns.command",
-        "examples/lysozyme_10ns/output/lysozyme_10ns.fxa",
+        f"examples/{EXAMPLE_NAME}/config.json",
+        f"examples/{EXAMPLE_NAME}/flexappeal_{EXAMPLE_NAME}.command",
+        f"examples/{EXAMPLE_NAME}/output/{EXAMPLE_NAME}.fxa",
     ]
     ignored = subprocess.run(
         ["git", "check-ignore", "--no-index", *required],
