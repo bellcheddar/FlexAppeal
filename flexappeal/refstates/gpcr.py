@@ -170,3 +170,182 @@ def fit_threshold(active: list[float], inactive: list[float]) -> dict[str, Any]:
         "active_median": round(sorted(active)[len(active) // 2], 2),
         "inactive_median": round(sorted(inactive)[len(inactive) // 2], 2),
     }
+
+
+# ===========================================================================
+#  Micro-switches (spec section 5.5)
+# ===========================================================================
+
+# Section 5.5's thresholds, each from the measure it belongs to rather than
+# shared: the ionic lock is a salt bridge and uses a salt-bridge distance, the
+# sodium pocket is a coordination shell and uses a coordination distance.
+IONIC_LOCK_A = 4.0
+SODIUM_COORDINATION_A = 3.5
+
+
+def _residue_by_number(chain, number: int):
+    for residue in chain:
+        if residue.seqid.num == number:
+            return residue
+    return None
+
+
+def _heavy_atoms(residue, names: tuple[str, ...] = ()):
+    """Named heavy atoms, or every heavy atom if no names are given."""
+    import gemmi
+
+    hydrogen = gemmi.Element("H")
+    return [a for a in residue
+            if a.element != hydrogen and (not names or a.name in names)]
+
+
+def min_heavy_distance(chain, numbering: GenericNumbering, first: str, second: str,
+                       *, first_atoms: tuple[str, ...] = (),
+                       second_atoms: tuple[str, ...] = ()) -> float | None:
+    """The closest approach between two residues' heavy atoms.
+
+    A salt bridge is a side-chain contact, so it is measured between side-chain
+    atoms and not between Calpha: the ionic lock can break while the two Calpha
+    barely move, which is the whole reason it is reported separately from the
+    TM3-TM6 distance.
+    """
+    numbers = [numbering.residue(first), numbering.residue(second)]
+    if any(n is None for n in numbers):
+        return None
+    residues = [_residue_by_number(chain, n) for n in numbers]
+    if any(r is None for r in residues):
+        return None
+    one = _heavy_atoms(residues[0], first_atoms)
+    two = _heavy_atoms(residues[1], second_atoms)
+    if not one or not two:
+        return None
+    return min(a.pos.dist(b.pos) for a in one for b in two)
+
+
+def ionic_lock(chain, numbering: GenericNumbering) -> dict[str, Any]:
+    """R3.50 to E6.30, the classic class A lock.
+
+    Intact in the inactive receptor, so `intact` maps to inactive in the state
+    vocabulary. Measured between the guanidinium and carboxylate heavy atoms
+    rather than between the named CZ and CD of section 5.5, because both groups
+    are symmetric and naming one atom of a symmetric pair makes the distance
+    depend on which way the side chain was built.
+    """
+    distance = min_heavy_distance(chain, numbering, *IONIC_LOCK,
+                                  first_atoms=("NE", "CZ", "NH1", "NH2"),
+                                  second_atoms=("CD", "OE1", "OE2"))
+    row: dict[str, Any] = {"pair": f"{numbering.label(IONIC_LOCK[0])}"
+                                   f" - {numbering.label(IONIC_LOCK[1])}"}
+    if distance is None:
+        row["state"] = "unresolved"
+        return row
+    row["distance_a"] = round(distance, 2)
+    row["state"] = "intact" if distance < IONIC_LOCK_A else "broken"
+    return row
+
+
+def chi_angles(chain, numbering: GenericNumbering, generic: str) -> dict[str, Any]:
+    """chi1 and chi2 for one generic position, for the rotamer switches.
+
+    The toggle tryptophan and Y7.53 are rotamer switches: the backbone hardly
+    moves and the side chain flips, so a Calpha measure reports nothing and the
+    dihedral reports everything.
+    """
+    import gemmi
+
+    number = numbering.residue(generic)
+    residue = _residue_by_number(chain, number) if number is not None else None
+    row: dict[str, Any] = {"position": numbering.label(generic)}
+    if residue is None:
+        return row
+
+    # chi1 is N-CA-CB-<first side-chain atom>, chi2 one bond further out. The
+    # branch atom differs by residue type, so it is taken from the residue rather
+    # than assumed: CG for most, OG/OG1/SG for the small polar ones.
+    chi1_third = next((n for n in ("CG", "CG1", "OG", "OG1", "SG", "CG2")
+                       if residue.find_atom(n, "*") is not None), None)
+    chi2_third = next((n for n in ("CD", "CD1", "OD1", "ND1", "SD", "CD2")
+                       if residue.find_atom(n, "*") is not None), None)
+
+    def dihedral(*names: str) -> float | None:
+        atoms = [residue.find_atom(n, "*") for n in names]
+        if any(a is None for a in atoms):
+            return None
+        return gemmi.calculate_dihedral(*[a.pos for a in atoms]) * 180.0 / 3.141592653589793
+
+    if chi1_third:
+        value = dihedral("N", "CA", "CB", chi1_third)
+        if value is not None:
+            row["chi1_deg"] = round(value, 1)
+    if chi1_third and chi2_third:
+        value = dihedral("CA", "CB", chi1_third, chi2_third)
+        if value is not None:
+            row["chi2_deg"] = round(value, 1)
+    return row
+
+
+def sodium_pocket(chain, numbering: GenericNumbering,
+                  ions: list | None = None) -> dict[str, Any]:
+    """D2.50 to S3.39 and to N7.49, plus whether a sodium is coordinated.
+
+    A sodium in the pocket favours the inactive state, and its absence is not
+    evidence either way: the ion is often simply not modelled, and in a
+    simulation it has to diffuse in. So `sodium_present` is reported only when
+    there are ion positions to look at, and omitted otherwise rather than
+    written as false.
+    """
+    row: dict[str, Any] = {}
+    for label, pair in (("d_s3x39_a", ("2.50", "3.39")),
+                        ("d_n7x49_a", ("2.50", "7.49"))):
+        distance = min_heavy_distance(chain, numbering, *pair)
+        if distance is not None:
+            row[label] = round(distance, 2)
+
+    if ions is None:
+        return row
+    number = numbering.residue("2.50")
+    residue = _residue_by_number(chain, number) if number is not None else None
+    if residue is None:
+        return row
+    carboxylate = _heavy_atoms(residue, ("OD1", "OD2"))
+    if not carboxylate:
+        return row
+    nearest = min((min(a.pos.dist(p) for a in carboxylate) for p in ions),
+                  default=None)
+    if nearest is not None:
+        row["nearest_sodium_a"] = round(nearest, 2)
+        row["sodium_present"] = nearest < SODIUM_COORDINATION_A
+    return row
+
+
+def micro_switches(chain, numbering: GenericNumbering,
+                   ions: list | None = None) -> dict[str, Any]:
+    """Every section 5.5 measure that one structure can give on its own.
+
+    The reference-dependent ones (TM6 rotation, the NPxxY and connector RMSDs to
+    the medoids) are not here: they need the reference ensemble and belong with
+    the state score in `state.py`. What is here is what a single frame answers by
+    itself, which is also what can be checked against a crystal structure.
+    """
+    cleft = tm3_tm6_distance(chain, numbering)
+    alternate = ca_distance(chain, numbering, *TM3_TM6_ALT)
+    row: dict[str, Any] = {
+        "ionic_lock": ionic_lock(chain, numbering),
+        "toggle_w6x48": chi_angles(chain, numbering, TOGGLE[0]),
+        "npxxy_y7x53": chi_angles(chain, numbering, NPXXY[1]),
+        "sodium_pocket": sodium_pocket(chain, numbering, ions),
+    }
+    if cleft is not None:
+        row["tm3_tm6_a"] = round(cleft, 2)
+        row["tm3_tm6_pair"] = (f"{numbering.label(TM3_TM6_OPEN[0])}"
+                               f" - {numbering.label(TM3_TM6_OPEN[1])}")
+    if alternate is not None:
+        row["tm3_tm6_alt_a"] = round(alternate, 2)
+
+    # Y5.58 OH to Y7.53 OH: the two tyrosines come together on activation, and
+    # this is the one NPxxY measure that needs no reference.
+    bridge = min_heavy_distance(chain, numbering, *NPXXY_TO_TM5,
+                                first_atoms=("OH",), second_atoms=("OH",))
+    if bridge is not None:
+        row["y5x58_y7x53_oh_a"] = round(bridge, 2)
+    return row

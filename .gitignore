@@ -72,3 +72,19 @@ data/refs/
 data/md/
 data/dssp/
 data/manifests/
+
+# Reference-state build artefacts: all fetched or derived from public services
+# at run time by tools/build_*.py, so they regenerate rather than belonging in
+# the history. The cache in particular is keyed on request hashes and would
+# grow without limit.
+data/cache/
+data/md/
+data/systems/
+data/manifests/
+
+# Private DeepFlex working documents. This repository is public and DeepFlex is
+# not, because it discusses an unpublished compound series. These were untracked
+# and a single `git add -A` away from being published, which nearly happened
+# once in this build; named here so it cannot.
+DEEPFLEX_*.md
+FXA2_BUILD_PROMPT.md
