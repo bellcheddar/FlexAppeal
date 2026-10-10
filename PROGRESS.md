@@ -65,3 +65,40 @@ Two things the spec leaves to run time and that shape everything after them:
    none). The fallback ladder runs through state-specific homology models to
    building one locally. Which rung is reached is discovered, not assumed, and is
    flagged in the app for the reader.
+
+
+---
+
+## Where the build actually stands (16:1x)
+
+**Done and verified.**
+
+| Phase | State |
+|---|---|
+| 0 Hardware probe | done; OpenCL single is the only GPU option, 206 against 29.5 ns/day on the CPU |
+| 1 References | done; P1 17/17, P2 17/17, P3 100/100 |
+| 2 Start models | done; both ABL1 seeds and both β2AR refined models, oriented and validated |
+| 3 System building | done; ABL1 46,721 atoms, β2AR 194,032 and 188,xxx with the bilayer |
+| 4 Analysis | done; kinase and receptor paths both verified against real structures |
+| 6 App | done; fifth tab, per-run explorer, reference browser, 28 tests |
+| 5 Production | ABL1 apo paused at 4.3 ns of 50; membrane rows pending the Tier 1 result |
+| 7 Deliverables | FINDINGS.md and DECISIONS.md current; the production section is open |
+
+**The three things that cost the most time, all in phase 3.** Each presented as
+`Particle coordinate is NaN` and none of them was a timestep problem:
+
+1. gemmi's placeholder `CRYST1` of 1 1 1 made `addMembrane` size the box from
+   the lipid patch rather than from the 9.4 nm receptor (D014).
+2. The barostat was on during what section 5.2 defines as NVT heating.
+3. The built system's contents exceed its own periodic box, so `addSolvent`
+   placed 246 waters where overhanging lipid and patch-water atoms already sat.
+   As-built energy **+136,000,000 kJ/mol** in single precision against
+   **-2,060,000** on the CPU at double. After the repair both platforms agree
+   exactly at **-2,213,385**, which is the check that the fix is real rather
+   than a change that happened to run.
+
+**What is not yet known.** The membrane ns/day. Everything in the compute budget
+below is still a projection scaled from atom counts, and the Tier 1 smoke run
+measures it. Both membrane systems came in near 194 k atoms rather than the
+spec's 80 to 110 k (D012), so the projection is the number most likely to be
+wrong, and it is the one G1 turns on.
