@@ -42,6 +42,23 @@ checkbox list in `README.md`.
 
 ### Added
 
+- **The MM/GBSA term panel, which was the last one DeepFlex had and this did
+  not.** A horizontal bar of the difference block -- van der Waals,
+  electrostatics, the GB desolvation penalty, the surface term, and the two sums
+  -- with the standard deviation over the sampled frames as error bars rather
+  than the standard error, because the spread is the interesting part and a
+  standard error would shrink with frame count and hide it.
+
+  Audited against DeepFlex rather than guessed at. Of its fifteen panels, twelve
+  were already here under different names, two need a package and cannot exist
+  for one complex (the grade distribution and the league table), and this was the
+  only real gap. FlexAppeal also draws three DeepFlex does not: interaction
+  occupancy per residue, the pose clusters and the per-atom ligand fluctuation.
+
+  The bonded terms are deliberately not drawn. They cancel to zero in a single
+  trajectory, so five bars at zero would say nothing; that they cancel is a check
+  on the calculation, which `energy._check_cancellation` makes, not a finding.
+
 - **`flexappeal/energy.py`: MM/GBSA binding free energies.** The last of the six
   sub-score inputs FlexAppeal could not produce. A ligand bundle now computes it
   at the end of its analysis, and `flexappeal package --mmgbsa` does it from the

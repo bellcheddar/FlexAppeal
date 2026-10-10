@@ -442,6 +442,72 @@ def test_a_decimated_series_keeps_its_axis_the_same_length():
     assert axis[-1] >= metrics["time_ns"][-1] - 0.2
 
 
+# A real difference block from the benzene run, which is what the panel draws.
+_GB_TERMS = {
+    "BOND": [-0.0, 0.0, 0.0], "ANGLE": [-0.0, 0.0, 0.0], "DIHED": [0.0, 0.0, 0.0],
+    "VDWAALS": [-11.2868, 7.6385, 0.7639], "EEL": [-1.1099, 0.8477, 0.0848],
+    "1-4 VDW": [0.0, 0.0001, 0.0], "1-4 EEL": [-0.0, 0.0001, 0.0],
+    "EGB": [4.3853, 2.9658, 0.2966], "ESURF": [-1.7661, 1.1847, 0.1185],
+    "DELTA G gas": [-12.3967, 8.3824, 0.8382],
+    "DELTA G solv": [2.6192, 1.7972, 0.1797],
+    "DELTA TOTAL": [-9.7775, 6.643, 0.6643],
+}
+
+
+def test_the_energy_terms_panel_is_absent_without_an_energy(measured):
+    """Most runs have no MM/GBSA, and a panel of nothing is worse than no panel."""
+    from flexappeal import plots
+
+    measured.metrics.pop("mmpbsa_gb_terms", None)
+    assert plots.energy_terms(measured) is None
+    ids = {p["id"] for p in plots.build_binding(measured)}
+    assert "binding-energy_terms" not in ids
+
+
+def test_the_energy_terms_panel_draws_the_difference_block(measured):
+    """The last panel DeepFlex had and this did not."""
+    from flexappeal import plots
+
+    measured.metrics["mmpbsa_gb_terms"] = dict(_GB_TERMS)
+    trace = plots.energy_terms(measured)["data"][0]
+
+    assert trace["y"] == list(plots.ENERGY_TERM_ORDER)
+    assert trace["x"][0] == pytest.approx(-11.2868)
+    # The spread, not the standard error: a standard error shrinks with frame
+    # count and would hide how variable a term is.
+    assert trace["error_x"]["array"][0] == pytest.approx(7.6385)
+    assert trace["orientation"] == "h"
+
+    ids = {p["id"] for p in plots.build_binding(measured)}
+    assert "binding-energy_terms" in ids
+
+
+def test_the_bonded_terms_are_not_drawn(measured):
+    """They cancel to zero by construction in a single trajectory, so five bars
+    at zero would say nothing. That they cancel is a check on the calculation,
+    which `energy._check_cancellation` makes, not a finding to plot."""
+    from flexappeal import plots
+
+    measured.metrics["mmpbsa_gb_terms"] = dict(_GB_TERMS)
+    drawn = plots.energy_terms(measured)["data"][0]["y"]
+    for term in ("BOND", "ANGLE", "DIHED", "1-4 VDW", "1-4 EEL"):
+        assert term not in drawn, term
+    # And the total, which is printed beside the chart rather than competing
+    # with its own parts for width. DeepFlex's panel filters it the same way.
+    assert "DELTA TOTAL" not in drawn
+
+
+def test_a_favourable_term_is_coloured_differently_from_a_costly_one(measured):
+    """The sign is the first thing anybody asks of an energy term."""
+    from flexappeal import plots
+
+    measured.metrics["mmpbsa_gb_terms"] = dict(_GB_TERMS)
+    trace = plots.energy_terms(measured)["data"][0]
+    colours = dict(zip(trace["y"], trace["marker"]["color"]))
+    # VDWAALS is favourable here, EGB is the desolvation penalty.
+    assert colours["VDWAALS"] != colours["EGB"]
+
+
 def test_the_matrices_are_reduced_for_the_wire(measured):
     panels = {p["id"]: p for p in plots.build_binding(measured)}
     for key in ("binding-rmsd_2d", "binding-dccm"):

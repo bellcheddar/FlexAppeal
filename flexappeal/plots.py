@@ -1168,6 +1168,71 @@ def pocket_flexibility(measured) -> dict[str, Any] | None:
         legend={"orientation": "h", "y": 1.12, "x": 0}, hovermode="closest"))
 
 
+# The MM/GBSA terms worth drawing, in reading order: the four physical
+# contributions, then the two sums.
+#
+# The bonded terms are deliberately absent. BOND, ANGLE, DIHED and both 1-4
+# terms cancel to zero in a single-trajectory calculation, because the receptor
+# and the ligand are read out of the complex's own coordinates, so five bars at
+# zero would say nothing about the binding. That they cancel is a check on the
+# calculation rather than a finding, and `energy._check_cancellation` refuses the
+# result when they do not.
+#
+# DELTA TOTAL is left out too, which is what DeepFlex's own panel does: it is the
+# sum of everything else and is printed beside the chart instead of competing
+# with the parts for width.
+ENERGY_TERM_ORDER = ("VDWAALS", "EEL", "EGB", "ESURF",
+                     "DELTA G gas", "DELTA G solv")
+
+
+def energy_terms(measured) -> dict[str, Any] | None:
+    """The MM/GBSA difference block, term by term.
+
+    The only part of an MM/GBSA calculation that is a binding quantity: the
+    complex, receptor and ligand blocks are each thousands of kcal/mol and only
+    their difference means anything.
+
+    Error bars are the standard deviation over the frames MMPBSA.py sampled, not
+    the standard error. The spread is the interesting number here -- a van der
+    Waals term of -11 with a deviation of 8 is a different claim from the same
+    mean with a deviation of 1 -- and a standard error would shrink with frame
+    count and hide it.
+    """
+    terms = (measured.metrics or {}).get("mmpbsa_gb_terms")
+    if not isinstance(terms, dict) or not terms:
+        return None
+
+    rows = [(name, terms[name]) for name in ENERGY_TERM_ORDER if name in terms]
+    if not rows:
+        return None
+
+    labels = [name for name, _ in rows]
+    means = [float(values[0]) for _, values in rows]
+    spread = [float(values[1]) if len(values) > 1 else 0.0 for _, values in rows]
+
+    return _figure([{
+        "type": "bar", "orientation": "h",
+        "y": labels, "x": means,
+        "error_x": {"type": "data", "array": spread, "color": INK_MUTED,
+                    "thickness": 1, "width": 3},
+        # Favourable and unfavourable read differently at a glance, and the sign
+        # is the first thing anybody asks of an energy term.
+        "marker": {"color": [CATEGORICAL[0] if value < 0 else CATEGORICAL[5]
+                             for value in means]},
+        "hovertemplate": "%{y}: %{x:.2f} kcal/mol<extra></extra>",
+    }], _layout(
+        "MM/GBSA, term by term", "\u0394G contribution (kcal/mol)", "",
+        bargap=0.35, hovermode="closest",
+        margin={"l": 96, "r": 18, "t": 12, "b": 44},
+        xaxis={"title": {"text": "\u0394G contribution (kcal/mol)",
+                         "font": {"size": 12, "color": INK_MUTED}},
+               "zeroline": True, "zerolinecolor": AXIS, "gridcolor": GRID,
+               "linecolor": AXIS, "ticks": "outside", "tickcolor": AXIS},
+        yaxis={"automargin": True, "title": {"text": ""},
+               "linecolor": AXIS, "ticks": "outside", "tickcolor": AXIS},
+    ))
+
+
 def rmsd_matrix(measured) -> dict[str, Any] | None:
     """Frame against frame Cα RMSD: a map of which parts of the run resemble which.
 
@@ -1314,4 +1379,11 @@ def build_binding(measured) -> list[dict[str, Any]]:
     add("dccm", "Residue cross-correlation", cross_correlation(measured),
         "Which parts of the receptor move together. Blue is correlated, red is "
         "anticorrelated.", wide=True)
+    add("energy_terms", "MM/GBSA, term by term", energy_terms(measured),
+        "Where the binding energy comes from. The bars are the difference block, "
+        "complex minus receptor minus ligand, which is the only part of an "
+        "MM/GBSA calculation that is a binding quantity. Error bars are the "
+        "standard deviation over the sampled frames, not the standard error. "
+        "igb=2, single trajectory, no entropy term: good for ranking ligands "
+        "against each other, not an affinity.")
     return panels
