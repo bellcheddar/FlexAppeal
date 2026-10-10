@@ -204,15 +204,20 @@ def load_structure():
     token, path = new_session()
     _save_session(path, report, data, filename, citation)
 
-    # Default to keeping every chain and every cofactor -- dropping things is a
-    # deliberate act, and a user who does nothing should get the whole molecule.
+    # Default to keeping every chain and every real ligand -- dropping things is
+    # a deliberate act, and a user who does nothing should get the whole
+    # molecule. `default_heteroatoms` owns which of them count: it used to be a
+    # prefix match on the help text here, which could not see that a haem has an
+    # iron in it and so defaulted metalloproteins into a configuration that
+    # cannot be parameterised.
     dynamic = structure.dynamic_choices(report)
     cfg["chains"] = [c["value"] for c in dynamic["chains"]]
-    cfg["keep_heteroatoms"] = [
-        c["value"] for c in dynamic["keep_heteroatoms"]
-        if not c["help"].startswith(("crystallisation", "ion"))
-    ]
+    cfg["keep_heteroatoms"], hetero_notes = structure.default_heteroatoms(report)
     cfg = schema.normalise(cfg)
+    if hetero_notes:
+        source_warning = " ".join(
+            [source_warning] + hetero_notes).strip() if source_warning \
+            else " ".join(hetero_notes)
 
     report_dict = report.to_dict()
     report_dict["_estimate"] = structure.estimate_system_size(report, cfg)
@@ -279,11 +284,18 @@ def build():
         abort(400, "the uploaded structure is no longer in this session -- please load it again")
 
     try:
+        # The chemical definitions, fetched here rather than on the user's
+        # machine: a PDB HETATM record has no bond orders, and the run script
+        # transfers them from these onto the deposited coordinates. Without them
+        # it warns that it has no definition and then fails at system creation
+        # with a missing template, several minutes into somebody's run.
+        ligands, ligand_warnings = bundle.collect_ligands(cfg, report_dict)
         built = bundle.build(
             cfg,
             structure_files[0].read_bytes(),
             saved["filename"],
             citation=saved.get("citation", ""),
+            ligands=ligands,
         )
     except bundle.BundleError as exc:
         return _render_prepare(

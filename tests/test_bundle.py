@@ -816,3 +816,60 @@ def test_the_growth_warning_names_the_way_out(structure):
     run = bundle.unpack(_build(structure).content)["run.py"].decode()
     assert "resumes from the last checkpoint" in run
     assert "cannot be reclaimed while the process lives" in run
+
+
+# ---------------------------------------------------------------------------
+#  The command line, which has to default the same way the form does
+# ---------------------------------------------------------------------------
+
+
+def test_the_cli_keeps_a_ligand_and_ships_its_chemistry(trypsin, tmp_path,
+                                                        monkeypatch, capsys):
+    """`./FlexAppeal.py bundle 3ptb.pdb` must produce the complex, not the apo run.
+
+    This path set no heteroatoms at all, so a structure with a ligand in it
+    silently became an apo simulation, and the bundle carried no chemical
+    definition for the run script to transfer bond orders from.
+    """
+    import FlexAppeal
+    from flexappeal import sources
+
+    monkeypatch.setattr(sources, "fetch_ccd_ideal", _fake_ccd)
+    source = tmp_path / "3ptb.pdb"
+    source.write_bytes(trypsin)
+    out = tmp_path / "trypsin.command"
+
+    code = FlexAppeal.main(["bundle", str(source), "-o", str(out), "-n", "trypsin"])
+    assert code == 0
+
+    files = bundle.unpack(out.read_bytes())
+    assert "ligands/BEN.sdf" in files
+    cfg = json.loads(files["config.json"])["config"]
+    assert cfg["keep_heteroatoms"] == ["BEN"]
+    assert cfg["has_ligands"] is True
+    # The ion was left out, and the reason was printed rather than swallowed.
+    assert "CA" not in cfg["keep_heteroatoms"]
+    assert "is an ion" in capsys.readouterr().out
+
+
+def test_an_explicit_config_still_wins_on_the_cli(trypsin, tmp_path, monkeypatch):
+    """Auto-selection is a default, not an override.
+
+    A config from a previous bundle already says what to keep, including when
+    the answer is nothing.
+    """
+    import FlexAppeal
+    from flexappeal import sources
+
+    monkeypatch.setattr(sources, "fetch_ccd_ideal", _fake_ccd)
+    source = tmp_path / "3ptb.pdb"
+    source.write_bytes(trypsin)
+    config = tmp_path / "apo.json"
+    config.write_text(json.dumps({"config": {"keep_heteroatoms": []}}))
+    out = tmp_path / "apo.command"
+
+    assert FlexAppeal.main(["bundle", str(source), "-c", str(config),
+                            "-o", str(out), "-n", "apo"]) == 0
+    files = bundle.unpack(out.read_bytes())
+    assert not [name for name in files if name.startswith("ligands/")]
+    assert json.loads(files["config.json"])["config"]["keep_heteroatoms"] == []

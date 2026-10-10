@@ -33,7 +33,7 @@ The hosted application never simulates. That is a design decision, not a limitat
 | **One file to run** | A self-extracting bundle carrying the structure, a pinned environment, a readable run script and its own installer |
 | **Auditable output** | The generated `run.py` writes every value literally (`310.0 * unit.kelvin`), so it reads as a record of exactly what ran |
 | **Platform benchmarking** | The bundle times the available OpenMM platforms on your real system and picks the fastest |
-| **Ligands** | Chemistry from the RCSB Chemical Component Dictionary, parameterised with OpenFF Sage, GAFF2 or espaloma |
+| **Ligands, by default** | A real ligand or cofactor in the file is kept without being asked for, with its chemistry fetched from the RCSB Chemical Component Dictionary and parameterised with OpenFF Sage, GAFF2 or espaloma. Crystallisation additives, ions and anything bearing a metal a small-molecule force field cannot type are offered rather than assumed, and the page says why |
 | **Membranes** | POPC and six other lipids via `Modeller.addMembrane`, with pre-oriented structures fetched from OPM |
 | **Analysis without scripting** | RMSD, RMSF, radius of gyration, SASA, DSSP, hydrogen bonds, contacts, PCA, clustering, and ligand or membrane panels |
 | **Graded study packages** | `flexappeal package` collects finished runs into one file that DeepFlex renders as a graded report: pose, occupancy, interactions, energy, convergence and conformation, ranked within each receptor |

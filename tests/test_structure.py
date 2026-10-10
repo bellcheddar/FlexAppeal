@@ -214,3 +214,68 @@ def test_estimate_feeds_the_derived_readouts(lysozyme):
     assert wall["basis"] == "estimated"
     assert wall["hours"] > 0
     assert schema.derive(cfg)["traj_bytes"] > 0
+
+
+# ---------------------------------------------------------------------------
+#  Which heteroatoms a user who touches nothing should get
+# ---------------------------------------------------------------------------
+
+
+def _analysed(fixture):
+    path = FIXTURES / fixture
+    if not path.is_file():
+        pytest.skip(f"tests/fixtures/{fixture} is missing")
+    return structure.analyse(path.read_bytes(), fixture)
+
+
+def test_a_real_ligand_is_kept_without_being_asked_for():
+    """3PTB is trypsin with benzamidine in the S1 site.
+
+    Somebody who loads that file means to simulate the complex, so the ligand is
+    on by default and the apo run is the thing you opt into.
+    """
+    keep, _ = structure.default_heteroatoms(_analysed("3ptb.pdb"))
+    assert keep == ["BEN"]
+
+
+def test_an_ion_is_not_kept_as_a_ligand():
+    """The protein force field carries its own ion parameters.
+
+    Listing one as a ligand would imply it needed a small-molecule template.
+    """
+    keep, notes = structure.default_heteroatoms(_analysed("3ptb.pdb"))
+    assert "CA" not in keep
+    assert any("CA is an ion" in note for note in notes)
+
+
+def test_a_crystallisation_additive_is_not_kept():
+    """Glycerol, PEG and sulfate are there because of how the crystal was grown.
+
+    Parameterising one costs an AM1-BCC charging run for something nobody is
+    studying, so it is offered rather than assumed.
+    """
+    keep, notes = structure.default_heteroatoms(_analysed("4hhb.pdb"))
+    assert "PO4" not in keep
+    assert any("crystallisation additive" in note for note in notes)
+
+
+def test_a_metal_cofactor_is_not_defaulted_into_an_unbuildable_system():
+    """Haemoglobin's haem is exactly what somebody would want to keep, and cannot be.
+
+    GAFF, OpenFF and espaloma are organic force fields with no transition-metal
+    parameters at all, so a system built with it cannot be parameterised.
+    Defaulting to a configuration that cannot build is worse than defaulting to
+    one that is merely incomplete, and the note says which metal and why.
+    """
+    keep, notes = structure.default_heteroatoms(_analysed("4hhb.pdb"))
+    assert "HEM" not in keep
+    note = next(n for n in notes if n.startswith("HEM"))
+    assert "FE" in note
+    assert "could not be parameterised" in note
+
+
+def test_an_apo_structure_keeps_nothing_and_says_nothing():
+    """Lysozyme has only waters, and a note about water would be noise."""
+    keep, notes = structure.default_heteroatoms(_analysed("1aki.pdb"))
+    assert keep == []
+    assert notes == []

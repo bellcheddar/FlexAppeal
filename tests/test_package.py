@@ -1585,3 +1585,26 @@ def test_a_lipid_in_a_pocket_crop_is_flagged():
     problems = fxa2._check_pocket_pdb(
         fxa2.ReadPackage(manifest=built.manifest(), members=built.members), cid)
     assert any("lipid POP" in p for p in problems)
+
+
+def test_a_ligandless_trajectory_selection_is_named_as_the_cause(deposited):
+    """"No ligand in the trajectory" is true and says nothing about the cause.
+
+    A run written with `traj_selection='protein'` has no ligand coordinates at
+    all, so no amount of good simulation makes it a complex. The default is
+    `protein_ligand`, which keeps it.
+    """
+    source = make_source(deposited)
+    source.config["traj_selection"] = "backbone"
+    _, warnings_out = package.assemble([source], package_name="stripped")
+    assert any("keeps no ligand" in w and "protein_ligand" in w
+               for w in warnings_out)
+
+
+def test_the_default_trajectory_selection_is_not_flagged(deposited):
+    from flexappeal import options as opts
+
+    assert opts.defaults()["traj_selection"] not in package.LIGANDLESS_SELECTIONS
+    _, warnings_out = package.assemble([make_source(deposited)],
+                                       package_name="default")
+    assert not any("keeps no ligand" in w for w in warnings_out)

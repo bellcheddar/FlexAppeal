@@ -624,6 +624,59 @@ def _estimate_membrane_size(report: StructureReport, cfg: dict[str, Any]) -> dic
     }
 
 
+# Heteroatom categories kept without the user asking for them. A ligand or a
+# cofactor is part of the molecule somebody loaded the file to simulate. A
+# crystallisation additive is not: glycerol, PEG and sulfate are there because of
+# how the crystal was grown, and parameterising one costs an AM1-BCC charging run
+# for something nobody is studying. An ion is not either, for a different reason:
+# the protein force field carries its own ion parameters, so an ion needs no
+# small-molecule template and listing it as a ligand would imply it did.
+AUTO_KEEP_CATEGORIES = ("ligand", "cofactor")
+
+
+def default_heteroatoms(report: StructureReport) -> tuple[list[str], list[str]]:
+    """What a user who touches nothing should get, and why not the rest.
+
+    Returns the heteroatom names to keep and one note per thing deliberately
+    left out, so the caller can say so rather than leaving a reader to notice
+    that their cofactor is missing.
+
+    A metal-bearing ligand or cofactor is excluded even though it is exactly the
+    sort of thing somebody wants to keep. GAFF, OpenFF and espaloma are organic
+    force fields with no transition-metal parameters at all, so keeping a haem or
+    a zinc-bearing cofactor cannot produce a runnable system: it would fail at
+    parameterisation, and defaulting to a configuration that cannot build is
+    worse than defaulting to one that is merely incomplete. The note says which
+    metal and why.
+    """
+    keep: list[str] = []
+    notes: list[str] = []
+    for hetero in report.heteroatoms:
+        if hetero.category in ("water", "marker"):
+            continue
+        if hetero.category in AUTO_KEEP_CATEGORIES and not hetero.metals:
+            keep.append(hetero.name)
+        elif hetero.metals:
+            notes.append(
+                f"{hetero.name} ({hetero.description or hetero.category}) contains "
+                f"{', '.join(hetero.metals)}, which small-molecule force fields have "
+                f"no parameters for, so it is not kept by default: a system built "
+                f"with it could not be parameterised. Simulate the apo protein, or "
+                f"supply your own parameters as a force-field XML."
+            )
+        elif hetero.category == "additive":
+            notes.append(
+                f"{hetero.name} looks like a crystallisation additive, so it is not "
+                f"kept by default. Tick it if it is the thing you are studying."
+            )
+        elif hetero.category == "ion":
+            notes.append(
+                f"{hetero.name} is an ion, covered by the protein force field's own "
+                f"parameters rather than kept as a ligand."
+            )
+    return keep, notes
+
+
 def dynamic_choices(report: StructureReport) -> dict[str, list[dict[str, str]]]:
     """Fill in the choices the registry cannot know until a structure is loaded."""
     chain_choices = [

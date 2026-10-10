@@ -53,6 +53,13 @@ from .options import FLEXAPPEAL_VERSION
 MAX_MEASURE_FRAMES = 2000
 
 
+# Trajectory selections that keep no ligand. A run written with one of these
+# cannot become a receptor-ligand complex however well it ran, and the failure
+# arrives as "no ligand in the trajectory", which is true and says nothing about
+# the cause. `protein_ligand` is the default and keeps the ligand.
+LIGANDLESS_SELECTIONS = frozenset({"protein", "protein_heavy", "backbone", "ca"})
+
+
 # How a version 1 payload tier maps onto a warning. `full` keeps every atom and
 # 2,000 frames, which is as good as a run directory for everything but the
 # chemistry; the lighter tiers are decimated and the numbers say so.
@@ -544,6 +551,15 @@ def assemble(sources: list[Source], *, package_name: str,
                 f"package them separately."
             )
         seen[cid] = source.label
+
+        selection = str(source.config.get("traj_selection") or "")
+        if selection in LIGANDLESS_SELECTIONS:
+            warnings.append(
+                f"{source.label}: the run wrote its trajectory with "
+                f"traj_selection={selection!r}, which keeps no ligand, so there is "
+                f"nothing here to measure {compound} from. Re-run with "
+                f"'protein_ligand' (the default) or 'all'."
+            )
 
         if progress is not None:
             progress(f"measuring {compound} against {receptor}")

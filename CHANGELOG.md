@@ -289,6 +289,47 @@ checkbox list in `README.md`.
   frame the detector picks is its business: what has to hold is that the count
   starts at `equil_start_frame`.
 
+### Fixed
+
+- **A ligand in the file is now simulated by default.** Three things stood between
+  the defaults and a runnable complex, all found by driving the real entry points
+  rather than reading them.
+
+  `./FlexAppeal.py bundle 3ptb.pdb` set `chains` and never `keep_heteroatoms`, so
+  it silently produced an apo trypsin run and dropped the benzamidine.
+
+  **No bundle carried a ligand's chemistry at all.** `bundle.collect_ligands` had
+  no caller outside the test suite, so `ligands/<NAME>.sdf` was never in a bundle.
+  A PDB `HETATM` record has no bond orders and the run script transfers them from
+  that member, so a kept ligand warned "no chemical definition bundled" and then
+  failed at system creation with a missing residue template, several minutes into
+  somebody's run. Both entry points now fetch them at prep time, where the network
+  already is, so a fetch failure is a clear refusal there rather than a crash hours
+  later on a machine the user is waiting on.
+
+  And the web app's auto-selection filtered the heteroatom list by a prefix match
+  on help text, which could not see that a haem has an iron in it: haemoglobin
+  defaulted into a configuration `collect_ligands` then correctly refuses.
+- **`structure.default_heteroatoms` owns which heteroatoms count**, for both entry
+  points, by category rather than by matching names. Real ligands and cofactors are
+  kept. Crystallisation additives are not, because glycerol, PEG and sulfate are
+  there because of how the crystal was grown and parameterising one costs an
+  AM1-BCC charging run for something nobody is studying. Ions are not, because the
+  protein force field carries its own ion parameters and listing one as a ligand
+  would imply it needed a template. Anything bearing a metal a small-molecule force
+  field cannot type is not, because such a system cannot be parameterised at all,
+  and defaulting to a configuration that cannot build is worse than defaulting to
+  one that is merely incomplete.
+
+  Every omission is reported rather than silent, so a reader is told their cofactor
+  was left out and why instead of noticing later. All of it stays tickable, and an
+  explicit `--config` still wins on the command line.
+- **A ligand-less trajectory selection is named as the cause.** A run written with
+  `traj_selection` of `protein`, `protein_heavy`, `backbone` or `ca` has no ligand
+  coordinates, and packaging it failed with "no ligand in the trajectory": true,
+  and silent about why. The packager now says which selection the run used and what
+  to use instead.
+
 ### Added
 
 - **A `Study panels` section in the README**, naming each panel a version 2

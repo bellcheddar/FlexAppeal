@@ -1187,3 +1187,71 @@ def test_uploading_a_version_2_package_is_refused_by_version(client, tmp_path):
     assert "format version 2" in body
     assert "flexappeal package" in body
     assert "truncated" not in body
+
+
+# ---------------------------------------------------------------------------
+#  A ligand-bearing structure, end to end, with no option touched
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture
+def offline_ccd(monkeypatch):
+    """The RCSB chemical definition fetch, stubbed so the suite stays offline."""
+    from flexappeal import sources
+
+    def fake(name):
+        return sources.FetchResult(b"fake sdf\n", f"{name}.sdf", "ccd", "",
+                                   f"CCD {name}")
+
+    monkeypatch.setattr(sources, "fetch_ccd_ideal", fake)
+    return fake
+
+
+def test_loading_a_complex_selects_its_ligand_by_default(client):
+    """3PTB is trypsin with benzamidine, and the form should arrive with it ticked."""
+    if not (FIXTURES / "3ptb.pdb").is_file():
+        pytest.skip("tests/fixtures/3ptb.pdb is missing")
+    response, token, html = _upload(client, "3ptb.pdb")
+    assert response.status_code == 200
+    assert token
+
+    # The multiselect option renders its chosen values; BEN must be among them
+    # and the ion must not be.
+    chosen = html.split('name="keep_heteroatoms"', 1)[1][:2000]
+    assert "BEN" in chosen
+    # And the page says why the calcium was left out rather than dropping it
+    # silently.
+    assert "is an ion" in html
+
+
+def test_building_a_complex_ships_its_chemical_definition(client, offline_ccd):
+    """The run script transfers bond orders from this onto the coordinates.
+
+    A PDB HETATM record has none. Without the member the run warns that it has
+    no definition and then fails at system creation with a missing residue
+    template, several minutes into somebody's simulation.
+    """
+    if not (FIXTURES / "3ptb.pdb").is_file():
+        pytest.skip("tests/fixtures/3ptb.pdb is missing")
+    _, token, _ = _upload(client, "3ptb.pdb")
+    response = client.post("/prepare/build", data=_form_from_defaults(
+        token, keep_heteroatoms=["BEN"], has_ligands=True, job_name="trypsin_ben"))
+    assert response.status_code == 200
+
+    files = bundle.unpack(response.get_data())
+    assert "ligands/BEN.sdf" in files
+    payload = json.loads(files["config.json"])["config"]
+    assert payload["keep_heteroatoms"] == ["BEN"]
+    assert payload["has_ligands"] is True
+    # And the trajectory keeps the ligand, which is what makes the run
+    # packageable as a receptor-ligand complex.
+    assert payload["traj_selection"] == "protein_ligand"
+    assert 'LIGAND_RESIDUES = ["BEN"]' in files["run.py"].decode()
+
+
+def test_an_apo_structure_ships_no_ligand_directory(client, offline_ccd):
+    _, token, _ = _upload(client)
+    response = client.post("/prepare/build",
+                           data=_form_from_defaults(token, job_name="apo"))
+    files = bundle.unpack(response.get_data())
+    assert not [name for name in files if name.startswith("ligands/")]

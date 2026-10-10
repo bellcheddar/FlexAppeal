@@ -62,14 +62,130 @@ Section 12 of the spec, which is also the commit boundaries.
 
 - [x] 1. Writer skeleton: manifest, member layout, the zip, the limits, round trip.
 - [x] 2. `metrics/`, `pocket/`, one pocket PDB, one complex. **Validated.**
-- [ ] 3. The scored window, `S_pose`, `S_occ`.
+- [x] 3. The scored window, `S_pose`, `S_occ`.
 - [x] 4. `series/` and `traj/<cid>_scrub.pdb`.
 - [x] 5. `S_int`, `summary/`, `barcode/`.
-- [ ] 6. `S_E`, the energies.
+- [x] 6. `S_E`, the energies.
 - [x] 7. `S_conv`, the block split and the pose clusters.
 - [x] 8. `S_conf`, the strain excess and the torsions.
 - [x] 9. `panels/`, the receptor matrices.
-- [ ] 10. `annotations/` and `depictions/`.
+- [x] 10. `annotations/` and `depictions/`.
+
+## Does a default job produce all of this?
+
+Checked against the option registry and driven end to end, rather than assumed.
+
+| Default | Value | Consequence |
+|---|---|---|
+| `keep_heteroatoms` | **the file's real ligands and cofactors** | a complex, with no option touched |
+| `has_ligands` | **derived from the above** | the small-molecule force field is wired in |
+| `traj_selection` | `protein_ligand` | the ligand **and its hydrogens** are in the trajectory, so `S_conf` works |
+| `enforce_periodic_box` | `True` | the ligand can be wrapped away from its receptor, so every source is re-imaged before anything is measured |
+| `production_duration` / `traj_interval` | 100 ns / 10 ps | 10,000 frames, strided to `MAX_MEASURE_FRAMES` |
+| `payload_tier` | `standard` | 500 frames, protein plus the kept heteroatoms, hydrogens kept: enough for every panel |
+| `traj_format` | `xtc` | read by MDTraj, as are `dcd` and `hdf5` |
+
+`./FlexAppeal.py bundle tests/fixtures/3ptb.pdb` with nothing else set now produces
+`keep_heteroatoms: ["BEN"]`, `has_ligands: true`, `LIGAND_RESIDUES = ["BEN"]`,
+`traj_selection: protein_ligand` and a `ligands/BEN.sdf` member. That is a complete
+receptor-ligand run, and a package built from one fills every panel except the two
+gaps named below.
+
+### What that needed fixing first
+
+Three things stood between the defaults and a packageable run, all found by driving
+the real entry points rather than reading them:
+
+1. **The command line never kept any heteroatom.** `cmd_bundle` set `chains` and
+   not `keep_heteroatoms`, so `./FlexAppeal.py bundle 3ptb.pdb` silently produced
+   an apo trypsin run and dropped the benzamidine.
+2. **No bundle carried a ligand's chemistry.** `bundle.collect_ligands` had no
+   caller outside the test suite, so `ligands/<NAME>.sdf` was never in a bundle. A
+   PDB `HETATM` record has no bond orders and the run script transfers them from
+   that member, so a kept ligand warned "no chemical definition bundled" and then
+   failed at system creation with a missing residue template, several minutes into
+   somebody's run. Both entry points now fetch them at prep time, where the
+   network already is, and a fetch failure is a clear refusal there rather than a
+   crash hours later on the user's machine.
+3. **The web app's auto-selection could not see a metal.** It filtered the
+   heteroatom list by a prefix match on help text (`"crystallisation"`, `"ion"`),
+   which let a haem through; `collect_ligands` then refuses it, correctly, so
+   haemoglobin defaulted into a configuration that cannot build.
+   `structure.default_heteroatoms` now owns the decision for both entry points.
+
+### Which heteroatoms count
+
+Real ligands and cofactors, and nothing else. Decided by category rather than by
+matching names:
+
+| Left out | Why |
+|---|---|
+| crystallisation additives | glycerol, PEG and sulfate are there because of how the crystal was grown, and parameterising one costs an AM1-BCC charging run for something nobody is studying |
+| ions | the protein force field carries its own ion parameters, so an ion needs no small-molecule template and listing it as one would imply it did |
+| anything with an unparameterisable metal | GAFF, OpenFF and espaloma have no transition-metal parameters, so a haem cannot produce a runnable system at all. Defaulting to a configuration that cannot build is worse than defaulting to one that is merely incomplete |
+| waters and membrane markers | removed before simulation anyway |
+
+Each omission is reported rather than silent, so a reader is told their cofactor
+was left out and why instead of noticing afterwards. Everything stays tickable:
+this is a default, not a policy, and an explicit `--config` wins on the command
+line.
+
+**An apo run still cannot be a complex.** `flexappeal package` skips one with a
+reason and refuses a package where every source is apo. That is inherent rather
+than a gap.
+
+**A ligand-less trajectory selection is now named as the cause.** A run written
+with `traj_selection` of `protein`, `protein_heavy`, `backbone` or `ca` has no
+ligand coordinates at all, and the failure used to arrive as "no ligand in the
+trajectory": true, and silent about why. The packager now says which selection the
+run used and what to use instead.
+
+## What a default job costs to package
+
+Three superpositions each hold a copy of the coordinates, so 10,000 frames of a
+3,000-atom system came to roughly five gigabytes, and a membrane system (where
+`protein_ligand` keeps the lipids as well) to tens. Measured, not estimated: 2,000
+frames of the trypsin fixture peaked at 1,022 MB before the fix.
+
+- **Sources are reduced to protein plus the kept heteroatoms**, with the stride
+  and the atom selection applied by `md.load` itself, so the large array never
+  exists. Nothing measured here reads a water, an ion or a lipid, and section 6.1
+  bans all three from the crop anyway.
+- **`MAX_MEASURE_FRAMES = 2000`**, with the frame spacing in the manifest
+  multiplied by whatever was skipped. Every scalar is a statistic over the scored
+  window and agrees between 2,000 frames and 10,000 to more digits than anybody
+  reads; 2,000 is also the length of DeepFlex's own runs.
+- **A one-frame superposition reference** rather than a whole second copy.
+  `superpose` reads only `reference.xyz[frame]`, and the fitted RMSDs are
+  bit-identical either way.
+
+Peak is now 805 MB for 2,000 frames and bounded there for a run of any length.
+
+## Front end
+
+**No changes needed.** Packaging is a command, not a page: the web app prepares
+bundles and reads version 1 files, and neither path is involved. The one place the
+app can meet a version 2 file is the Analysis upload, and that refuses it by
+version with a message naming `flexappeal package` instead of reporting a missing
+member, with a `tests/test_webapp.py` case driving it through the real route.
+
+Worth offering later, not needed now: a line on the Analysis tab saying what a
+version 2 package is and where it goes.
+
+## What is left, and what it would cost
+
+Nothing blocks a full report. Three things are known gaps rather than bugs:
+
+1. **The binding energies**, below: the one measurement FlexAppeal cannot make.
+2. **`pocket_traj_path`**: unfillable without writing an `.xtc` member that
+   section 8 forbids.
+3. **The tracked-distance panel** (divergence 16): no FlexAppeal option
+   corresponds to it, so inventing one would put a number on that panel nobody
+   asked for.
+
+Worth raising with the DeepFlex side, in order of how much each costs a reader:
+divergence 5 (`pocket_traj_path`), divergence 4 (the two layer manifests), then
+1 to 3, which cost nothing now because this writer works around them.
 
 ## Decisions taken
 

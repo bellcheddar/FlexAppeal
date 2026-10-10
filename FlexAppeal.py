@@ -208,6 +208,18 @@ def cmd_bundle(args: argparse.Namespace) -> int:
     cfg["_solute_atoms"] = report.solute_atoms
     cfg.setdefault("chains", [c.id for c in report.chains if c.kind != "water"])
 
+    # Keep the real ligands and cofactors the file contains, as the web app
+    # does. A user who points this at a structure with a ligand in it means to
+    # simulate the complex, and an explicit --config is the way to say otherwise.
+    if not args.config and not cfg.get("keep_heteroatoms"):
+        cfg["keep_heteroatoms"], hetero_notes = structure.default_heteroatoms(report)
+        for note in hetero_notes:
+            _info(note)
+        if cfg["keep_heteroatoms"]:
+            _info(f"keeping {', '.join(cfg['keep_heteroatoms'])}; "
+                  f"pass --config to choose differently")
+    cfg = schema.normalise(cfg)
+
     result = schema.validate(cfg)
     for issue in result.warnings:
         _warn(f"{issue.option_id or 'config'}: {issue.message}")
@@ -217,7 +229,15 @@ def cmd_bundle(args: argparse.Namespace) -> int:
         return 1
 
     try:
-        built = bundle_mod.build(cfg, data, Path(args.structure).name)
+        # Fetched here, not on the user's machine: a PDB HETATM record has no
+        # bond orders, and the run script transfers them from these onto the
+        # deposited coordinates. Without them it fails at system creation with a
+        # missing template, several minutes into the run.
+        ligands, ligand_warnings = bundle_mod.collect_ligands(cfg, report.to_dict())
+        for warning in ligand_warnings:
+            _warn(warning)
+        built = bundle_mod.build(cfg, data, Path(args.structure).name,
+                                 ligands=ligands)
     except bundle_mod.BundleError as exc:
         _err(str(exc))
         return 1
