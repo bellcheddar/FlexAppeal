@@ -181,7 +181,7 @@ checkbox list in `README.md`.
   And scored, which took two goes. `S_E` is normally a percentile and a lone
   complex has no cohort, so it now falls back to absolute thresholds in DeepFlex's
   `grade.toml` (D078): full marks at -60 kcal/mol, zero at 0. Zero is physics; -60
-  is the strong end of the 27 complexes that pipeline has measured. The fallback
+  is the strong end of that pipeline's own reference distribution. The fallback
   runs only where there is no cohort, is marked on the row, and the limitation
   travels with it -- within one pocket these energies do not separate good
   compounds from poor ones, so nothing anchors -60 beyond the shape of its own

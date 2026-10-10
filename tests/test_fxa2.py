@@ -372,6 +372,47 @@ def test_conformance_names_a_missing_required_metric(tmp_path):
     assert any("ligand_rmsd_median, conv_js_mean" in p for p in problems)
 
 
+def test_conformance_catches_a_strain_reported_for_a_rigid_ligand(tmp_path):
+    """Check 15. 0.0 excess strain is full marks, so it must not be a stand-in.
+
+    With no rotatable bond there is nothing to restrain, both minimisations reach
+    the same minimum, and the difference is float noise. DeepFlex refuses the
+    measurement on its side (D079), so a file that reports it disagrees with the
+    reader about its own grade.
+    """
+    package = build_package()
+    cid = package.complexes[0]
+    metrics = json.loads(package.members[f"metrics/{cid}.json"])
+    metrics["n_rotatable_bonds"] = 0
+    metrics["strain_kcal"] = 0.0
+    package.members[f"metrics/{cid}.json"] = json.dumps(metrics).encode()
+    problems = fxa2.conformance(fxa2.read(package.write(tmp_path / "rigid.fxa")))
+    assert any("no rotatable bond" in p and "strain_kcal" in p for p in problems)
+
+
+def test_conformance_catches_an_interaction_record_with_no_status(tmp_path):
+    """Check 16. The scorer gates S_int on it, so a missing status costs 20%."""
+    package = build_package()
+    cid = package.complexes[0]
+    # The minimal fixture carries no interaction record, so one is added without a
+    # status: present but unusable is the case the check exists for.
+    package.members[f"metrics/{cid}.interactions.json"] = json.dumps({
+        "complex_id": cid, "n_t0_interactions": 8,
+        "key_interaction_occupancy_mean": 0.9, "tanimoto_t0_mean": 0.9,
+    }).encode()
+    problems = fxa2.conformance(fxa2.read(package.write(tmp_path / "nostatus.fxa")))
+    assert any("S_int would be skipped" in p for p in problems)
+
+
+def test_conformance_wants_the_harvest_member(tmp_path):
+    """Check 2. The ingester refuses a package with no `harvest/` at all."""
+    package = build_package()
+    cid = package.complexes[0]
+    del package.members[f"harvest/{cid}.json"]
+    problems = fxa2.conformance(fxa2.read(package.write(tmp_path / "noharvest.fxa")))
+    assert any(f"harvest/{cid}.json is missing" == p for p in problems)
+
+
 def test_conformance_catches_a_fraction_outside_zero_to_one(tmp_path):
     package = build_package()
     cid = package.complexes[0]

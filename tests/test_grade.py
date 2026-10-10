@@ -352,8 +352,9 @@ def test_the_energy_ramp_is_the_one_deepflex_falls_back_to():
     """A transcription, not a second opinion.
 
     -60 kcal/mol to 0, from DeepFlex's `[energy]` block. Zero is physics -- no
-    binding free energy, no binding. -60 is the strong end of the 27 complexes
-    it has measured.
+    binding free energy, no binding. -60 is the strong end of DeepFlex's own
+    reference distribution, which is not reproduced here: this repository is
+    public and that distribution is not.
     """
     assert grade.ENERGY_SINGLE_RAMP == (-60.0, 0.0)
     assert grade.ramp(-60.0, *grade.ENERGY_SINGLE_RAMP) == pytest.approx(100.0)
@@ -382,10 +383,10 @@ def test_an_absent_energy_says_so_differently():
 def test_the_energy_score_says_which_instrument_produced_it():
     """An absolute ramp and a percentile are different claims.
 
-    Q007 recommended against this ramp and was overruled, so what it cannot do
-    has to travel with the number: within one pocket these energies do not
-    separate the reference agonists from the rest, which is why nothing anchors
-    -60 beyond the spread of the data.
+    Q007 recommended leaving the sub-score pending and was overruled, so what the
+    ramp cannot do has to travel with the number: within a single pocket these
+    energies do not separate good compounds from poor ones, which is why nothing
+    anchors -60 beyond the spread of the data it came off.
     """
     g = grade.score_one(_good(mmpbsa_gb_dg=-30.0))
     assert g.energy_absolute is True

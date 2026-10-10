@@ -614,7 +614,7 @@ _SERIES_SHARE_LENGTH = (
 
 
 def conformance(package: ReadPackage) -> list[str]:
-    """The fourteen checks in section 10. An empty list is a conformant file.
+    """The sixteen checks in section 10. An empty list is a conformant file.
 
     Shipped as a test rather than only as a tool: it is a cheaper proxy for
     DeepFlex's own validator and it runs without DeepFlex being checked out.
@@ -633,9 +633,11 @@ def conformance(package: ReadPackage) -> list[str]:
         problems.append("manifest.complexes is empty")
 
     for cid in cids:
-        # 2. Every id has its three required members.
-        for member in (f"metrics/{cid}.json", f"pocket/{cid}.json",
-                       f"traj/{cid}_pocket.pdb"):
+        # 2. Every id has its four required members. `harvest/` was added to the
+        #    list after a file written exactly to the original layout was read by
+        #    DeepFlex's real ingester, which refuses a package without it.
+        for member in (f"harvest/{cid}.json", f"metrics/{cid}.json",
+                       f"pocket/{cid}.json", f"traj/{cid}_pocket.pdb"):
             if member not in members:
                 problems.append(f"{member} is missing")
 
@@ -816,5 +818,23 @@ def _check_metrics(package: ReadPackage, cid: str) -> list[str]:
             problems.append(
                 f"metrics/{cid}.json equil_start_frame is {start} against "
                 f"n_frames {frames}")
+
+    # 15. A rigid ligand has no strain to report, and 0.0 is full marks for a
+    #     measurement nobody made (D079). The strain layer refuses it on both
+    #     sides, so a file carrying 0.0 here disagrees with the reader about its
+    #     own grade.
+    if metrics.get("n_rotatable_bonds") == 0:
+        for key in ("strain_kcal", "flips_per_ns_per_torsion"):
+            if metrics.get(key) is not None:
+                problems.append(
+                    f"metrics/{cid}.json reports {key} for a ligand with no "
+                    f"rotatable bond: omit it and let S_conf go pending")
+
+    # 16. The interaction record's status, which the scorer gates on. Without it a
+    #     complete fingerprint reads as no fingerprint at all.
+    if inter is not None and inter.get("status") != "ok":
+        problems.append(
+            f"metrics/{cid}.interactions.json has status "
+            f"{inter.get('status')!r}, so S_int would be skipped")
 
     return problems

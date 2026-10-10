@@ -15,12 +15,17 @@ nothing but those thresholds, so 85% of the weight and the letter bands
 themselves need no cohort at all.
 
 Only `S_E` does, being a percentile among the other ligands run against the same
-receptor. For a cohort of one it is recorded pending and its 15% renormalised
-across the other five, which is what DeepFlex does with any sub-score a file
-does not carry. It is specifically *not* scored as zero. That was a real defect
-on the DeepFlex side, found on 2026-10-10 and fixed, where a lone complex was
-handed the 0th percentile and quietly lost up to 15 points -- so the pending path
-below is load bearing rather than a tidy-up.
+receptor. For a cohort of one there is no percentile to take, so a measured
+binding energy is scored against the absolute thresholds in `ENERGY_SINGLE_RAMP`
+instead: DeepFlex's own fallback, not a second opinion invented here. A complex
+scored that way says so on its row, because it is the weaker of the two
+instruments. Where the file carries no binding energy at all, the sub-score is
+recorded pending and its 15% renormalised across the other five, which is what
+DeepFlex does with any sub-score a file does not carry.
+
+What it is never scored as is zero. That was a real defect on the DeepFlex side,
+found on 2026-10-10 and fixed, where a lone complex was handed the 0th percentile
+and quietly lost up to 15 points for having nobody to be compared with.
 
 What a single complex still does not get is a league table, a rank in its
 receptor, or a place in a grade distribution. Those are properties of a package,
@@ -80,17 +85,17 @@ RAMPS = {
 # percentile is the better instrument and wins.
 #
 # Zero is physics -- no binding free energy, no binding -- so that end needs no
-# calibration. -60 kcal/mol is empirical, from the 27 complexes DeepFlex has
-# measured: they span -72.0 to -15.5 with a median of -39.2 and a 10th percentile
-# of -64.4, so full marks means "among the strongest measured" rather than being
-# pinned to one outlier.
+# calibration. -60 kcal/mol is empirical: it is the strong end of DeepFlex's own
+# reference distribution, taken off that distribution rather than off its single
+# strongest value so one outlier cannot define the scale. The distribution itself
+# is not reproduced here, and this repository is public, which is why.
 #
 # What this scale cannot do is recorded in DeepFlex's Q007 and is not small.
-# Within one pocket these energies do not separate the reference agonists from
-# the rest, so there is no external anchor behind -60 beyond the spread of the
-# data; and the number is pocket-dependent, the two receptors sitting 1.02
-# pooled standard deviations apart. A complex scored this way says so on its row.
-# A package is better evidence wherever there is one.
+# There is no external anchor behind -60 beyond the spread of that data, and the
+# number is pocket-dependent: a mean binding energy is a property of a site as
+# much as of a ligand, so the same compound scores differently in two pockets. A
+# complex scored this way says so on its row. A package is better evidence
+# wherever there is one.
 ENERGY_SINGLE_RAMP = (-60.0, 0.0)
 
 # Below this many typed interactions at frame 0, the fingerprint is too coarse to
@@ -206,9 +211,11 @@ def _drift_fraction(measured) -> float | None:
 def score_one(measured) -> Grade | None:
     """Grade a single complex, or None if it was never measured.
 
-    The five sub-scores FlexAppeal can measure are computed and the energy
-    weight is renormalised away, which is what DeepFlex does with any sub-score
-    whose inputs are missing.
+    Every sub-score the run carries inputs for is computed, and any whose inputs
+    are missing is left out and its weight renormalised across the rest, which is
+    what DeepFlex does on ingest. For one complex that is usually the energy (no
+    cohort, so the absolute ramp) and, for a ligand with no rotatable bond, the
+    conformation (no torsion, so no strain to measure).
     """
     if measured is None or measured.status != "ok":
         return None
@@ -258,11 +265,11 @@ def score_one(measured) -> Grade | None:
     result.subscores["conformation"] = (
         sum(conf_parts) / len(conf_parts) if conf_parts else None)
 
-    # --- S_E: measurable here, scoreable only in a cohort --------------------
-    # The ramp for this one is a percentile among the other ligands run against
-    # the same receptor, so a lone complex has nothing to be a percentile of and
-    # the sub-score stays absent. Absent and not zero: a 0th percentile costs a
-    # flawless lone complex up to 15 points, which is the defect spec section 0
+    # --- S_E: measured here, ranked only in a cohort -------------------------
+    # The better instrument for this one is a percentile among the other ligands
+    # run against the same receptor, and a lone complex has nothing to be a
+    # percentile of. It is never scored as zero for that: a 0th percentile costs
+    # a flawless lone complex up to 15 points, which is the defect spec section 0
     # records against DeepFlex and had fixed.
     #
     # The *measurement* is a different matter and is carried through where the
@@ -272,12 +279,11 @@ def score_one(measured) -> Grade | None:
     #
     # So it is scored against `ENERGY_SINGLE_RAMP` instead, which is DeepFlex's
     # own fallback and not a second opinion invented here. Q007 recommended
-    # against it and was overruled, on the grounds that a visible 15% hole in
-    # every single-run report is worse than an imperfect number that says it is
-    # imperfect. The limits are real and are stated on the row: the pocket offset
-    # is 1.02 pooled standard deviations, and within one pocket these energies do
-    # not separate the reference agonists from the rest, which is why nothing
-    # anchors -60 beyond the spread of the data.
+    # leaving it pending and was overruled, on the grounds that a visible 15%
+    # hole in every single-run report is worse than an imperfect number that says
+    # it is imperfect. The limits are real and are stated on the row: nothing
+    # anchors -60 beyond the spread of the data it came off, and the scale is
+    # pocket-dependent, so the same compound scores differently in two sites.
     rotatable = metrics.get("n_rotatable_bonds")
     if isinstance(rotatable, int):
         result.n_rotatable_bonds = rotatable
