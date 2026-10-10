@@ -118,13 +118,18 @@ class Energies:
     def as_supplied(self) -> dict[str, Any]:
         """The `--energies` shape, so nothing in `package` needs to know these
         were computed here rather than handed in from a study."""
-        return {
-            f"{self.compound}/{self.receptor}": {
-                "mmpbsa_gb_dg": round(self.dg, 4),
-                "mmpbsa_gb_sd": round(self.sd, 4),
-                "terms": {"gb": self.terms},
-            }
+        entry = {
+            "mmpbsa_gb_dg": round(self.dg, 4),
+            "mmpbsa_gb_sd": round(self.sd, 4),
+            "terms": {"gb": self.terms},
         }
+        # Under both keys, with the same value. `<compound>/<receptor>` is the
+        # specific one and wins where a compound was run against several
+        # receptors, but the receptor token is derived from the structure
+        # filename or the accession and a caller that derives it differently
+        # would silently lose the energy. Two identical entries cost nothing and
+        # make the lookup unable to miss.
+        return {f"{self.compound}/{self.receptor}": entry, self.compound: entry}
 
 
 def available() -> tuple[bool, str | None]:

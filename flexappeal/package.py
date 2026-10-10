@@ -411,7 +411,32 @@ def measure_results(results, label: str = "upload"):
     if measured.status != "ok":
         return None, [f"the binding site could not be measured "
                       f"({measured.status})"] + measured.notes
+
+    # The binding energy, if the run computed one. It is in the version 1
+    # metrics because the run put it there before packing, which is the only way
+    # it reaches this path: the Analysis tab reads the version 1 payload and has
+    # no trajectory, no ligand chemistry and no AmberTools to compute one with.
+    measured.metrics.update(_energy_from_v1(results))
     return measured, source.notes
+
+
+def _energy_from_v1(results) -> dict[str, Any]:
+    """Energy keys a version 1 results file carries, if any.
+
+    Version 1 has no energy section, so a run that computed MM/GBSA writes the
+    keys in beside its other metrics. Read defensively: an older file has none
+    of them, which is the common case and not a problem.
+    """
+    metrics = getattr(results, "metrics", None) or {}
+    out: dict[str, Any] = {}
+    for key in ENERGY_KEYS:
+        value = metrics.get(key)
+        if isinstance(value, (int, float)) and not isinstance(value, bool):
+            out[key] = float(value)
+    terms = metrics.get("mmpbsa_gb_terms")
+    if isinstance(terms, dict) and terms:
+        out["mmpbsa_gb_terms"] = terms
+    return out
 
 
 def discover(paths: list[Path]) -> list[Path]:
@@ -777,7 +802,7 @@ def _add(package: fxa2.Package, measured: measure.Measured,
 
 
 def build(paths: list[Path], *, out: Path, package_name: str | None = None,
-          energies: Path | None = None, mmgbsa: bool = False,
+          energies: Path | dict[str, Any] | None = None, mmgbsa: bool = False,
           annotations: bool = False,
           progress=None) -> tuple[Path, list[str]]:
     """The whole command: discover, load, measure, write.
@@ -789,7 +814,14 @@ def build(paths: list[Path], *, out: Path, package_name: str | None = None,
     """
     sources_paths = discover([Path(p) for p in paths])
     sources = [load(path) for path in sources_paths]
-    supplied = _read_energies(energies) if energies else None
+    # Either a file to read or a dict already in hand. The bundle computes its
+    # energies before it packs the version 1 file, so that both files carry the
+    # same number rather than two samples of it, and hands the result straight
+    # in.
+    if isinstance(energies, dict):
+        supplied = energies or None
+    else:
+        supplied = _read_energies(energies) if energies else None
     computed: list[str] = []
     if mmgbsa:
         found, computed = _compute_energies(sources, progress=progress)

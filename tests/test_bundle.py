@@ -957,6 +957,59 @@ def test_a_failed_package_does_not_cost_the_version_one_file(trypsin):
     assert "except Exception" in body
     assert "could not be built" in body
     assert "is unaffected" in body
-    # And it is *called* after the version 1 files are packed, not before.
-    # rindex, because the first match is the def and the def comes earlier.
-    assert script.index("written.append(pack(") < script.rindex("package_v2(run_dirs)")
+    # The package step is called after the version 1 files are packed. The
+    # energy, which both files carry, is computed before them: the version 1
+    # metrics have to contain it by the time pack() runs or the Analysis tab
+    # never sees a binding energy at all.
+    assert script.index("binding_energy(run_dir)") < script.index("written.append(pack(")
+    assert script.index("written.append(pack(") < script.rindex("package_v2(run_dirs,")
+
+
+def test_version_two_is_the_default_for_a_ligand_run_not_an_option(trypsin):
+    """No flag, no config key, no opt-in: spec section 0 makes it the default.
+
+    A run with a ligand emits version 2 because version 1 has nowhere to put a
+    ligand measurement, so the grade would be lost rather than deferred. Putting
+    that behind a switch would mean most runs never produced one, which is the
+    situation section 0 was written to end.
+    """
+    cfg = _cfg(job_name="lig", keep_heteroatoms=["BEN"], has_ligands=True)
+    files = bundle.unpack(bundle.build(cfg, trypsin, "3ptb.pdb").content)
+    script = files["analyse.py"].decode()
+
+    # Called unconditionally from main(), not guarded by an option.
+    assert "package_v2(run_dirs," in script
+    for switch in ("if PACKAGE", "--package", "args.package", "WRITE_PACKAGE",
+                   "if cfg.get(\"package\")"):
+        assert switch not in script, f"version 2 is behind {switch}"
+
+    # And the config that produced it carries no key that could turn it off.
+    config = json.loads(files["config.json"])["config"]
+    assert not [k for k in config if "fxa_version" in k or k == "package"]
+
+
+def test_the_energy_reaches_both_files_from_one_calculation(trypsin):
+    """Computed once, before either file is written.
+
+    The Analysis tab reads the version 1 payload and nothing else, so an energy
+    that exists only in the package is an energy its reader never sees. And the
+    frames are subsampled, so computing it twice would be two samples of one
+    trajectory disagreeing in the last decimal.
+    """
+    cfg = _cfg(job_name="lig", keep_heteroatoms=["BEN"], has_ligands=True)
+    files = bundle.unpack(bundle.build(cfg, trypsin, "3ptb.pdb").content)
+    script = files["analyse.py"].decode()
+
+    # Once as the def, once as the call, and no more: a second call site would
+    # be a second subsample of the same trajectory.
+    assert script.count("binding_energy(run_dir)") == 2, "computed more than once"
+    assert script.count("def binding_energy(run_dir)") == 1
+    assert "metrics.update(energy_metrics(" in script
+    # Handed to the package rather than recomputed there.
+    assert "energies=supplied or None" in script
+    # Comments are stripped first: the template explains in prose why it passes
+    # `energies` rather than `mmgbsa=True`, and matching that would be matching
+    # the explanation instead of the code.
+    code = "\n".join(line for line in script.splitlines()
+                     if not line.lstrip().startswith("#"))
+    assert "mmgbsa=True" not in code, "the package would compute it a second time"

@@ -1354,10 +1354,11 @@ def test_the_binding_section_shows_a_grade(client):
     for label in ("Pose", "Occupancy", "Interactions", "Energy",
                   "Convergence", "Conformation"):
         assert f">{label}</th>" in body, label
-    # The struck-through weight and the "not measured here" cell are what say
-    # the energy sub-score was redistributed rather than scored.
-    assert "not measured here" in body
+    # The struck-through weight says the energy weight was redistributed. The
+    # cell beside it says which kind of gap it is: a fixture with no binding
+    # energy in it says so, rather than claiming the measurement was impossible.
     assert "<s>15%</s>" in body
+    assert "no binding energy in this file" in body
 
     # The copy this replaced must be gone, both halves of it.
     assert "no grade here" not in body

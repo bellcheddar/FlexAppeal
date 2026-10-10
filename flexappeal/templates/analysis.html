@@ -175,7 +175,10 @@
                     <th scope="row">{{ row.label }}</th>
                     <td class="md-grade-bar-cell">
                       {% if row.pending %}
-                        <span class="md-grade-pending">not measured here</span>
+                        <span class="md-grade-pending">
+                          {% if row.measured %}<strong class="md-grade-measured"
+                            >{{ row.measured }}</strong>, {% endif %}{{ row.reason }}
+                        </span>
                       {% else %}
                         <span class="md-grade-bar">
                           <span style="width: {{ row.score }}%"></span>

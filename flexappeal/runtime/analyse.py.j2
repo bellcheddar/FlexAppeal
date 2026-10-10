@@ -627,7 +627,55 @@ def pack(run_dir, traj, metrics, arrays, stride):
 
 
 {% if ligand_names %}
-def package_v2(run_dirs):
+def binding_energy(run_dir):
+    """MM/GBSA for this run, computed once and used twice.
+
+    Once into the version 1 results file, so the Analysis tab can show the
+    number: that page reads the version 1 payload and nothing else, so an energy
+    that exists only in the version 2 package is an energy the reader never sees.
+    Once into the package, where DeepFlex scores it.
+
+    Computing it twice would be two minutes wasted and, worse, two numbers: the
+    frames are subsampled, so a second run is a second sample of the same
+    trajectory and the two would disagree in the last decimal.
+    """
+    from fxalib import energy as energylib
+
+    ok, reason = energylib.available()
+    if not ok:
+        warn(f"{reason}. The energy sub-score will be pending; the other five "
+             f"are unaffected.")
+        return {}, []
+
+    step("MM/GBSA binding energy")
+    # The receptor token here is only part of a lookup key, and `as_supplied`
+    # also files the energy under the compound alone, so the package finds it
+    # whichever token it derives from the structure.
+    supplied, notes = energylib.for_run_directory(
+        HERE, run_dir, receptor=JOB_NAME, keep_in=run_dir,
+        progress=lambda message: step(message))
+    return supplied, notes
+
+
+def energy_metrics(supplied):
+    """The energy keys, flattened for the version 1 metrics block.
+
+    Version 1 has no energy section, so these go in beside the other metrics
+    under the names the spec uses. Additive: a reader that does not know them
+    ignores them, which is how the format has always treated a metric it was not
+    expecting.
+    """
+    if not supplied:
+        return {}
+    entry = next(iter(supplied.values()))
+    out = {key: value for key, value in entry.items() if key != "terms"}
+    terms = (entry.get("terms") or {}).get("gb") or {}
+    if terms:
+        out["mmpbsa_gb_terms"] = terms
+    return out
+
+
+def package_v2(run_dirs, supplied):
     """Write the graded version 2 package beside the version 1 results files.
 
     Spec section 0: a run with a ligand emits version 2, because version 1 has
@@ -658,13 +706,11 @@ def package_v2(run_dirs):
     try:
         path, warnings = packlib.build(
             list(run_dirs), out=out, package_name=JOB_NAME,
-            # The binding energy, computed here with AmberTools' MMPBSA.py. It
-            # is the sixth sub-score and the one FlexAppeal used to leave
-            # pending for want of a number rather than for want of a cohort.
-            # AmberTools is on PATH in this environment because the ligand
-            # needed it for charges; where it is not, the energy stays pending
-            # and the other five are unaffected.
-            mmgbsa=True,
+            # Already computed, above, so that the version 1 file could carry it
+            # too. `energies` rather than `mmgbsa=True` on purpose: this is the
+            # same route a study's own numbers take, and it means the two files
+            # carry one number rather than two samples of it.
+            energies=supplied or None,
             progress=lambda message: step(message))
     except Exception as exc:                        # noqa: BLE001
         warn(f"the version 2 package could not be built ({exc}). The version 1 "
@@ -689,6 +735,7 @@ def main():
         return 1
 
     written = []
+    energies = {}
     for run_dir in run_dirs:
         try:
             traj = load(run_dir)
@@ -700,6 +747,14 @@ def main():
             continue
 
         metrics, arrays = compute(traj, run_dir)
+{% if ligand_names %}
+        # Before packing, so the number travels in the version 1 file as well as
+        # in the package. The Analysis tab reads version 1 and nothing else.
+        energies, energy_notes = binding_energy(run_dir)
+        metrics.update(energy_metrics(energies))
+        for note in energy_notes:
+            warn(note)
+{% endif %}
         written.append(pack(run_dir, traj, metrics, arrays, 1))
 
     if not written:
@@ -709,7 +764,7 @@ def main():
 {% if ligand_names %}
     print()
     step("building the version 2 package")
-    package_path, package_warnings = package_v2(run_dirs)
+    package_path, package_warnings = package_v2(run_dirs, energies)
     for line in package_warnings:
         warn(line)
 {% else %}

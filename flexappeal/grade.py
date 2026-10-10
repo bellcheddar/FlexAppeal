@@ -145,6 +145,12 @@ class Grade:
     pending: list[str] = field(default_factory=list)
     notes: list[str] = field(default_factory=list)
 
+    # The measured binding energy, where the run computed one. Carried separately
+    # from the sub-scores because it is a measurement that exists and a score
+    # that does not: see the note in `score_one`.
+    energy_dg: float | None = None
+    energy_sd: float | None = None
+
     # The inputs behind each sub-score, so the meter can show what it read.
     inputs: dict[str, Any] = field(default_factory=dict)
 
@@ -228,13 +234,31 @@ def score_one(measured) -> Grade | None:
     result.subscores["conformation"] = (
         sum(conf_parts) / len(conf_parts) if conf_parts else None)
 
-    # --- S_E: the one sub-score a single complex cannot have -----------------
-    # A percentile needs the other ligands run against the same receptor. There
-    # is no honest single-complex substitute, so it stays absent and its weight
-    # is spread over the rest. Absent and not zero: a 0th percentile here costs a
-    # flawless lone complex up to 15 points, which is exactly the defect spec
-    # section 0 records against DeepFlex and had fixed.
+    # --- S_E: measurable here, scoreable only in a cohort --------------------
+    # The ramp for this one is a percentile among the other ligands run against
+    # the same receptor, so a lone complex has nothing to be a percentile of and
+    # the sub-score stays absent. Absent and not zero: a 0th percentile costs a
+    # flawless lone complex up to 15 points, which is the defect spec section 0
+    # records against DeepFlex and had fixed.
+    #
+    # The *measurement* is a different matter and is carried through where the
+    # run made one, because "we did not measure this" and "this cannot be ranked
+    # against one ligand" are different statements and the page used to make the
+    # first when the second was true.
+    #
+    # An absolute kcal/mol threshold would score it, and DeepFlex's Q007 ruled
+    # against one on its own data. The reason is not the one that looks obvious.
+    # The pocket offset is real (the two receptors' means sit 15.45 kcal/mol
+    # apart, 1.02 standard deviations of the pooled set) and size normalisation
+    # does not help, removing 3% of it. But the finding that settles it is that
+    # within one pocket this energy does not know which compounds are good: the
+    # four reference agonists rank 2, 3, 6 and 13 of 14 on one receptor and 4, 5,
+    # 6 and 11 of 13 on the other, and reference and non-reference means are
+    # indistinguishable. Calibrating a threshold needs something to anchor it to,
+    # and there is nothing here.
     result.subscores["energy"] = None
+    result.energy_dg = metrics.get("mmpbsa_gb_dg")
+    result.energy_sd = metrics.get("mmpbsa_gb_sd")
 
     result.inputs = {
         "pose": pose_input,
@@ -290,14 +314,29 @@ def meter(graded: Grade | None) -> dict[str, Any] | None:
     rows = []
     for key, weight in WEIGHTS.items():
         value = graded.subscores.get(key)
-        rows.append({
+        row = {
             "key": key,
             "label": SUBSCORE_LABELS[key],
             "score": None if value is None else round(value, 1),
             "weight": weight,
             "applied": round(graded.weights_used.get(key, 0.0) * 100, 1),
             "pending": value is None,
-        })
+            # What to put in the cell of a row with no score. Default says the
+            # measurement is missing; the energy row overrides it when there is a
+            # number but no cohort to rank it in.
+            "reason": "not measured here",
+            "measured": None,
+        }
+        if key == "energy" and graded.energy_dg is not None:
+            # Measured but not scored, which is a different statement from not
+            # measured and the one the page used to get wrong.
+            row["measured"] = (
+                f"{graded.energy_dg:+.1f} kcal/mol"
+                + (f" ± {graded.energy_sd:.1f}" if graded.energy_sd else ""))
+            row["reason"] = "measured, but ranked only within a cohort"
+        elif key == "energy":
+            row["reason"] = "no binding energy in this file"
+        rows.append(row)
 
     return {
         "score": round(graded.score, 1),

@@ -190,7 +190,12 @@ def test_the_result_is_shaped_as_supplied_energies():
         n_frames=200, terms={"VDWAALS": [-11.2868, 7.6385, 0.7639]})
     supplied = result.as_supplied()
 
-    assert list(supplied) == ["BNZ/181L"], "keyed by compound and receptor"
+    # Both keys, same entry. The receptor token is derived from the structure
+    # filename or the accession, so a caller that derives it differently would
+    # silently lose the energy; the bare-compound key makes the lookup unable to
+    # miss, and `<compound>/<receptor>` is still the specific one.
+    assert set(supplied) == {"BNZ/181L", "BNZ"}
+    assert supplied["BNZ"] == supplied["BNZ/181L"]
     entry = supplied["BNZ/181L"]
     assert entry["mmpbsa_gb_dg"] == pytest.approx(-9.7775)
     assert entry["mmpbsa_gb_sd"] == pytest.approx(6.643)

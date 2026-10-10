@@ -537,6 +537,12 @@ a { color: var(--md-primary); }
 }
 .md-grade-table tr.is-pending th[scope="row"] { color: var(--md-text-muted); }
 .md-grade-pending { font-size: 11px; color: var(--md-text-muted); }
+/* A measurement on a row that carries no score. The binding energy is the only
+   one: it is measured here and ranked only within a cohort, so the row has a
+   number to show and no bar to show it on. Emphasised against the sentence
+   beside it, because "we measured this" and "we could not rank it" are
+   different things and the number is the part a reader wants. */
+.md-grade-measured { color: var(--md-text); font-weight: 600; }
 
 @media (max-width: 640px) {
   .md-grade { gap: 14px; }

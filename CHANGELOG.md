@@ -82,10 +82,16 @@ checkbox list in `README.md`.
   twelve energy terms.
 
   `S_E` itself is still pending for a cohort of one, because it is a percentile
-  and one complex has no cohort. Whether it should instead carry an absolute
-  threshold is written up as Q007 in DeepFlex, with this package's own evidence
-  against it: the two receptors' GB energies differ by about 15 kcal/mol purely
-  from being docked into different pockets.
+  and one complex has no cohort. DeepFlex's Q007 has since ruled against giving it
+  an absolute threshold instead, and the reason is not the obvious one. The pocket
+  offset is real (the two receptors' means sit 15.45 kcal/mol apart, 1.02 standard
+  deviations of the pooled set) and ligand efficiency removes only 3% of it -- but
+  what settles it is that within one pocket this energy does not know which
+  compounds are good. The four reference agonists rank 2, 3, 6 and 13 of 14 on one
+  receptor and 4, 5, 6 and 11 of 13 on the other, and reference and non-reference
+  means are indistinguishable. A threshold needs something to anchor it to.
+
+  So the energy is measured, carried and shown, and not scored for one complex.
 
 - **A ligand run now writes the version 2 package itself.** Spec section 0 was
   updated today: a run with a ligand emits version 2, including a single system,
@@ -182,6 +188,19 @@ checkbox list in `README.md`.
 
 
 ### Fixed
+
+- **The grade meter said the binding energy was not measured, when it was.** Two
+  faults behind one wrong sentence. The energy was computed into the version 2
+  package only, and the Analysis tab reads the version 1 payload and nothing else,
+  so the number never reached the page it was wanted on. And the row's one piece
+  of copy covered both "no measurement" and "measurement that cannot be ranked",
+  which are different things.
+
+  The run now computes MM/GBSA before it packs either file, so the version 1
+  metrics carry it too and both files report one number rather than two samples of
+  the same trajectory. The row reads `-9.8 kcal/mol ± 6.6, measured, but ranked
+  only within a cohort`, and keeps `not measured here` for a sub-score that really
+  has no measurement.
 
 - **The convergence divergence was not on DeepFlex's ruler.** `conv_js_mean` was
   computed over an adaptive bin count, holding samples-per-bin constant to remove

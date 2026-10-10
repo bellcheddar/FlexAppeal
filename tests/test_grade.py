@@ -314,6 +314,55 @@ def test_a_complex_with_nothing_measurable_is_not_graded():
 # ===========================================================================
 
 
+def test_a_measured_energy_is_shown_even_though_it_is_not_scored():
+    """Measured and unrankable are different, and the page used to conflate them.
+
+    FlexAppeal computes MM/GBSA now, so "not measured here" on the energy row
+    became a false statement. The sub-score is still pending -- it is a
+    percentile and one complex has no cohort -- but the kcal/mol is real and a
+    reader wants it.
+    """
+    m = _good(mmpbsa_gb_dg=-9.7775, mmpbsa_gb_sd=6.643)
+    g = grade.score_one(m)
+
+    # Still pending, still renormalised: measuring it does not make it rankable.
+    assert g.subscores["energy"] is None
+    assert g.pending == ["energy"]
+    assert g.score == pytest.approx(100.0)
+
+    row = next(r for r in grade.meter(g)["rows"] if r["key"] == "energy")
+    assert row["measured"] == "-9.8 kcal/mol ± 6.6"
+    assert "cohort" in row["reason"]
+    assert "not measured" not in row["reason"]
+
+
+def test_an_absent_energy_says_so_differently():
+    row = next(r for r in grade.meter(grade.score_one(_good()))["rows"]
+               if r["key"] == "energy")
+    assert row["measured"] is None
+    assert row["reason"] == "no binding energy in this file"
+
+
+def test_the_energy_is_not_scored_against_an_absolute_ramp():
+    """DeepFlex's Q007 ruled against one, on its own data.
+
+    The pocket offset is 1.02 standard deviations of the pooled set and ligand
+    efficiency removes 3% of it, but what settles it is that within one pocket
+    the energy does not separate the reference agonists from the rest: they rank
+    2, 3, 6, 13 of 14 and 4, 5, 6, 11 of 13. There is nothing to anchor a
+    threshold to, so there must be no threshold here either -- a FlexAppeal-side
+    ramp would be a second definition of a grade DeepFlex owns.
+    """
+    assert not hasattr(grade, "ENERGY_SINGLE_RAMP")
+    assert "energy" not in grade.RAMPS
+
+    # However good the energy, the sub-score stays pending.
+    for dg in (-200.0, -60.0, -9.8, 0.0, 5.0):
+        g = grade.score_one(_good(mmpbsa_gb_dg=dg))
+        assert g.subscores["energy"] is None, dg
+        assert g.score == pytest.approx(100.0), dg
+
+
 def test_the_meter_names_every_sub_score_including_the_pending_one():
     m = grade.meter(grade.score_one(_good()))
     assert [row["key"] for row in m["rows"]] == list(grade.WEIGHTS)
