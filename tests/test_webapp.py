@@ -864,15 +864,15 @@ def _example_built():
 
 
 def test_every_tab_is_in_the_navigation(client):
-    """Four now: prepare, analyse, the example, and the runs library.
+    """Five now: prepare, analyse, the example, the runs library, reference states.
 
     Counted rather than listed, because a tab added without a number is a tab
     that looks like part of the previous one.
     """
     html = client.get("/").get_data(as_text=True)
-    assert html.count("md-tab-num") == 4
+    assert html.count("md-tab-num") == 5
     # Prepare is the site root, not /prepare.
-    for path in ("/", "/analysis", "/example", "/runs"):
+    for path in ("/", "/analysis", "/example", "/runs", "/refstates/"):
         assert f'href="{path}"' in html, path
 
 
