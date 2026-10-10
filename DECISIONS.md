@@ -305,3 +305,67 @@ example packs, so no panel is short of data.
 *Reverse:* one number in the run matrix. Re-running longer needs no change to the
 pipeline, and the analysis keys on `run_id`, so a longer re-run appears as another
 row rather than replacing anything.
+
+---
+
+## D010 - Two deviations forced by the hardware and by the data
+
+**2026-10-10, phase 1 and 3.** Both are departures from the spec, both measured
+rather than assumed, and both are wrapped rather than edited into the vendored
+copy.
+
+### Single precision on the GPU, because Apple's OpenCL has no other
+
+Section 2.2 expects `OpenCL` at `mixed` precision on Apple Silicon and section
+5.2 says `never single for production`. Apple's OpenCL implementation is single
+precision only, and asking for mixed fails context creation with "No compatible
+OpenCL platform is available", which names the platform rather than the property
+that caused it. FlexAppeal has met this before: the measured cost of taking the
+message at face value and falling back to the CPU was **29.5 ns/day against 206**.
+
+Each candidate is now tried for real, in order, and the first that builds a
+context wins: CUDA mixed, OpenCL mixed, OpenCL single, CPU. On this machine that
+lands on OpenCL single, which is what the committed 100 ns benzene example also
+ran on. The energy-conservation check section 5.2 asks for is run on the Tier 1
+smoke trajectory rather than taken on trust.
+
+*Reverse:* delete the `single` entry from the attempt list and the build falls to
+the CPU, at roughly a seventh of the speed.
+
+### The DFG call is read from the nearer anchor, not from an absolute threshold
+
+Positive control P1 failed at **11/17, 64.7%**, against a 90% bar. Every one of
+the six mismatches had the same shape: KLIFS `out`, ours `other`, never a
+confusion between the two states.
+
+The vendored classifier measures the DFG-Phe ring against the αC-Glu+4 Cα and the
+catalytic Lys Cα, then asks whether each distance falls the right side of 11.0 Å.
+Measured across ABL1's references:
+
+| | ring to αC | ring to Lys | difference |
+|---|---|---|---|
+| DFG-in (5) | 5.6 to 6.8 Å | 12.9 to 14.0 Å | **-6.1 to -7.9** |
+| DFG-out (12) | 13.1 to 16.3 Å | 9.1 to 11.3 Å | **+2.4 to +5.8** |
+
+The two classes separate by **8.5 Å** on the difference, with nothing in between.
+The absolute threshold fails because six DFG-out structures sit at 11.1 to 11.3 Å
+from the Lys: a tenth of an ångström past a line drawn through the middle of a
+dense cluster. 2HYY, this build's own DFG-out start structure, is one of them.
+
+So the state is read from which anchor the ring is nearer, which places no
+threshold where the data is dense. **P1 goes to 17/17.** A margin of 1.0 Å around
+equidistant still returns "other", placed where the data is empty rather than
+where it is dense: that band matters for trajectory frames rather than
+references, because a DFG mid-flip genuinely is neither state and a bare sign test
+would snap every frame to one side and hide the transition.
+
+The distances are stored beside every call, so the label can be checked against
+the geometry and the absolute-threshold answer stays recoverable without re-running
+anything.
+
+**Candidate upstream change for BoltzMaker.** The same 11.0 Å threshold is in its
+own `compare-sse` and will mislabel the same six structures. Wrapped here in
+`flexappeal/refstates/kinase.py`, never edited there (spec 4.1).
+
+*Reverse:* call `sse_comparison.metrics.classify_dfg_state` directly; P1 returns
+to 64.7% and fails.

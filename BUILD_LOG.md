@@ -60,3 +60,17 @@ Timestamped, one line per meaningful event, for the reference-state build
   consistency check that the filters are not nonsense.
 - `15:4x` Marc: lock Tier 2 at 50 ns (D009). Four runs, 200 ns, 46 GPU-hours,
   50 hours of headroom under the ceiling.
+- `14:3x` ABL1 start structures built. Both trimmed to residues 233-498, the span
+  resolved in both 2GQG and 2HYY, so the two trajectories are of the same
+  molecule and a motif RMSD between them means something. 262 residues each,
+  imatinib kept as a single copy in the bound system.
+- `14:4x` Tier 1 smoke on ABL1 apo passed: 46,721 atoms, OpenCL single precision
+  after mixed was refused, **220.4 ns/day**. That is better than the 152
+  projected, and it puts all four runs at about **33 GPU-hours**, well inside the
+  96 hour ceiling. G1 will not open.
+- `14:4x` ABL1 apo 50 ns production launched on the GPU.
+- `15:0x` **P1 failed at 11/17 and was fixed, not excused.** Six DFG-out
+  references came back "other" because the vendored 11.0 A threshold cuts
+  through a cluster sitting at 11.1 to 11.3 A. The two classes separate by 8.5 A
+  on the difference between the two anchor distances, so the call now reads the
+  nearer anchor (D010). **P1 17/17, P2 17/17, both pass.**
