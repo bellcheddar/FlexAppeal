@@ -821,3 +821,79 @@ def test_the_site_has_an_icon_at_every_place_a_browser_looks():
     head = client.get("/").get_data(as_text=True)
     for rel in ('rel="icon"', 'rel="apple-touch-icon"', 'rel="manifest"'):
         assert rel in head, rel
+
+
+def test_the_drift_fit_recovers_a_known_slope_and_knows_when_it_cannot(tmp_path: Path):
+    """Section 5.2's drift check, on series whose answers are arithmetic.
+
+    Two properties matter and they pull in opposite directions: a real slope has
+    to be measured, and a slope smaller than its own noise has to be reported as
+    unresolved rather than quoted. A tool that only did the first would pass a
+    run on a figure the data cannot support.
+    """
+    import importlib.util
+
+    import numpy as np
+
+    script = Path(__file__).resolve().parents[1] / "tools" / "check_drift.py"
+    spec = importlib.util.spec_from_file_location("_check_drift", script)
+    drift = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(drift)
+
+    # A clean ramp: slope 250 per unit x, recovered exactly.
+    x = [float(i) for i in range(40)]
+    y = [1000.0 + 250.0 * v for v in x]
+    slope, error = drift._fit(x, y)
+    assert slope == pytest.approx(250.0, rel=1e-9)
+    assert error < 1e-6
+    assert abs(slope) > error, "a clean ramp must be resolved"
+
+    # Pure noise about a flat line, across many draws rather than one. A single
+    # draw is the wrong test: with one-sigma the first seed tried gave a 1.7
+    # sigma fluctuation and looked like a real drift, which is what sent the
+    # tool from a one-sigma criterion to three. The property that matters is
+    # that false positives are rare, so it is measured as a rate.
+    false_positives = 0
+    trials = 60
+    for seed in range(trials):
+        rng = np.random.RandomState(seed)
+        flat = [1000.0 + float(rng.normal(0, 500)) for _ in x]
+        slope, error = drift._fit(x, flat)
+        if abs(slope) > drift.RESOLVED_SIGMA * error:
+            false_positives += 1
+    assert false_positives <= 1, (
+        f"{false_positives} of {trials} noise draws read as a real drift at "
+        f"{drift.RESOLVED_SIGMA} sigma")
+
+    # And a drift well above the noise still has to be caught.
+    rng = np.random.RandomState(7)
+    ramped = [1000.0 + 300.0 * v + float(rng.normal(0, 500)) for v in x]
+    slope, error = drift._fit(x, ramped)
+    assert abs(slope) > drift.RESOLVED_SIGMA * error
+    assert slope == pytest.approx(300.0, rel=0.1)
+
+
+def test_degrees_of_freedom_subtracts_constraints(tmp_path: Path):
+    """3N would overstate the dof threefold for a constrained system."""
+    import importlib.util
+
+    import openmm as mm
+    from openmm import unit
+
+    script = Path(__file__).resolve().parents[1] / "tools" / "check_drift.py"
+    spec = importlib.util.spec_from_file_location("_check_drift", script)
+    drift = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(drift)
+
+    system = mm.System()
+    for _ in range(10):
+        system.addParticle(1.0 * unit.amu)
+    system.addConstraint(0, 1, 0.1 * unit.nanometer)
+    system.addConstraint(2, 3, 0.1 * unit.nanometer)
+    system.addForce(mm.CMMotionRemover())
+    path = tmp_path / "system.xml"
+    path.write_text(mm.XmlSerializer.serialize(system))
+
+    # 3 * 10 moving - 2 constraints - 3 for the COM remover.
+    assert drift.degrees_of_freedom(path) == 25
+    assert drift.degrees_of_freedom(tmp_path / "absent.xml") is None

@@ -467,7 +467,44 @@ where the builder left it, which is what an equilibrating bilayer should do:
 each. G6 stays closed. The full per-chunk series over the 50 ns rows will say
 whether it settles inside the window.
 
-### 5.3 One preliminary observation, on 1 ns
+### 5.3 The 4 fs step holds, so the 2 fs fallback is not needed
+
+Section 5.2 sets a 4 fs step with hydrogen mass repartitioning and names a
+fallback: 2 fs without HMR if the energy drift exceeds 0.01 kT/ns/dof.
+Measured by `tools/check_drift.py`:
+
+| run | span | mean T | setpoint | T slope | energy drift |
+|---|---|---|---|---|---|
+| abl1_apo | 4.2 ns | 300.77 K | 300 | −0.36 K/ns | within noise |
+| β2AR Tier 1 | 0.9 ns | 303.68 K | 303.15 | −0.41 K/ns | within noise |
+
+Both hold their setpoint and neither energy slope is resolvable from its own
+uncertainty, so the fallback stays unused.
+
+**The number is reported carefully, because it is easy to over-read.** These
+runs use a Langevin middle integrator and, in production, a barostat; both
+exchange energy with a bath by design, so the total energy is not a conserved
+quantity and a non-zero slope is not a fault on its own. What the threshold
+usefully catches in a thermostatted run is a *systematic* trend alongside a
+temperature that has left its setpoint. The tool therefore reports the slope,
+its uncertainty and the temperature together, and prints "within noise" rather
+than quoting a figure the data cannot resolve. Quoting 0.0003 kT/ns/dof from ten
+frames would be a false precision dressed as a pass.
+
+"Resolved" means three standard errors, not one, and the difference matters. A
+one-sigma criterion calls about a third of pure-noise draws a real drift, so a
+gate built on it would flag a third of perfectly good runs and quickly be
+ignored. Three sigma brings that to roughly 0.3 per cent. This was found by a
+test rather than by reasoning: the first seed tried gave a 1.7 sigma
+fluctuation on noise and read as a genuine drift, and the test now measures the
+false-positive rate over sixty draws instead of trusting one.
+
+The degrees of freedom come from the serialised system rather than from 3N:
+HBonds and rigid water remove 167,040 constraints from the membrane system's
+194,032 particles, so using 3N would understate the per-degree-of-freedom drift
+threefold.
+
+### 5.4 One preliminary observation, on 1 ns
 
 Worth stating because it is the first real dynamics, and worth hedging for the
 same reason. The Tier 1 β2AR run is 1 ns of the active-start system, and over it
