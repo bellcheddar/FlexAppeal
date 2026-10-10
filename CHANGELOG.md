@@ -20,7 +20,10 @@ checkbox list in `README.md`.
   occupy; and it has no rotatable bond, so there is no torsion to flip. Both are
   facts about the molecule, not gaps in the measurement.
 
-  The apo example stays in `examples/lysozyme_10ns/` as the ligandless case.
+  The 10 ns apo example is removed rather than kept beside it. Two committed
+  examples means two multi-megabyte results files in a public repository for
+  one Example tab, and the apo case is already covered by a test fixture
+  that asserts a run with no ligand shows no binding section.
 - **The example's length guard reads the example's own `config.json`.** It
   asserted 10 ns literally, so swapping the committed example failed a test whose
   message named the wrong problem. It now compares the results file against the
@@ -29,6 +32,17 @@ checkbox list in `README.md`.
 
 ### Added
 
+- **RDKit on the deployed site.** It was left out of `requirements.txt` on the
+  reasoning that a chemistry toolkit was too much to carry for two charts on a
+  small box. Both halves of that were wrong. It is three panels and the 2D
+  depiction, which is most of what a reader comes to a ligand run for, and the
+  box has 89 GB free against a wheel of about 35 MB. The note in that file
+  describing a 3.8 GB droplet shared with four other apps was stale by some
+  margin.
+
+  The guarded import in `measure.py` stays, because a generated bundle solves its
+  own environment and may not have it.
+
 - **`rebuild.sh` captures the analysis half too.** It called
   `scripts/terminal_capture.py` without `--analysis-log`, so a rebuilt example
   rendered the run's terminal output and nothing of what turned it into a results
@@ -36,6 +50,19 @@ checkbox list in `README.md`.
 - **A test that the committed example is a bound run.** It asserts all eleven
   binding panel ids, the depiction and the mobility legend are on `/example`, so
   a swap back to an apo example cannot quietly stop testing them.
+
+### Removed
+
+- **The 10 ns apo example.** Two committed examples means two multi-megabyte
+  results files in a public repository serving one Example tab, and the apo case
+  is already covered by a fixture-backed test asserting that a run with no ligand
+  shows no binding section. `examples/README.md` and the capture script's usage
+  now describe the run that exists.
+- **Both binding heat maps rendered in narrow cards** while every version 1 heat
+  map is wide. A square matrix in a half-width card is drawn 340 pixels tall and
+  then letterboxed, which wastes the width it was given and makes a block pattern
+  harder to read than the same data in the wide card the version 1 maps get.
+
 
 ### Fixed
 

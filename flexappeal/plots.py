@@ -1300,10 +1300,15 @@ def build_binding(measured) -> list[dict[str, Any]]:
         "Per-residue backbone fluctuation, with the binding-site residues "
         "marked. A mobile pocket makes every pose measurement noisier.",
         wide=True)
+    # Wide, like every other heat map on the page. A square matrix in a
+    # half-width card is drawn 340 pixels tall and then letterboxed to fit,
+    # which wastes the width it was given and makes a block pattern harder to
+    # read than the same data in the wide card the version 1 maps get.
     add("rmsd_2d", "Frame-to-frame RMSD", rmsd_matrix(measured),
         "Every frame against every other. Blocks along the diagonal are "
-        "distinct states; a uniform field is a run that stayed in one.")
+        "distinct states; a uniform field is a run that stayed in one.",
+        wide=True)
     add("dccm", "Residue cross-correlation", cross_correlation(measured),
         "Which parts of the receptor move together. Blue is correlated, red is "
-        "anticorrelated.")
+        "anticorrelated.", wide=True)
     return panels

@@ -56,7 +56,7 @@ Three properties fall out of that shape:
 - **Uploads stay small.** Tens of megabytes rather than the gigabytes a raw trajectory would be.
 - **Your trajectory stays yours.** Nothing in the bundle uploads anything.
 
-The **Example** tab is that whole path already walked: a 100 ns run of T4 lysozyme L99A with benzene, whose bundle, terminal recording and results file are all in `examples/lysozyme_benzene_100ns/`, rendered by the code that renders an upload. The ligand is the point. Hen egg-white lysozyme binds nothing, so the apo example beside it in `examples/lysozyme_10ns/` cannot exercise a single binding-site panel.
+The **Example** tab is that whole path already walked: a 100 ns run of T4 lysozyme L99A with benzene, whose bundle, terminal recording and results file are all in `examples/lysozyme_benzene_100ns/`, rendered by the code that renders an upload. The ligand is the point: an apo run draws the whole-system panels and not one of the eleven binding-site panels, so an apo example would leave most of the Analysis tab untested by the page whose job is to prove it works.
 
 ## 📋 Requirements
 

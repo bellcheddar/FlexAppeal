@@ -4,8 +4,8 @@
 # publishes manylinux wheels, so `pip install -r requirements.txt` on a fresh
 # Ubuntu box needs no build-essential and no conda. The heavy scientific stack
 # (OpenMM, PDBFixer, OpenFF, AmberTools) is NOT here on purpose -- it belongs in
-# the bundle that runs on the user's own machine, and installing it on a 3.8 GB
-# droplet shared with four other apps would be both pointless and dangerous.
+# the bundle that runs on the user's own machine, and nothing the web app does
+# needs it.
 
 flask>=3.0
 gunicorn>=21.2
@@ -31,10 +31,20 @@ mdtraj>=1.10
 # Pose clustering for the binding panels: average-linkage over a pairwise ligand
 # RMSD matrix. Without it those panels are simply absent, which the Analysis tab
 # handles, but the convergence sub-score inputs are worth having on the server.
-# RDKit is deliberately NOT here: it is an order of magnitude larger and only the
-# ligand-strain and torsion panels need it, so the deployed site does without
-# them and says so rather than carrying a chemistry toolkit for two charts.
 scipy>=1.11
+
+# The chemistry the binding panels need: MMFF94 ligand strain, the rotatable-bond
+# and torsion-flip counts, and the 2D depiction shaded by atom mobility. Bond
+# orders are inferred from the trajectory's own coordinates, so no chemical
+# definition travels in the .fxa and none is needed here.
+#
+# This was left out originally, on the reasoning that a chemistry toolkit was too
+# much to carry for two charts on a small box. Both halves of that were wrong: it
+# is three panels and the depiction, which is most of what a reader comes to a
+# ligand run for, and the box has 89 GB free against a wheel of about 35 MB. The
+# import is still guarded in measure.py, because a bundle's own environment is
+# solved separately and may not have it.
+rdkit>=2024.3
 
 # Needed by the web app despite being a terminal library, because the /reanalyse
 # route spawns FlexAppeal.py as a detached subprocess (webapp.py) and the CLI
