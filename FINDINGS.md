@@ -66,6 +66,21 @@ that treated the categorical label as evidence would be agreeing with itself.
 `R3.50` resolves to `R131` from the GPCRdb residue table, which is section 5.5's
 own worked example, so the generic numbering is wired up correctly.
 
+### 1.2b The refined models earn their place, measurably
+
+16 of the 116 GPCRdb references cannot have their TM3–TM6 cleft measured at all,
+because the residue at 3.50 or 6.34 in the deposition is not the one the
+catalogue names. These are engineered constructs, and the identity check refuses
+them rather than measuring a distance between the wrong two residues.
+
+**4LDE is one of the 16**, and 4LDE is the entry the active start model comes
+from. Its *refined* model, which is what section 4.3's ladder actually uses,
+measures fine: the refinement reverts the thermostabilising mutations and
+rebuilds the missing segments, so the residue at 3.50 is the one GPCRdb says it
+is. The choice of rung was made on the spec's instruction rather than on
+evidence, and this is the evidence: on the raw deposition the headline
+activation measure is unavailable.
+
 ### 1.3 The orientation fit already shows the activation difference
 
 Both start models were superposed onto OPM's 2RH1, an inactive-state entry, on
