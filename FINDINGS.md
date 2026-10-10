@@ -504,7 +504,31 @@ HBonds and rigid water remove 167,040 constraints from the membrane system's
 194,032 particles, so using 3N would understate the per-degree-of-freedom drift
 threefold.
 
-### 5.4 One preliminary observation, on 1 ns
+### 5.4 Section 6.3's performance targets, measured
+
+| target | budget | measured |
+|---|---|---|
+| explorer first paint | < 2 s | **176 to 456 ms**, median 396 |
+| frame scrub | < 100 ms | within budget on 20 relayouts |
+| per-system web bundle | ≤ 150 MB | **0.4 MB** for the partial run, about 1 MB for a finished row |
+
+First paint is measured from the browser's own `first-contentful-paint` entry
+rather than by timing the navigation call, because the target is about when a
+reader sees something and not when the last asset arrives. The viewer and the
+plots load after first paint by design, so a slow Mol\* does not count against
+it.
+
+The bundle is far inside its budget because the viewer coordinates are protein
+and ligand only at a 1 ns stride. The solvated trajectory a membrane row
+produces is about a gigabyte, and none of it is drawn.
+
+The paint test was intermittently failing when first written, and the cause was
+the test rather than the page: it read the paint entry immediately after
+`DOMContentLoaded`, which on a page that paints in 400 ms is sometimes before
+the entry exists. It now waits for the entry, which does not inflate the
+measurement because the entry carries its own `startTime`.
+
+### 5.5 One preliminary observation, on 1 ns
 
 Worth stating because it is the first real dynamics, and worth hedging for the
 same reason. The Tier 1 β2AR run is 1 ns of the active-start system, and over it

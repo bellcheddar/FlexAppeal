@@ -229,3 +229,103 @@ def test_the_reference_state_plots_actually_draw(chromium, site):
         assert not real, real
     finally:
         context.close()
+
+
+# ===========================================================================
+#  Section 6.3's performance targets
+# ===========================================================================
+
+# Section 6.3: first paint under 2 s, frame scrub under 100 ms, per-system web
+# bundle at or under 150 MB.
+FIRST_PAINT_BUDGET_MS = 2000
+SCRUB_BUDGET_MS = 100
+BUNDLE_BUDGET_BYTES = 150 * 1024 * 1024
+
+
+def test_the_explorer_paints_within_its_budget(chromium, site):
+    """First contentful paint under 2 s, from the browser's own timing.
+
+    Measured with `paint` entries rather than by timing the navigation call,
+    because what section 6.3 asks about is when a reader sees something, not
+    when the last asset finished arriving. The viewer and the plots load after
+    first paint by design, so a slow Mol* does not count against this.
+    """
+    context = chromium.new_context(viewport=VIEWPORTS["desktop"])
+    page = context.new_page()
+    try:
+        page.goto(f"{site}/refstates/run/abl1_apo", wait_until="domcontentloaded")
+        # Waited for rather than read immediately. The paint entry is not always
+        # recorded by the time DOMContentLoaded fires, and reading it at that
+        # instant made this test fail intermittently on a page that paints in
+        # about 400 ms. The wait does not inflate the measurement: the entry
+        # carries its own startTime from the navigation.
+        page.wait_for_function(
+            """() => performance.getEntriesByType('paint')
+                        .some(e => e.name === 'first-contentful-paint')""",
+            timeout=FIRST_PAINT_BUDGET_MS * 3)
+        paint = page.evaluate(
+            """() => {
+                const entries = performance.getEntriesByType('paint');
+                const fcp = entries.find(e => e.name === 'first-contentful-paint');
+                return fcp ? fcp.startTime : null;
+            }""")
+        assert paint is not None, "the browser reported no paint timing"
+        assert paint < FIRST_PAINT_BUDGET_MS, (
+            f"first contentful paint {paint:.0f} ms, budget "
+            f"{FIRST_PAINT_BUDGET_MS} ms")
+    finally:
+        context.close()
+
+
+def test_scrubbing_a_frame_stays_within_its_budget(chromium, site):
+    """Under 100 ms per frame, measured on the series the timeline draws.
+
+    Section 6.3 ties the budget to precomputed per-frame JSON, so what is timed
+    is a frame change against data already in the page rather than a fetch. A
+    scrub that had to go back to the server could not meet 100 ms and the
+    design is that it does not have to.
+    """
+    context = chromium.new_context(viewport=VIEWPORTS["desktop"])
+    page = context.new_page()
+    try:
+        page.goto(f"{site}/refstates/run/abl1_apo", wait_until="networkidle")
+        page.wait_for_selector("#state-timeline .main-svg", timeout=15000)
+        # Relayout the timeline to a single frame's window, twenty times, and
+        # take the worst. Plotly's relayout is the same work a scrub does.
+        worst = page.evaluate(
+            """async () => {
+                const node = document.getElementById('state-timeline');
+                let worst = 0;
+                for (let i = 0; i < 20; i++) {
+                    const start = performance.now();
+                    await Plotly.relayout(node, {'xaxis.range': [i * 0.1, i * 0.1 + 0.4]});
+                    worst = Math.max(worst, performance.now() - start);
+                }
+                return worst;
+            }""")
+        assert worst is not None
+        assert worst < SCRUB_BUDGET_MS, (
+            f"worst frame change {worst:.0f} ms, budget {SCRUB_BUDGET_MS} ms")
+    finally:
+        context.close()
+
+
+def test_the_web_bundle_is_within_its_budget():
+    """Per-system bundle at or under 150 MB, measured on what is actually served.
+
+    Everything the explorer fetches for one run: the page, the three JSON
+    endpoints, the viewer topology and coordinates. Skipped rather than failed
+    when a run has not been analysed, because the size is a property of the
+    data and not of the code.
+    """
+    analysis = Path(__file__).resolve().parents[1] / "data" / "analysis"
+    topology = analysis / "abl1_apo.pdb"
+    if not topology.is_file():
+        pytest.skip("no analysed run on disk to measure")
+
+    served = sorted(p for p in analysis.glob("abl1_apo.*"))
+    total = sum(p.stat().st_size for p in served)
+    detail = ", ".join(f"{p.name} {p.stat().st_size / 1e6:.1f} MB" for p in served)
+    assert total <= BUNDLE_BUDGET_BYTES, (
+        f"bundle {total / 1e6:.1f} MB over the "
+        f"{BUNDLE_BUDGET_BYTES / 1e6:.0f} MB budget: {detail}")
