@@ -187,6 +187,44 @@ Worth raising with the DeepFlex side, in order of how much each costs a reader:
 divergence 5 (`pocket_traj_path`), divergence 4 (the two layer manifests), then
 1 to 3, which cost nothing now because this writer works around them.
 
+## The benzene example, and what benzene cannot show
+
+`examples/lysozyme_benzene_100ns` is T4 lysozyme L99A with benzene in its buried
+cavity (PDB 181L), the canonical cavity-binding model system. Verified end to end
+against the live run directory at 19% of the production run: `flexappeal package`
+reads it, DeepFlex accepts it as a graded run, and the numbers are the ones this
+system should give.
+
+| Measurement | Value | Reading |
+|---|---|---|
+| `ligand_rmsd_median` | 1.97 A | benzene rattling in the cavity |
+| `inplace_rmsd_median` | 0.06 A | rigid: a flat symmetric ring has nothing to flex |
+| `in_pocket_fraction` | 1.00 | never leaves a buried site, which is the point of the system |
+| `com_drift_mean_a` | 0.61 A | |
+| `n_rotatable_bonds` | 0 | |
+| `radgyr_mean` | 16.7 A | T4 lysozyme, 162 residues |
+| pocket | 15 of 54 residues | the cavity, out of the 10 A crop shell |
+
+**Three columns benzene structurally cannot fill**, and each is the "omit, never
+zero" rule doing its job rather than a gap in the writer:
+
+1. `hbond_occupancy_mean`. Benzene has no N, O or S, so it can form no hydrogen
+   bond, so the mean occupancy of its hydrogen bonds is undefined rather than
+   zero. The interactions group reads 80%.
+2. `flips_per_ns_per_torsion`. No rotatable bonds, so the torsion-flip term is
+   vacuous and `S_conf` rests on the strain alone. The conformation group reads
+   67%, and the torsions panel does not draw at all: 11 of the 12 binding panels
+   rather than 12.
+3. `mmpbsa_gb_dg` and the rest of the energy block, which is the documented gap
+   below and nothing to do with benzene.
+
+So the example demonstrates the pose, occupancy, cavity, convergence and receptor
+panels on a system the literature has an opinion about, and cannot demonstrate
+hydrogen bonding or torsional flexibility, because this ligand has neither. A
+second complex with a polar, flexible ligand would fill those two and give the
+package a cohort for `S_E`; that is a decision for Marc rather than one to take
+while he is asleep.
+
 ## Decisions taken
 
 ### D1. A separate `package` command, not a change to how jobs run
