@@ -60,3 +60,15 @@ examples/*/analyse.log
 # with a dated name, and they are conversation logs rather than source -- they
 # have been swept into a commit before by a broad `git add`.
 [0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]-*.txt
+
+# The vendored BoltzMaker clone. Pinned by SHA in vendor/BOLTZMAKER_SHA.txt and
+# re-cloned rather than tracked: it is 261 MB of somebody else's history, and a
+# copy inside this repository would be a fork nobody meant to make.
+vendor/boltzmaker/
+
+# Reference-state build data: downloaded structures, trajectories and the
+# analytical store. Large, regenerable, and not this repository's to carry.
+data/refs/
+data/md/
+data/dssp/
+data/manifests/

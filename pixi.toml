@@ -46,6 +46,32 @@ scipy = "*"
 # sub-score is left pending rather than the package failing.
 rdkit = "*"
 
+# --- Reference-state examples (FLEXAPPEAL_REFSTATES_BUILD_SPEC.md section 3) ---
+# Membrane analysis the GPCR example needs: area per lipid, bilayer thickness,
+# helix axes. mdtraj covers the rest of the per-frame work and is already here.
+mdanalysis = "*"
+# KLIFS and GPCRdb are REST APIs, fetched with a disk cache and polite retries.
+# urllib is the spec's fallback and would mean hand-rolling both.
+requests = "*"
+tenacity = "*"
+# The per-residue DSSP store is Parquet: a frame by residue string table per run
+# is too wide for SQLite and too big for JSON.
+pyarrow = "*"
+duckdb = "*"
+# Neither is used by FlexAppeal. Both are here because the vendored
+# `sse_comparison` modules import BoltzMaker's main module for `_align_positions`
+# (the numbering-offset reconciliation the spec says not to reimplement), and
+# that module imports a spreadsheet writer and a plotting library at module
+# scope. Wrapping rather than editing the vendored copy is the rule (spec 4.1),
+# so the dependencies travel instead of a patch.
+#
+# BoltzMaker's own pins are deliberately not adopted: it holds gemmi at 0.6.5,
+# scipy at 1.13 and biopython at 1.84 to match boltz, and this environment runs
+# newer versions that FlexAppeal's own code is tested against. Only the two
+# import-time packages are taken.
+openpyxl = "*"
+plotly = "*"
+
 # --- Web app (mirrors requirements.txt so local and droplet behave alike) ---
 flask = ">=3.0"
 gunicorn = ">=21.2"
