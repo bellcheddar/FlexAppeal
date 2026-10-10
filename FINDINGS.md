@@ -126,6 +126,36 @@ structure-only comparison can still use the published number.
 | P2 αC label against KLIFS | 17 / 17 |
 | P3 TM3–TM6 state separation, leave-one-out | 100 / 100 at an 11.39 Å threshold |
 | R-spine label against KLIFS state, after recalibration | 5 / 5 active, 14 / 14 inactive |
+| P4 each start structure scores as its own state at t = 0 | 4 / 4 |
+
+#### P4 in full
+
+| row | expected | whole-protein s | verdict |
+|---|---|---|---|
+| abl1_apo, DFG-in from 2GQG | active | **+0.305** | pass |
+| abl1_imatinib, DFG-out from 2HYY | inactive | **−0.368** | pass |
+| b2ar_apo, active refined from 4LDE | active | **+0.593** | pass |
+| b2ar_carazolol, inactive refined from 5D5A | inactive | **−0.934** | pass |
+
+Measured on the start structures themselves, with no simulation in between: the
+start model is both topology and single frame. A scorer that cannot place its
+own start model has nothing to say about a trajectory that began there.
+
+**The kinase margins are thin and that is worth stating.** Both ABL1 rows clear
+the ±0.3 band by less than 0.07, where the receptor rows clear it by 0.29 and
+0.63. The reason is interpretable rather than worrying: ABL1's active and
+inactive references differ mainly at the DFG motif and the activation loop,
+while the hinge, the catalytic loop and the glycine-rich loop sit at nearly
+identical distances from both ensembles. Those motifs contribute real residue
+weight and almost no signal, so the residue-weighted mean is diluted towards
+zero. The per-motif breakdown is where the kinase signal actually lives: xDFG
+reads +0.755 on the apo start while the hinge reads −0.078.
+
+That is an argument for reading the motif table rather than the headline number
+for kinases, and the explorer shows both side by side for that reason. It is
+also a limitation to carry into any future weighting decision: a whole-protein
+mean over motifs of unequal discriminating power understates a real state call.
+
 
 ---
 

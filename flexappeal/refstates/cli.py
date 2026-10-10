@@ -156,6 +156,13 @@ def build_parser() -> argparse.ArgumentParser:
     one.add_argument("--name", default=None)
     one.add_argument("--out", type=Path, default=Path("annotated.json"))
     one.set_defaults(func=annotate)
+
+    two = sub.add_parser("controls", help="evaluate positive control P4 on "
+                                          "every start model")
+    two.add_argument("--systems", type=Path,
+                     default=Path(__file__).resolve().parents[2] / "data" / "systems")
+    two.add_argument("--out", type=Path, default=None)
+    two.set_defaults(func=controls)
     return parser
 
 
@@ -167,3 +174,123 @@ def main(argv: list[str] | None = None) -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
+
+
+# ===========================================================================
+#  Positive control P4
+# ===========================================================================
+
+# Section 9's P4 band. A start structure has to score as the state it was built
+# from, and the margin is wide enough that a near-zero score counts as a
+# failure rather than a pass: a system that cannot place its own start model is
+# not going to place a trajectory.
+P4_MARGIN = 0.3
+
+P4_ROWS = [
+    {"name": "abl1_apo", "family": "kinase", "expect": "active",
+     "start": "abl1_apo_start.pdb", "reference_pdb": "2GQG",
+     "note": "DFG-in, from 2GQG"},
+    {"name": "abl1_imatinib", "family": "kinase", "expect": "inactive",
+     "start": "abl1_imatinib_start.pdb", "reference_pdb": "2HYY",
+     "note": "DFG-out, from 2HYY"},
+    {"name": "b2ar_apo", "family": "gpcr", "expect": "active",
+     "start": "b2ar_apo_start.pdb", "reference_pdb": "",
+     "note": "active refined model, from 4LDE"},
+    {"name": "b2ar_carazolol", "family": "gpcr", "expect": "inactive",
+     "start": "b2ar_carazolol_start.pdb", "reference_pdb": "",
+     "note": "inactive refined model, from 5D5A"},
+]
+
+
+def _score_start(row: dict, systems: Path, work: Path) -> dict[str, Any]:
+    """Score one start structure against the reference ensembles.
+
+    The start model is used as both topology and single-frame trajectory, so
+    this measures the structure itself with no simulation in between. That is
+    what P4 asks: a scorer that cannot place its own start model has nothing to
+    say about a trajectory that began there.
+    """
+    import importlib.util
+
+    import mdtraj as md
+
+    from . import ensembles, traj
+
+    start = systems / row["start"]
+    if not start.is_file():
+        return {**row, "status": "no start model"}
+
+    loaded = md.load(str(start))
+    frame = work / f"{row['name']}_start.dcd"
+    loaded.save_dcd(str(frame))
+
+    script = Path(__file__).resolve().parents[2] / "tools" / "analyse_run.py"
+    spec = importlib.util.spec_from_file_location("_analyse_run", script)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+
+    try:
+        if row["family"] == "kinase":
+            setup = module.kinase_setup(start, row["reference_pdb"])
+        else:
+            setup = module.gpcr_setup(start)
+    except Exception as exc:                                    # noqa: BLE001
+        return {**row, "status": f"setup failed: {str(exc)[:70]}"}
+
+    motif_residues, core, built, _own, _report = setup
+    scored = traj.load(start, frame)
+    run = traj.analyse(scored, name=row["name"], kind=row["family"], core=core,
+                       motif_residues=motif_residues,
+                       reference_motifs=ensembles.for_scoring(built))
+    if not run.frames:
+        return {**row, "status": "no frame scored"}
+
+    first = run.frames[0]
+    whole = first.whole_s
+    if whole is None:
+        return {**row, "status": "no motif scored"}
+    passed = (whole > P4_MARGIN if row["expect"] == "active"
+              else whole < -P4_MARGIN)
+    return {**row, "status": "ok", "whole_s": whole,
+            "label": first.whole_label, "passed": bool(passed),
+            "motifs": {m.motif: m.s for m in first.motifs if m.s is not None}}
+
+
+def controls(args: argparse.Namespace) -> int:
+    """Evaluate P4 on every start model and print the table."""
+    import tempfile
+
+    systems = args.systems
+    results = []
+    with tempfile.TemporaryDirectory() as work:
+        for row in P4_ROWS:
+            log(f"scoring {row['name']} ({row['note']})")
+            results.append(_score_start(row, systems, Path(work)))
+
+    print()
+    print("P4: each start structure scores as its own state at t = 0")
+    print(f"    pass band: s > +{P4_MARGIN} for an active start, "
+          f"s < -{P4_MARGIN} for an inactive one")
+    print()
+    print(f"    {'row':16s} {'expected':9s} {'s':>8s}  {'label':13s} verdict")
+    for row in results:
+        if row.get("status") != "ok":
+            print(f"    {row['name']:16s} {row['expect']:9s} {'':>8s}  "
+                  f"{'':13s} {row.get('status')}")
+            continue
+        print(f"    {row['name']:16s} {row['expect']:9s} {row['whole_s']:+8.3f}  "
+              f"{row['label']:13s} {'PASS' if row['passed'] else 'FAIL'}")
+
+    scored = [r for r in results if r.get("status") == "ok"]
+    passed = [r for r in scored if r["passed"]]
+    print()
+    print(f"    {len(passed)} of {len(scored)} scored rows pass P4")
+    if args.out:
+        args.out.parent.mkdir(parents=True, exist_ok=True)
+        args.out.write_text(json.dumps(
+            {"control": "P4", "margin": P4_MARGIN, "rows": results}, indent=2) + "\n")
+        log(f"wrote {args.out}")
+    # A P4 failure is a result to report rather than an error to abort on,
+    # which section 9 is explicit about, so this exits zero either way and the
+    # table is the output.
+    return 0
