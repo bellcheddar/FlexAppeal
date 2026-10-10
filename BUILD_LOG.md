@@ -36,3 +36,14 @@ Timestamped, one line per meaningful event, for the reference-state build
 - `14:4x` Marc: drop the replicas. Tier 2 becomes five runs of 100 ns, 500 ns in
   total, projected 107 GPU-hours against the 96 hour ceiling (D006). P5 becomes
   a single observation rather than a 2-of-3 majority; recorded, not hidden.
+- `15:0x` KLIFS and GPCRdb both reachable. ABL1 resolves to kinase_ID 392, which
+  matches the swagger as section 4.2 requires asserting rather than hard-coding;
+  158 ABL1 structures returned. GPCRdb returns 413 residues for adrb2_human and
+  135 structures, 32 inactive and 84 active at 3.6 A or better.
+- `15:0x` Seed check: 2GQG is KLIFS DFG-in/aC-in and 2HYY is DFG-out/aC-in, both
+  2.4 A, both as section 4.2 predicts. Ligands 1N1 (dasatinib) and STI
+  (imatinib).
+- `15:1x` Marc: one ligand-bound and one apo run per system, in opposite states
+  (D007). Matrix becomes imatinib/DFG-out plus apo DFG-in for ABL1, carazolol/
+  inactive plus apo active for b2AR, with the protonation arm kept as a third
+  ABL1 row. Five runs, unchanged at about 107 GPU-hours.

@@ -171,3 +171,59 @@ are all per-frame work and do not care how many trajectories exist.
 *Reverse:* set replicas back to 3 in the run matrix and re-run; the per-run
 pipeline is identical and the analysis keys on `run_id`, so added replicas appear
 as extra rows rather than needing anything rebuilt.
+
+---
+
+## D007 - One ligand-bound run and one apo run per system, in opposite states
+
+**2026-10-10, phase 1.** Ruled by Marc: "1 ligand should be included for each
+system, the other apo partner should be in the opposite state so we can see the
+differences." This replaces section 4.2 and 4.3's "ligands removed for the core
+runs" and promotes half of the optional phase 5.7 into the core.
+
+| # | System | Start | Ligand | State | Expectation |
+|---|---|---|---|---|---|
+| 1 | ABL1 | 2HYY | **imatinib** (`STI`) | DFG-out | holds: imatinib is the canonical type II binder and wedges DFG out |
+| 2 | ABL1 | 2GQG | apo (dasatinib stripped) | DFG-in | free to flip; the protonation arm acts here |
+| 3 | ABL1 | 2GQG | apo, **DFG-Asp protonated** | DFG-in | the spec's headline kinase feature, kept (below) |
+| 4 | β2AR | 2RH1 | **(S)-carazolol** | inactive | holds: an inverse agonist stabilising the inactive state |
+| 5 | β2AR | GPCRdb refined | apo | active | drifts: Dror 2011 found active relaxes without G protein |
+
+**Which state gets the ligand, and why that way round.** For each system the
+ligand goes on the state that ligand is known to stabilise, and the apo run takes
+the opposite state. That gives one trajectory expected to hold and one expected to
+move, which is the comparison asked for. The reverse pairing was available and is
+weaker: dasatinib is a type I binder whose hold on DFG-in is less decisive than
+imatinib's on DFG-out, and an agonist-bound active β2AR still relaxes without a G
+protein, so neither would have been a clean control.
+
+**The protonation arm is kept**, as run 3. The instruction was about ligands and
+apo partners, not about protonation, and section 5.2 calls the DFG-Asp arm "the
+headline FlexAppeal feature for kinases": the same protein, one proton apart,
+different motif behaviour. It is a variant of run 2 rather than a new system, so
+it costs one more ABL1 row at about 16 hours. Flagged to Marc rather than assumed;
+dropping it returns the matrix to four runs.
+
+**Higher-resolution seeds exist and were not taken.** KLIFS lists 5hu9 at 1.53 Å
+and 3qrj at 1.82 Å for DFG-out against 2HYY's 2.4 Å. Section 4.2 names 2GQG and
+2HYY as preferred and says to accept them if KLIFS labels them as expected, which
+it does: 2GQG is DFG-in/αC-in, 2HYY is DFG-out/αC-in, both at 2.4 Å. Following the
+spec's named seeds also keeps continuity with BoltzMaker, which already uses 2GQG.
+
+**What this gains.** Two of the three entries in the Runs library now carry a
+ligand, so they get the binding-site panels and a grade alongside the motif and
+state analysis. The library becomes three graded runs rather than one graded and
+two ungraded.
+
+**The complication, logged before it bites.** A GPCRdb refined model has its
+fusions removed and carries no ligand, so run 4 cannot simply use one. Carazolol
+has to be transplanted: superpose 2RH1 onto the refined inactive model on the 7TM
+core, copy the ligand across, then check for clashes before parameterising. gemmi
+does the superposition and `sse_comparison` already does apo-onto-holo alignment
+on non-binding-site residues. If the transplant will not sit cleanly, the fallback
+is to build the inactive start from 2RH1 itself with the T4 lysozyme fusion
+deleted, which is rung 3 of section 4.3's ladder and is flagged in the app as
+"start model built locally".
+
+*Reverse:* set `ligand_runs = false` and restore the apo pairs from sections 4.2
+and 4.3.
