@@ -130,6 +130,89 @@ def kinase_setup(start_pdb: Path, reference_pdb: str):
                                                "alignment": alignment}
 
 
+def gpcr_setup(start_pdb: Path):
+    """Motif residues, core and reference ensembles for a receptor run.
+
+    Every residue comes through GPCRdb generic numbers, so the segments are the
+    catalogue's own and the beta2AR numbers are never typed. NPxxY is the one
+    motif that is a span of generic numbers rather than a segment, because that
+    is what it is: 7.49 to 7.53.
+    """
+    import gemmi
+
+    from flexappeal.refstates import (Catalogue, ensembles, receptor_references,
+                                      receptor_residues, refs)
+    from flexappeal.refstates.gpcr import NPXXY, build_numbering
+    from flexappeal.refstates.traj import core_agreement, gpcr_core
+
+    catalogue = Catalogue(GPCRDB_CACHE)
+    numbering = build_numbering(receptor_residues(catalogue))
+
+    structure = gemmi.read_structure(str(start_pdb))
+    structure.setup_entities()
+    present = {r.seqid.num for chain in structure[0] for r in chain}
+
+    motif_residues: dict[str, list[int]] = {}
+    for segment in GPCR_MOTIFS:
+        if segment == "NPxxY":
+            lo, hi = (int(float(NPXXY[0]) * 100) % 100,
+                      int(float(NPXXY[1]) * 100) % 100)
+            residues = [numbering.residue(f"7.{n}") for n in range(lo, hi + 1)]
+            residues = [n for n in residues if n is not None and n in present]
+        else:
+            residues = [n for n in numbering.segment_residues(segment)
+                        if n in present]
+        if residues:
+            motif_residues[segment] = residues
+
+    core = gpcr_core(numbering, present)
+    ensemble_rows = receptor_references(catalogue)
+
+    # One numbering for the whole receptor: unlike the kinase references, every
+    # beta2AR entry here is checked by `ca_distance` against the catalogue's own
+    # residue identities, so a renumbered construct is refused rather than
+    # silently measured at the wrong residues.
+    def motifs_for(code: str):
+        return motif_residues
+
+    def core_for(code: str):
+        return core.residues
+
+    rows = {}
+    for which in ("active", "inactive"):
+        entries = []
+        # `receptor_references` returns Ensemble objects, not lists, and the
+        # GPCRdb row names the entry `pdb_code` where KLIFS uses `pdb`.
+        for entry in ensemble_rows[which].entries:
+            code = str(entry.get("pdb_code") or "").upper()
+            if not code:
+                continue
+            try:
+                path = refs.fetch_mmcif(code, GPCRDB_CACHE)
+            except Exception as exc:                            # noqa: BLE001
+                log(f"  {code}: not fetched ({str(exc)[:50]})")
+                continue
+            entries.append({"pdb": code, "path": str(path),
+                            "chain": str(entry.get("preferred_chain") or "")[:1]})
+        rows[which] = entries
+        log(f"{which}: {len(entries)} references")
+
+    built = ensembles.build(rows, motif_residues_for=motifs_for,
+                            core_residues_for=core_for)
+    alignment = ensembles.align_to_common_frame(built)
+    log(f"aligned {alignment['n_aligned']} references onto "
+        f"{alignment['target']}: core residual mean "
+        f"{alignment['mean_core_rmsd_a']} A, max {alignment['max_core_rmsd_a']} A")
+
+    cores = {code: motifs[ensembles.CORE_KEY]
+             for state in built for code, motifs in built[state].by_code.items()}
+    rigidity = core_agreement(cores)
+    log(f"core agreement across {rigidity.get('n')} references: mean "
+        f"{rigidity.get('mean_rmsd_a')} A, worst {rigidity.get('max_rmsd_a')} A")
+    return (motif_residues, core, built, numbering,
+            {"rigidity": rigidity, "alignment": alignment})
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--name", required=True)
@@ -158,30 +241,41 @@ def main() -> int:
     log(f"{loaded.n_frames} frames, {changed} residues restored to deposited "
         f"numbering ({min(mapping.values())} to {max(mapping.values())})")
 
-    if args.kind != "kinase":
-        raise SystemExit("the receptor path is not wired up yet")
-
-    (motif_residues, core, built, own,
-     agreement) = kinase_setup(args.start, args.reference_pdb)
+    if args.kind == "kinase":
+        (motif_residues, core, built, own,
+         agreement) = kinase_setup(args.start, args.reference_pdb)
+    else:
+        (motif_residues, core, built, own,
+         agreement) = gpcr_setup(args.start)
     log(f"core: {len(core.residues)} residues, {core.source}")
     for name, residues in sorted(motif_residues.items()):
         log(f"  motif {name}: {len(residues)} residues {residues[:4]}"
             f"{'...' if len(residues) > 4 else ''}")
 
-    from flexappeal.refstates.kinase import classify_dfg
-    from flexappeal.refstates.pocket import r_spine, r_spine_state
+    if args.kind == "kinase":
+        from flexappeal.refstates.pocket import r_spine, r_spine_state
 
-    def rule_labels(chain, index):
-        """The rule-based half of section 5.6, per frame.
+        def rule_labels(chain, index):
+            """The rule-based half of section 5.6, per frame.
 
-        Only the measures that one frame answers by itself. The DFG call needs
-        the vendored comparison frame, which is built against a reference rather
-        than per frame, so the spine is what reaches the score here and the DFG
-        state is reported separately.
-        """
-        spine = r_spine(own, chain)
-        state = r_spine_state(chain, spine)
-        return {"xDFG": (state["state"], "r_spine")}
+            Only the measures one frame answers by itself. The DFG call needs
+            the vendored comparison frame, which is built against a reference
+            rather than per frame, so the spine is what reaches the score here.
+            """
+            state = r_spine_state(chain, r_spine(own, chain))
+            return {"xDFG": (state["state"], "r_spine")}
+    else:
+        from flexappeal.refstates.gpcr import ionic_lock
+
+        def rule_labels(chain, index):
+            """The ionic lock, which is the receptor's own single-frame rule.
+
+            Attached to TM6 because that is the helix whose motion the lock
+            reports on. For beta2AR it reads broken in both reference states,
+            so in practice it corroborates nothing here and the geometry
+            stands alone; see FINDINGS.md.
+            """
+            return {"TM6": (ionic_lock(chain, own)["state"], "ionic_lock")}
 
     run = traj.analyse(loaded, name=args.name, kind=args.kind, core=core,
                        motif_residues=motif_residues,

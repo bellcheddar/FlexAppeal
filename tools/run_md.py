@@ -43,6 +43,18 @@ RESTRAINT_KCAL = 10.0
 
 # Section 5.2's membrane column.
 MEMBRANE_TEMPERATURE_K = 303.15
+# A freshly minimised bilayer does not survive a 4 fs step at full temperature:
+# the first NVT heating steps produced "Particle coordinate is NaN" every time.
+# HMR makes 4 fs safe for an equilibrated system and leaves no margin for the
+# residual strain in lipid tails that minimisation to the default tolerance
+# leaves behind. So heating is done at 1 fs with the temperature brought up in
+# stages, and the step only goes to 4 fs once the system is warm.
+# Section 5.2's 500 ps of NVT heating is kept whole; the first 100 ps of it run
+# at 1 fs with the temperature brought up in stages, and the remainder at the
+# normal step once the system is warm.
+MEMBRANE_HEAT_TIMESTEP_FS = 1.0
+MEMBRANE_GENTLE_NS = 0.1
+MEMBRANE_HEAT_STAGES = 6
 MEMBRANE_EQUIL_NS = 10.0
 # Six steps, 10 down to zero, as section 5.2 lists them. The last is zero rather
 # than a small number so production starts from a genuinely unrestrained system.
@@ -292,12 +304,6 @@ def main() -> int:
         positional_restraint(system, topology, positions, restrained)
         lipid_force, n_lipid_p = lipid_z_restraint(
             system, topology, positions, RESTRAINT_LADDER_KCAL[0])
-        system.addForce(mm.MonteCarloMembraneBarostat(
-            PRESSURE_BAR * unit.bar,
-            SURFACE_TENSION_BAR_NM * unit.bar * unit.nanometer,
-            temperature * unit.kelvin,
-            mm.MonteCarloMembraneBarostat.XYIsotropic,
-            mm.MonteCarloMembraneBarostat.ZFree))
         log(f"membrane protocol: {temperature} K, {len(restrained):,} restrained "
             f"protein heavy atoms, {n_lipid_p} lipid P held in z")
     plat, props = platform(system)
@@ -319,9 +325,40 @@ def main() -> int:
         log(f"minimising with protein restrained at {RESTRAINT_LADDER_KCAL[0]} "
             "kcal/mol/A^2 and lipid P held in z")
         simulation.minimizeEnergy()
-        log(f"heating to {temperature} K over {HEAT_NS} ns (NVT)")
-        simulation.context.setVelocitiesToTemperature(temperature * unit.kelvin)
-        simulation.step(int(HEAT_NS * steps_per_ns))
+
+        # Section 5.2 says NVT here, so the barostat is off: it is added after
+        # heating. Running it during heating made this NPT, and a volume move on
+        # a strained bilayer scales every coordinate, which is its own way of
+        # producing an overlap that nothing recovers from.
+        # Steps from nanoseconds and a femtosecond step: 1 ns is 1e6 fs.
+        gentle_steps = int(MEMBRANE_GENTLE_NS * 1e6 / MEMBRANE_HEAT_TIMESTEP_FS)
+        per_stage = max(1, gentle_steps // MEMBRANE_HEAT_STAGES)
+        integrator.setStepSize(MEMBRANE_HEAT_TIMESTEP_FS * unit.femtoseconds)
+        log(f"heating to {temperature} K over {HEAT_NS} ns (NVT); first "
+            f"{MEMBRANE_GENTLE_NS} ns at {MEMBRANE_HEAT_TIMESTEP_FS} fs in "
+            f"{MEMBRANE_HEAT_STAGES} stages ({gentle_steps:,} steps)")
+        for stage in range(1, MEMBRANE_HEAT_STAGES + 1):
+            target_k = temperature * stage / MEMBRANE_HEAT_STAGES
+            integrator.setTemperature(target_k * unit.kelvin)
+            if stage == 1:
+                simulation.context.setVelocitiesToTemperature(target_k * unit.kelvin)
+            simulation.step(per_stage)
+            log(f"  {target_k:.1f} K")
+
+        remaining_ns = max(0.0, HEAT_NS - MEMBRANE_GENTLE_NS)
+        integrator.setTemperature(temperature * unit.kelvin)
+        integrator.setStepSize(TIMESTEP_FS * unit.femtoseconds)
+        if remaining_ns > 0:
+            log(f"warm; remaining {remaining_ns:.2f} ns of NVT at {TIMESTEP_FS} fs")
+            simulation.step(int(remaining_ns * 1e6 / TIMESTEP_FS))
+        log("barostat on, NPT ladder starts")
+        simulation.system.addForce(mm.MonteCarloMembraneBarostat(
+            PRESSURE_BAR * unit.bar,
+            SURFACE_TENSION_BAR_NM * unit.bar * unit.nanometer,
+            temperature * unit.kelvin,
+            mm.MonteCarloMembraneBarostat.XYIsotropic,
+            mm.MonteCarloMembraneBarostat.ZFree))
+        simulation.context.reinitialize(preserveState=True)
 
         # Section 5.2: 10 ns NPT, restraints down the ladder, and the lipid z
         # restraint off after the second step so the bilayer can relax its area
