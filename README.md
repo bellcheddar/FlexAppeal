@@ -39,6 +39,7 @@ The hosted application never simulates. That is a design decision, not a limitat
 | **Graded study packages** | `flexappeal package` collects finished runs into one file that DeepFlex renders as a graded report: pose, occupancy, interactions, energy, convergence and conformation, ranked within each receptor |
 | **Interactive** | Plotly plots and a Mol\* viewer, both vendored: the page needs no third-party network access |
 | **A trajectory beside the controls** | Every tab opens with its panel at 75% and the lysozyme-benzene run playing at 25%: 446 KB of H.264, fetched after the page has loaded and skipped entirely for reduced motion |
+| **Reference states** | A motif's drift reported as a distance from the experimental active and inactive structures of the same protein, not as a number with no scale. Kinase residues resolved through KLIFS, receptor residues through GPCRdb generic numbering, so the same code annotates a protein it has never seen |
 
 ## 🏗️ How it works
 
@@ -248,6 +249,61 @@ so there is no torsion to flip and the conformation sub-score rests on the strai
 alone. Both are properties of the molecule rather than of the measurement, and
 the page says so where the panel would have been.
 
+## 🎯 Reference states
+
+A simulation tells you what moved. It does not tell you whether what moved went
+anywhere meaningful. The **Reference states** tab answers the second question by
+scoring every frame against the experimental structures of the same protein, so
+a motif's drift arrives as a distance from the active and inactive ensembles.
+
+Nothing is hand-annotated. Kinase residues are resolved through the KLIFS pocket
+alignment and receptor residues through GPCRdb generic numbering, which is what
+lets one implementation handle a protein it has never seen and refuse a
+construct that renumbers rather than measure it at the wrong residues.
+
+Each motif carries **two readings side by side**: how close it sits to the
+nearest active and nearest inactive reference after superposing on the part of
+the fold that does not move on activation, and what the published rule-based
+criterion says. Where they disagree the motif is marked `conflict` rather than
+averaged, because a disagreement between geometry and rule is the interesting
+case rather than noise.
+
+### Where the published thresholds did not hold
+
+Two were recalibrated, both because the published number was fitted on crystal
+structures and sits at the edge of a cluster, leaving no room for a side chain
+at 300 K.
+
+| Criterion | Published | Here | Why |
+|---|---|---|---|
+| DFG two-distance | 11.0 Å absolute | nearer anchor | The cut called six of ABL1's own DFG-out references neither state. The classes separate by 8.5 Å on the difference, so no threshold is needed where the data is dense. Agreement with KLIFS goes 11/17 → **17/17** |
+| R-spine contact | 6.0 Å centroid | 7.7 Å | 6.0 sits a tenth of an angstrom above the top of the active range, so every trajectory frame read `broken` and the score carried a standing false conflict. The references still classify perfectly at 7.7 |
+
+### Positive controls
+
+| Control | Result |
+|---|---|
+| DFG label against KLIFS | 17 / 17 |
+| αC label against KLIFS | 17 / 17 |
+| TM3–TM6 state separation, leave-one-out | 100 / 100 at 11.39 Å |
+| R-spine label after recalibration | 5 / 5 active, 14 / 14 inactive |
+| Each start structure scores as its own state | 4 / 4 |
+
+### Reuse
+
+The same analysis runs on anybody's trajectory:
+
+```bash
+python FlexAppeal.py refstates annotate \
+    --topology system.pdb --trajectory run.dcd \
+    --start start.pdb --family auto --out annotated.json
+```
+
+`--family auto` reads the structure's own sequence and returns `unknown` rather
+than defaulting, because annotating a kinase as a receptor would resolve every
+motif to the wrong residues and still produce numbers. `--start` restores the
+deposited numbering, which OpenMM discards on solvation.
+
 ## 🧪 Validation
 
 The physics is checked against known values rather than against itself. Every fixture in the test suite is a real results file from a real run.
@@ -274,6 +330,8 @@ Stated plainly, because each is a real limit rather than a rough edge:
 - **OpenMM has no official Metal back end.** The `openmm-metal` plugin is third-party and experimental, and Apple has deprecated OpenCL. Rather than promise a back end, the bundle benchmarks what is actually present. On an M1 Max the reliable levers are hydrogen mass repartitioning with a 4 fs timestep, mixed precision, and a sensible thread count.
 - **Single-component membranes only.** `Modeller.addMembrane` builds one lipid type. Anything more complex should be built in CHARMM-GUI and uploaded.
 - **No free-energy methods.** No FEP, umbrella sampling, metadynamics or replica exchange. Each is a project in itself.
+- **The reference-state timescale is the honest limit.** The β2AR active-to-inactive relaxation these runs look for was observed on the **microsecond** scale. Its absence at 50 ns is an expected limitation and is reported as one, not as a negative result. For kinases the whole-protein score understates a real state call, because motifs of unequal discriminating power carry equal residue weight: read the per-motif table rather than the headline number.
+- **POPC only, and apo cores.** No cholesterol, no palmitoylation, and no ligand in the reference-state core runs. Each would change the answer and each is a separate build.
 
 ## 🧱 Stack
 
