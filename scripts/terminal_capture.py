@@ -248,13 +248,26 @@ def main() -> int:
     render(head, args.out / "run-01-startup.html",
            "Startup, and the platform benchmark that picks OpenCL", args.width)
 
+    # Parameterising the ligand, for a run that has one. A static capture rather
+    # than a staged one: `stage_capture` wants a frame with a live bar in it, and
+    # this step prints its line and then waits on AM1-BCC in silence, so there is
+    # no live frame carrying the word. Skipped silently for an apo run, which has
+    # nothing to parameterise.
+    for index, line in enumerate(flat):
+        if "parameterising" in _plain(line):
+            render(flat[max(0, index - 8):index + 2],
+                   args.out / "run-02-parameterising.html",
+                   "Parameterising the ligand: the charges that need AmberTools",
+                   args.width)
+            break
+
     for name, pattern, at, title in [
-        ("02-minimising", r"minimising", 0.6,
+        ("03-minimising", r"minimising", 0.6,
          "Energy minimisation: a spinner, not a bar -- OpenMM's iteration count is not monotonic"),
-        ("03-heating", r"heating", 0.6, "Heating, 50 K to 310 K"),
-        ("04-equilibrating", r"equilibrat", 0.5,
+        ("04-heating", r"heating", 0.6, "Heating, 50 K to 310 K"),
+        ("05-equilibrating", r"equilibrat", 0.5,
          "Equilibration, with the positional restraints released in stages"),
-        ("05-producing", r"producing", 0.5,
+        ("06-producing", r"producing", 0.5,
          "Production: ns/day, resident memory, free memory and swap, all live"),
     ]:
         capture = stage_capture(all_frames, pattern, at)
@@ -266,7 +279,7 @@ def main() -> int:
     # The closing summary.
     for i, line in enumerate(flat):
         if "all runs complete" in _plain(line):
-            render(flat[max(0, i - 2):], args.out / "run-06-summary.html",
+            render(flat[max(0, i - 2):], args.out / "run-07-summary.html",
                    "The closing summary", args.width)
             break
 

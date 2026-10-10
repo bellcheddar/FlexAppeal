@@ -23,6 +23,15 @@
 # does that. Calling the interpreter directly fails two minutes in with
 # "AmberTools is not on PATH", which is how the first run of this died.
 #
+# ONE THING TO KNOW BEFORE COMMITTING A NEW EXAMPLE. The run script prints each
+# ligand's structure as a SMILES string to the console, beside its atom count and
+# formal charge, because the charge is a real check and the warning under it tells
+# you to make it. That console output is what terminal.log captures, and this
+# script commits the log and renders it into the Example tab. So a committed
+# example publishes its ligand's structure, and only a public molecule belongs
+# here. Benzene is public; an unpublished compound is not, and for one of those
+# the run is still fine -- it is the committing of the log that is not.
+#
 # Usage:  bash examples/lysozyme_benzene_100ns/rebuild.sh
 set -euo pipefail
 
