@@ -1364,6 +1364,42 @@ def test_the_binding_section_shows_a_grade(client):
     assert "bond orders were inferred" not in body
 
 
+def test_a_capped_grade_says_so_on_the_page(client):
+    """The gate branch of the meter, which no real fixture here trips.
+
+    A gate overrides the composite, so a reader seeing a C beside five strong
+    sub-scores needs the reason on the page or the meter looks broken. The cache
+    is primed directly because reaching this state from a fixture would mean
+    committing a run whose ligand leaves its pocket.
+    """
+    pytest.importorskip("mdtraj")
+    from flexappeal import webapp as webapp_mod
+    from flexappeal.webapp import EXAMPLE_FXA
+
+    if not EXAMPLE_FXA.is_file():
+        pytest.skip("the example run has not been built")
+
+    import hashlib
+
+    content = EXAMPLE_FXA.read_bytes()
+    key = hashlib.sha256(content).hexdigest()
+    webapp_mod._BINDING_CACHE.clear()
+    client.get("/example")                      # build it once, then bend it
+    record = dict(webapp_mod._BINDING_CACHE[key])
+    record["grade"] = dict(record["grade"],
+                           grade="C", band="C", gate_flag="drifted",
+                           gate_applied="A to C",
+                           notes=["the ligand centroid is over 5 A from its "
+                                  "starting position for 30% of scored frames"])
+    webapp_mod._BINDING_CACHE[key] = record
+
+    body = client.get("/example").get_data(as_text=True)
+    assert "md-grade-C" in body
+    assert "Capped A to C" in body
+    assert "30% of scored frames" in body
+    webapp_mod._BINDING_CACHE.clear()
+
+
 def test_an_apo_upload_shows_no_binding_section(client):
     """A run with no ligand has no binding site, and that is not a failure."""
     body = _analyse(client).get_data(as_text=True)
