@@ -153,6 +153,61 @@ reason.
 
 ---
 
+### 2.4 A motif's residue list has to be agreed before it can be compared
+
+An RMSD between two structures over different residue subsets is not a
+comparison, so a motif is measured on exactly the residues both sides resolve.
+Applied naively that rule deletes the motifs that matter: TM6 is 38 residues
+through the most mobile helix of the receptor, no deposition resolves all of
+them, so every reference failed the check and the motif went unscored. The
+kinase activation loop went the same way. Both are the motif that carries the
+state of its protein.
+
+Intersecting across every reference is worse. On 116 GPCRdb entries it leaves
+every motif empty, because a handful of partial depositions decide the answer
+for all of them.
+
+What works is to count coverage over the references that contain the motif at
+all, and keep the residues 90 per cent of those resolve. Helix 8 is the case
+that forces the distinction: absent or disordered in most β2AR structures, it
+keeps no residues measured against all of them and 11 of 13 measured against
+the ones that have it. The ensemble size travels with each motif, so a reader
+can see that H8 is scored against fewer structures than TM6 is.
+
+| motif | residues kept | of | references with it |
+|---|---|---|---|
+| TM5 | 35 | 42 | 107 |
+| TM6 | 31 | 38 | 107 |
+| TM7 | 25 | 25 | 107 |
+| H8 | 11 | 13 | fewer |
+| NPxxY | 5 | 5 | 107 |
+
+**The same operation is wrong for the kinase**, which is the more useful half of
+this. ABL1's references are split between the ABL1a and ABL1b numbering, 19
+residues apart, so intersecting residue *numbers* compares residue 290 in one
+structure against 309 in another: the intersection collapsed and five of six
+motifs were dropped. The receptor's references all share one numbering, which is
+the only reason it is safe there. Each kinase reference therefore keeps its own
+numbering, and the activation loop is compared on the same count of residues
+from the DFG aspartate that both spans share.
+
+### 2.5 The receptor path's first end-to-end result is a control
+
+Run on the built active system, every motif reads active, and the nearest
+references are the ones they should be:
+
+| motif | s | nearest active | nearest inactive |
+|---|---|---|---|
+| NPxxY | +0.839 | 3P0G, 0.27 Å | 8W1V, 3.14 Å |
+| TM6 | +0.778 | 9LW5, 0.54 Å | 2RH1, 4.33 Å |
+| TM7 | +0.742 | 3P0G, 0.33 Å | 6PS0, 2.25 Å |
+| H8 | +0.555 | 3P0G, 0.35 Å | 6PS0, 1.23 Å |
+| TM5 | +0.298 | 9BUY, 1.21 Å | 3PDS, 2.23 Å |
+
+Whole-protein score +0.593, active, no conflicts. The system was built from
+4LDE, an active-state refined model, so active is the answer it should give;
+3P0G is an agonist-bound active entry and 2RH1 is the canonical inactive one.
+
 ## 3. Faults worth recording because the output looked right
 
 Three bugs in this build produced plausible numbers. They are listed because
