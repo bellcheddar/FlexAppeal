@@ -372,3 +372,43 @@ def test_the_run_page_shows_every_motif(tmp_path: Path):
     series = client.get("/refstates/run/r/frames.json").get_json()
     assert set(series["motifs"]) == {"s:xDFG", "s:hinge"}
     assert series["motifs"]["s:xDFG"]["s"] == [0.6, 0.8]
+
+
+# ===========================================================================
+#  The reuse hook
+# ===========================================================================
+
+
+def test_family_detection_refuses_to_guess(tmp_path: Path):
+    """A structure that looks like neither family must not default to one.
+
+    Annotating a kinase as a receptor would resolve every motif to the wrong
+    residues and still produce numbers.
+    """
+    from flexappeal.refstates.cli import detect_family
+
+    # A short peptide with neither the HRD nor the DFG motif, written here
+    # rather than committed.
+    lines = []
+    for index in range(1, 9):
+        lines.append(
+            f"ATOM  {index:5d}  CA  ALA A{index:4d}    "
+            f"{index * 3.8:8.3f}{0.0:8.3f}{0.0:8.3f}  1.00  0.00           C")
+    lines.append("END")
+    path = tmp_path / "tiny.pdb"
+    path.write_text("\n".join(lines) + "\n")
+    assert detect_family(path) == "unknown"
+
+
+def test_the_subcommand_is_reachable():
+    """`FlexAppeal.py refstates annotate --help` has to work, not just import."""
+    import subprocess
+    import sys as _sys
+
+    root = Path(__file__).resolve().parents[1]
+    result = subprocess.run(
+        [_sys.executable, str(root / "FlexAppeal.py"), "refstates", "annotate",
+         "--help"], capture_output=True, text=True, cwd=root)
+    assert result.returncode == 0, result.stderr[-400:]
+    assert "--trajectory" in result.stdout
+    assert "--family" in result.stdout

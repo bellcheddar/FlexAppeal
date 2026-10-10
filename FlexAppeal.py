@@ -485,12 +485,30 @@ def _build_argparser() -> argparse.ArgumentParser:
     p = sub.add_parser("docs", help="regenerate docs/options.md from the registry")
     p.set_defaults(func=cmd_docs)
 
+    # Section 6.2's reuse hook. The subcommand's own arguments are defined in
+    # flexappeal.refstates.cli and attached here, so there is one definition of
+    # them rather than a copy that drifts.
+    p = sub.add_parser("refstates",
+                       help="annotate a trajectory against experimental "
+                            "reference states")
+    p.add_argument("refstates_args", nargs=argparse.REMAINDER,
+                   help="passed through to flexappeal-refstates, "
+                        "for example: annotate --topology ... --trajectory ...")
+    p.set_defaults(func=cmd_refstates)
+
     p = sub.add_parser("sweep", help="remove expired scratch sessions")
     p.add_argument("--root")
     p.add_argument("--ttl", type=int, default=4 * 60 * 60, help="seconds")
     p.set_defaults(func=cmd_sweep)
 
     return parser
+
+
+def cmd_refstates(args) -> int:
+    """Hand off to the reference-states CLI."""
+    from flexappeal.refstates.cli import main as refstates_main
+
+    return refstates_main(args.refstates_args or ["--help"])
 
 
 def main(argv: list[str] | None = None) -> int:
