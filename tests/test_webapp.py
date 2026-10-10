@@ -1351,14 +1351,22 @@ def test_the_binding_section_shows_a_grade(client):
     assert "md-grade" in body
     assert "md-grade-letter" in body
     # Every sub-score is named, including the one that cannot be measured here.
+    # Matched inside the row header rather than as `>Label</th>`, because the
+    # header also carries the measurement a sub-score was read off.
+    import re
+
+    headers = [" ".join(re.sub(r"<[^>]+>", " ", cell).split())
+               for cell in re.findall(r'<th scope="row">.*?</th>', body, re.S)]
     for label in ("Pose", "Occupancy", "Interactions", "Energy",
                   "Convergence", "Conformation"):
-        assert f">{label}</th>" in body, label
-    # The struck-through weight says the energy weight was redistributed. The
-    # cell beside it says which kind of gap it is: a fixture with no binding
-    # energy in it says so, rather than claiming the measurement was impossible.
+        assert any(h.startswith(label) for h in headers), (label, headers)
+    # This fixture predates MM/GBSA, so it carries no binding energy: the weight
+    # is struck through and the cell says which kind of gap it is rather than
+    # claiming the measurement was impossible.
     assert "<s>15%</s>" in body
     assert "no binding energy in this file" in body
+    # Every other row is scored, so every other row has a bar and a number.
+    assert body.count("md-grade-bar") >= 5
 
     # The copy this replaced must be gone, both halves of it.
     assert "no grade here" not in body

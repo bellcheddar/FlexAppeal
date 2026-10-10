@@ -314,26 +314,62 @@ def test_a_complex_with_nothing_measurable_is_not_graded():
 # ===========================================================================
 
 
-def test_a_measured_energy_is_shown_even_though_it_is_not_scored():
-    """Measured and unrankable are different, and the page used to conflate them.
+def test_a_measured_energy_is_scored_and_shown():
+    """A measured energy scores on the absolute ramp and nothing stays pending.
 
-    FlexAppeal computes MM/GBSA now, so "not measured here" on the energy row
-    became a false statement. The sub-score is still pending -- it is a
-    percentile and one complex has no cohort -- but the kcal/mol is real and a
-    reader wants it.
+    The row carries both: the score, which is what the grade uses, and the
+    kcal/mol it was read off, which is the number a reader came for. The
+    sub-score having a value is what gives the row a bar.
     """
     m = _good(mmpbsa_gb_dg=-9.7775, mmpbsa_gb_sd=6.643)
     g = grade.score_one(m)
 
-    # Still pending, still renormalised: measuring it does not make it rankable.
-    assert g.subscores["energy"] is None
-    assert g.pending == ["energy"]
-    assert g.score == pytest.approx(100.0)
+    assert g.subscores["energy"] == pytest.approx(16.29, abs=0.01)
+    assert g.pending == []
+    assert g.weights_used["energy"] == pytest.approx(0.15), "no renormalisation"
+    assert g.energy_absolute is True
 
     row = next(r for r in grade.meter(g)["rows"] if r["key"] == "energy")
+    assert row["pending"] is False
+    assert row["score"] == pytest.approx(16.3, abs=0.1)
     assert row["measured"] == "-9.8 kcal/mol ± 6.6"
-    assert "cohort" in row["reason"]
-    assert "not measured" not in row["reason"]
+
+
+def test_every_scored_row_has_a_number_and_can_draw_a_bar():
+    """Including a zero. A sub-score of 0.0 is a measured nought, and a row that
+    looked empty instead read as a missing panel."""
+    g = grade.score_one(_good(conv_js_mean=0.30,                 # S_conv 0
+                              mmpbsa_gb_dg=-9.7775))
+    rows = {r["key"]: r for r in grade.meter(g)["rows"]}
+    assert rows["convergence"]["score"] == pytest.approx(0.0)
+    assert rows["convergence"]["pending"] is False
+    for key, row in rows.items():
+        assert row["pending"] is False, key
+        assert row["score"] is not None, key
+
+
+def test_the_energy_ramp_is_the_one_deepflex_falls_back_to():
+    """A transcription, not a second opinion.
+
+    -60 kcal/mol to 0, from DeepFlex's `[energy]` block. Zero is physics -- no
+    binding free energy, no binding. -60 is the strong end of the 27 complexes
+    it has measured.
+    """
+    assert grade.ENERGY_SINGLE_RAMP == (-60.0, 0.0)
+    assert grade.ramp(-60.0, *grade.ENERGY_SINGLE_RAMP) == pytest.approx(100.0)
+    assert grade.ramp(0.0, *grade.ENERGY_SINGLE_RAMP) == pytest.approx(0.0)
+    # Stronger than full marks is still full marks, never more.
+    assert grade.ramp(-200.0, *grade.ENERGY_SINGLE_RAMP) == pytest.approx(100.0)
+    # A positive energy is no binding at all, and floors rather than going below.
+    assert grade.ramp(5.0, *grade.ENERGY_SINGLE_RAMP) == pytest.approx(0.0)
+
+
+def test_an_absent_energy_is_still_pending_and_renormalised():
+    """Scoring a measured energy must not invent one where none was measured."""
+    g = grade.score_one(_good())
+    assert g.subscores["energy"] is None
+    assert g.pending == ["energy"]
+    assert g.weights_used["pose"] == pytest.approx(0.30 / 0.85)
 
 
 def test_an_absent_energy_says_so_differently():
@@ -343,24 +379,20 @@ def test_an_absent_energy_says_so_differently():
     assert row["reason"] == "no binding energy in this file"
 
 
-def test_the_energy_is_not_scored_against_an_absolute_ramp():
-    """DeepFlex's Q007 ruled against one, on its own data.
+def test_the_energy_score_says_which_instrument_produced_it():
+    """An absolute ramp and a percentile are different claims.
 
-    The pocket offset is 1.02 standard deviations of the pooled set and ligand
-    efficiency removes 3% of it, but what settles it is that within one pocket
-    the energy does not separate the reference agonists from the rest: they rank
-    2, 3, 6, 13 of 14 and 4, 5, 6, 11 of 13. There is nothing to anchor a
-    threshold to, so there must be no threshold here either -- a FlexAppeal-side
-    ramp would be a second definition of a grade DeepFlex owns.
+    Q007 recommended against this ramp and was overruled, so what it cannot do
+    has to travel with the number: within one pocket these energies do not
+    separate the reference agonists from the rest, which is why nothing anchors
+    -60 beyond the spread of the data.
     """
-    assert not hasattr(grade, "ENERGY_SINGLE_RAMP")
-    assert "energy" not in grade.RAMPS
-
-    # However good the energy, the sub-score stays pending.
-    for dg in (-200.0, -60.0, -9.8, 0.0, 5.0):
-        g = grade.score_one(_good(mmpbsa_gb_dg=dg))
-        assert g.subscores["energy"] is None, dg
-        assert g.score == pytest.approx(100.0), dg
+    g = grade.score_one(_good(mmpbsa_gb_dg=-30.0))
+    assert g.energy_absolute is True
+    note = " ".join(g.notes)
+    assert "absolute thresholds" in note
+    assert "no cohort" in note or "cohort to rank in" in note
+    assert "better evidence" in note
 
 
 def test_the_meter_names_every_sub_score_including_the_pending_one():
@@ -413,7 +445,9 @@ def test_the_committed_example_grades_from_its_own_measurements():
     assert g is not None
     assert 0.0 <= g.score <= 100.0
     assert g.grade in ("A", "A-", "B+", "B", "B-", "C+", "C")
-    assert g.pending == ["energy"]
+    # The committed example computes its own MM/GBSA, so nothing is pending.
+    assert g.pending == []
+    assert g.energy_dg is not None and g.energy_dg < 0.0
     # Benzene in a buried cavity: it cannot leave, so occupancy is full marks
     # and the pose term is what the grade turns on.
     assert g.subscores["occupancy"] == pytest.approx(100.0)

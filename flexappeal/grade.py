@@ -75,6 +75,24 @@ RAMPS = {
     "flips": (1.0, 4.0),
 }
 
+# Scoring the energy where there is no cohort to take a percentile in, from
+# DeepFlex's `[energy]` block. Used only there: wherever a real cohort exists the
+# percentile is the better instrument and wins.
+#
+# Zero is physics -- no binding free energy, no binding -- so that end needs no
+# calibration. -60 kcal/mol is empirical, from the 27 complexes DeepFlex has
+# measured: they span -72.0 to -15.5 with a median of -39.2 and a 10th percentile
+# of -64.4, so full marks means "among the strongest measured" rather than being
+# pinned to one outlier.
+#
+# What this scale cannot do is recorded in DeepFlex's Q007 and is not small.
+# Within one pocket these energies do not separate the reference agonists from
+# the rest, so there is no external anchor behind -60 beyond the spread of the
+# data; and the number is pocket-dependent, the two receptors sitting 1.02
+# pooled standard deviations apart. A complex scored this way says so on its row.
+# A package is better evidence wherever there is one.
+ENERGY_SINGLE_RAMP = (-60.0, 0.0)
+
 # Below this many typed interactions at frame 0, the fingerprint is too coarse to
 # trust on its own. The fallback to key-interaction occupancy alone is a caution
 # and must never raise a score, so it applies only where it is the lower reading.
@@ -150,6 +168,9 @@ class Grade:
     # that does not: see the note in `score_one`.
     energy_dg: float | None = None
     energy_sd: float | None = None
+    # Whether the energy sub-score came from the absolute thresholds rather than
+    # a percentile. Said on the row, so a reader knows which instrument it was.
+    energy_absolute: bool = False
 
     # The inputs behind each sub-score, so the meter can show what it read.
     inputs: dict[str, Any] = field(default_factory=dict)
@@ -246,19 +267,28 @@ def score_one(measured) -> Grade | None:
     # against one ligand" are different statements and the page used to make the
     # first when the second was true.
     #
-    # An absolute kcal/mol threshold would score it, and DeepFlex's Q007 ruled
-    # against one on its own data. The reason is not the one that looks obvious.
-    # The pocket offset is real (the two receptors' means sit 15.45 kcal/mol
-    # apart, 1.02 standard deviations of the pooled set) and size normalisation
-    # does not help, removing 3% of it. But the finding that settles it is that
-    # within one pocket this energy does not know which compounds are good: the
-    # four reference agonists rank 2, 3, 6 and 13 of 14 on one receptor and 4, 5,
-    # 6 and 11 of 13 on the other, and reference and non-reference means are
-    # indistinguishable. Calibrating a threshold needs something to anchor it to,
-    # and there is nothing here.
-    result.subscores["energy"] = None
+    # So it is scored against `ENERGY_SINGLE_RAMP` instead, which is DeepFlex's
+    # own fallback and not a second opinion invented here. Q007 recommended
+    # against it and was overruled, on the grounds that a visible 15% hole in
+    # every single-run report is worse than an imperfect number that says it is
+    # imperfect. The limits are real and are stated on the row: the pocket offset
+    # is 1.02 pooled standard deviations, and within one pocket these energies do
+    # not separate the reference agonists from the rest, which is why nothing
+    # anchors -60 beyond the spread of the data.
     result.energy_dg = metrics.get("mmpbsa_gb_dg")
     result.energy_sd = metrics.get("mmpbsa_gb_sd")
+    if result.energy_dg is not None:
+        result.subscores["energy"] = ramp(result.energy_dg, *ENERGY_SINGLE_RAMP)
+        result.energy_absolute = True
+        result.notes.append(
+            f"the energy sub-score is against absolute thresholds "
+            f"({ENERGY_SINGLE_RAMP[0]:.0f} to {ENERGY_SINGLE_RAMP[1]:.0f} "
+            f"kcal/mol) rather than a percentile, because one complex has no "
+            f"cohort to rank in. Within a single pocket these energies do not "
+            f"separate good compounds from poor ones, so a study package is "
+            f"better evidence where there is one")
+    else:
+        result.subscores["energy"] = None
 
     result.inputs = {
         "pose": pose_input,

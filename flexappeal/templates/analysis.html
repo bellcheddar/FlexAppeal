@@ -172,14 +172,23 @@
               <tbody>
                 {% for row in g.rows %}
                   <tr {% if row.pending %}class="is-pending"{% endif %}>
-                    <th scope="row">{{ row.label }}</th>
+                    <th scope="row">
+                      {{ row.label }}
+                      {# The measurement a sub-score was read off, where the
+                         number itself is worth seeing. Under the label rather
+                         than in a cell of its own: the score column holds one
+                         number per row and nothing else. #}
+                      {% if row.measured %}
+                        <span class="md-grade-measured">{{ row.measured }}</span>
+                      {% endif %}
+                    </th>
                     <td class="md-grade-bar-cell">
                       {% if row.pending %}
-                        <span class="md-grade-pending">
-                          {% if row.measured %}<strong class="md-grade-measured"
-                            >{{ row.measured }}</strong>, {% endif %}{{ row.reason }}
-                        </span>
+                        <span class="md-grade-pending">{{ row.reason }}</span>
                       {% else %}
+                        {# Every scored row gets a bar, including a zero: the
+                           track is drawn whatever the fill, so a nought reads as
+                           a measured nought rather than as a missing panel. #}
                         <span class="md-grade-bar">
                           <span style="width: {{ row.score }}%"></span>
                         </span>

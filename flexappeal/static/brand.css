@@ -521,6 +521,13 @@ a { color: var(--md-primary); }
 .md-grade-table th[scope="row"] {
   text-align: left; font-weight: 500; padding: 3px 10px 3px 0; white-space: nowrap;
 }
+/* The measurement behind a sub-score, under its name. Only the binding energy
+   has one: the other five are ramps on quantities whose raw value means little
+   to a reader, where the energy's kcal/mol is the number they came for. */
+.md-grade-measured {
+  display: block; font-size: 10px; font-weight: 400; letter-spacing: 0.01em;
+  color: var(--md-text-muted); margin-top: 1px;
+}
 .md-grade-bar-cell { width: 100%; }
 .md-grade-bar {
   display: block; height: 7px; border-radius: 4px; background: var(--md-bg-alt);
@@ -537,12 +544,6 @@ a { color: var(--md-primary); }
 }
 .md-grade-table tr.is-pending th[scope="row"] { color: var(--md-text-muted); }
 .md-grade-pending { font-size: 11px; color: var(--md-text-muted); }
-/* A measurement on a row that carries no score. The binding energy is the only
-   one: it is measured here and ranked only within a cohort, so the row has a
-   number to show and no bar to show it on. Emphasised against the sentence
-   beside it, because "we measured this" and "we could not rank it" are
-   different things and the number is the part a reader wants. */
-.md-grade-measured { color: var(--md-text); font-weight: 600; }
 
 @media (max-width: 640px) {
   .md-grade { gap: 14px; }

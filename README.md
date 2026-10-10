@@ -213,17 +213,17 @@ an obvious failure.
 both are available. Where AmberTools is absent no energy is computed and the other
 five sub-scores are unaffected.
 
-Computing the energy is not the same as scoring it, and the energy sub-score stays
-pending for a single complex either way. It is a percentile among the other ligands
-run against the same receptor, and DeepFlex ruled against giving it an absolute
-threshold instead on the strength of its own data: ranked within their own receptor,
-the four reference agonists in that package place 2nd, 3rd, 6th and 13th of 14 on one
-receptor and 4th, 5th, 6th and 11th of 13 on the other, with reference and
-non-reference means indistinguishable. Calibrating an absolute threshold needs
-something to anchor it to, and within one pocket this energy does not separate good
-compounds from the rest. So the number is measured, stored and shown, the 15% is
-renormalised across the five that are scored, and the percentile fills in the moment
-the run joins a package.
+A single complex is scored on all six. The energy sub-score is normally a percentile
+among the other ligands run against the same receptor, and a lone complex has no
+cohort, so it falls back to the absolute thresholds in DeepFlex's `grade.toml`: full
+marks at -60 kcal/mol, zero at 0. Zero is physics, since no binding free energy means
+no binding. -60 is the strong end of what that pipeline has measured.
+
+The fallback runs only where there is no cohort, and the page says when it did. It is
+a weaker instrument and the reason is worth knowing: within a single pocket these
+energies do not separate good compounds from poor ones, so nothing anchors -60 beyond
+the spread of the data. Collect runs into a study where you can, and the percentile
+replaces it.
 
 The Analysis tab draws the same binding-site measurements for a single run, and
 grades it. Eleven panels, the 2D depiction shaded by atom mobility, a frame slider

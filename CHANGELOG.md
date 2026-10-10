@@ -7,6 +7,14 @@ checkbox list in `README.md`.
 
 ### Changed
 
+- **Every sub-score row on the grade meter has a bar, and its number in one
+  column.** The energy row had the kcal/mol inside the bar cell and an em dash in
+  the score column, so it read as a gap beside five filled rows, and a
+  convergence score of 0.0 drew an empty track that looked like a missing panel
+  rather than a measured nought. The measurement now sits under the label, the
+  bar cell holds only a bar, and the score column holds exactly one number per
+  row.
+
 - **The example intro now describes the run it is showing.** It still said 1AKI,
   hen egg-white lysozyme, 10 ns, 19,433 atoms, an M1 Max and a 200 ps
   equilibration. It is 181L, T4 lysozyme L99A with benzene, 1.80 A, 100 ns,
@@ -98,17 +106,15 @@ checkbox list in `README.md`.
   draws 50% of the energy page for the one-complex file against 0% before, with
   twelve energy terms.
 
-  `S_E` itself is still pending for a cohort of one, because it is a percentile
-  and one complex has no cohort. DeepFlex's Q007 has since ruled against giving it
-  an absolute threshold instead, and the reason is not the obvious one. The pocket
-  offset is real (the two receptors' means sit 15.45 kcal/mol apart, 1.02 standard
-  deviations of the pooled set) and ligand efficiency removes only 3% of it -- but
-  what settles it is that within one pocket this energy does not know which
-  compounds are good. The four reference agonists rank 2, 3, 6 and 13 of 14 on one
-  receptor and 4, 5, 6 and 11 of 13 on the other, and reference and non-reference
-  means are indistinguishable. A threshold needs something to anchor it to.
-
-  So the energy is measured, carried and shown, and not scored for one complex.
+  And scored, which took two goes. `S_E` is normally a percentile and a lone
+  complex has no cohort, so it now falls back to absolute thresholds in DeepFlex's
+  `grade.toml` (D078): full marks at -60 kcal/mol, zero at 0. Zero is physics; -60
+  is the strong end of the 27 complexes that pipeline has measured. The fallback
+  runs only where there is no cohort, is marked on the row, and the limitation
+  travels with it -- within one pocket these energies do not separate good
+  compounds from poor ones, so nothing anchors -60 beyond the shape of its own
+  distribution. Proved inert on DeepFlex's real package: no score, grade,
+  sub-score, gate or rank moved on any of the 27.
 
 - **A ligand run now writes the version 2 package itself.** Spec section 0 was
   updated today: a run with a ligand emits version 2, including a single system,
