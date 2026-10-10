@@ -189,7 +189,7 @@
                         {# Every scored row gets a bar, including a zero: the
                            track is drawn whatever the fill, so a nought reads as
                            a measured nought rather than as a missing panel. #}
-                        <span class="md-grade-bar">
+                        <span class="md-grade-bar is-{{ row.band }}">
                           <span style="width: {{ row.score }}%"></span>
                         </span>
                       {% endif %}

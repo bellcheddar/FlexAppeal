@@ -456,3 +456,24 @@ def test_the_committed_example_grades_from_its_own_measurements():
     # and the pose term is what the grade turns on.
     assert g.subscores["occupancy"] == pytest.approx(100.0)
     assert g.subscores["pose"] is not None
+
+
+def test_each_bar_carries_its_own_band():
+    """Coloured on the composite's own thresholds, so a bar cannot disagree with
+    the letter beside it: green from 75, amber from 50, red below."""
+    rows = {r["key"]: r for r in grade.meter(grade.score_one(
+        _good(mmpbsa_gb_dg=-9.88)))["rows"]}
+    assert rows["pose"]["band"] == "A"            # 100
+    assert rows["energy"]["band"] == "C"          # 16.5
+
+    # The boundaries come from `letter`, not from a second set of numbers.
+    for score, band in ((100.0, "A"), (75.0, "A"), (74.9, "B"),
+                        (50.0, "B"), (49.9, "C"), (0.0, "C")):
+        assert grade.letter(score)[:1] == band, score
+
+
+def test_a_pending_row_has_no_band():
+    """Nothing to colour, and an uncoloured bar is not drawn at all."""
+    rows = {r["key"]: r for r in grade.meter(grade.score_one(_good()))["rows"]}
+    assert rows["energy"]["band"] is None
+    assert rows["energy"]["pending"] is True

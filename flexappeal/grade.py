@@ -358,6 +358,12 @@ def meter(graded: Grade | None) -> dict[str, Any] | None:
             "weight": weight,
             "applied": round(graded.weights_used.get(key, 0.0) * 100, 1),
             "pending": value is None,
+            # The band this sub-score would fall in on its own, from the same
+            # `letter` the composite uses, so a coloured bar and the dial agree
+            # about where 75 and 50 are. A sub-score is not itself graded, but
+            # it is a 0-100 reading on the same scale, so the thresholds
+            # transfer and nothing new has to be invented to colour it.
+            "band": None if value is None else letter(value)[:1],
             # What to put in the cell of a row with no score. Default says the
             # measurement is missing; the energy row overrides it when there is a
             # number but no cohort to rank it in.
