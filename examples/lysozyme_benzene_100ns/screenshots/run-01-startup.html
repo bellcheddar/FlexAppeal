@@ -1,0 +1,55 @@
+<figure class="md-term">
+  <figcaption>Startup, and the platform benchmark that picks OpenCL</figcaption>
+  <style>.trun-01-startup-r1 {color: #008000; text-decoration-color: #008000}
+.trun-01-startup-r2 {color: #0087af; text-decoration-color: #0087af}
+.trun-01-startup-r3 {color: #0087af; text-decoration-color: #0087af; font-weight: bold}
+.trun-01-startup-r4 {color: #5f8787; text-decoration-color: #5f8787}
+.trun-01-startup-r5 {color: #008080; text-decoration-color: #008080; font-weight: bold}
+.trun-01-startup-r6 {color: #ffaf00; text-decoration-color: #ffaf00}
+.trun-01-startup-r7 {color: #00d787; text-decoration-color: #00d787}
+.trun-01-startup-r8 {color: #800080; text-decoration-color: #800080; font-weight: bold}
+.trun-01-startup-r9 {font-weight: bold}</style>
+  <pre class="md-term-body"><span class="trun-01-startup-r1">⠁</span>                                                                                                                       
+<span class="trun-01-startup-r1">⠁</span> activating environment                                                                                                
+<span class="trun-01-startup-r1">⠁</span> activating environment                                                                                                
+<span class="trun-01-startup-r2">╭───────────────────────────────────────────────────────────────────────────────────────╮</span>
+<span class="trun-01-startup-r2">│</span>  <span class="trun-01-startup-r3">lysozyme_benzene_100ns</span>                                                               <span class="trun-01-startup-r2">│</span>
+<span class="trun-01-startup-r2">│</span>  <span class="trun-01-startup-r4">100.0 ns · amber14-all.xml · tip3p in a dodecahedron, 1.2 nm padding, 0.15 M Na+Cl-</span>  <span class="trun-01-startup-r2">│</span>
+<span class="trun-01-startup-r2">│</span>                                                                                       <span class="trun-01-startup-r2">│</span>
+<span class="trun-01-startup-r2">│</span>  <span class="trun-01-startup-r4">FlexAppeal</span> 0.1.0   <span class="trun-01-startup-r4">OpenMM</span> 8.5.2.dev-36a30cb   <span class="trun-01-startup-r4">arm64</span> <span class="trun-01-startup-r4">· 24 cores · 137.4 GB RAM</span>        <span class="trun-01-startup-r2">│</span>
+<span class="trun-01-startup-r2">╰───────────────────────────────────────────────────────────────────────────────────────╯</span>
+[23:12:00] Warning: molecule is tagged as 2D, but at least one Z coordinate is not zero. Marking the mol as 3D.
+[23:12:00] WARNING: More than one matching pattern found - picking one
+<span class="trun-01-startup-r2">ℹ</span> BNZ: <span class="trun-01-startup-r5">12</span> atoms, formal charge +<span class="trun-01-startup-r5">0</span>, c1ccccc1
+<span class="trun-01-startup-r6">⚠</span> ligand protonation comes from the RCSB chemical definition, not from the pH above -- check the formal charges printed 
+here are the ones you expect at pH <span class="trun-01-startup-r5">7.4</span>.
+<span class="trun-01-startup-r2">→</span> preparing the structure
+<span class="trun-01-startup-r2">ℹ</span> added hydrogens at pH <span class="trun-01-startup-r5">7.4</span>
+<span class="trun-01-startup-r7">✓</span> merged <span class="trun-01-startup-r5">1</span> <span class="trun-01-startup-r8">ligand</span><span class="trun-01-startup-r9">(</span>s<span class="trun-01-startup-r9">)</span> back into the system
+<span class="trun-01-startup-r7">✓</span> prepared: <span class="trun-01-startup-r5">3023</span> atoms, <span class="trun-01-startup-r5">300</span> residues
+<span class="trun-01-startup-r2">ℹ</span> wrote prepared.pdb
+<span class="trun-01-startup-r2">→</span> parameterising <span class="trun-01-startup-r5">1</span> ligand <span class="trun-01-startup-r8">type</span><span class="trun-01-startup-r9">(</span>s<span class="trun-01-startup-r9">)</span> with openff-<span class="trun-01-startup-r5">2.2</span>.<span class="trun-01-startup-r5">1</span> -- this takes a minute or two per molecule
+~/Documents/Vibe_Coding/FlexAppeal/.pixi/envs/default/lib/python3.11/site-packages/openff/interchange/components/interch
+ange.py:1119: FutureWarning: `torch.distributed.reduce_op` is deprecated, please use `torch.distributed.ReduceOp` 
+instead
+  if isinstance(obj, functools._lru_cache_wrapper) and obj.__module__.startswith(&quot;openff.interchange&quot;):
+~/Documents/Vibe_Coding/FlexAppeal/.pixi/envs/default/lib/python3.11/site-packages/openff/interchange/smirnoff/_create.p
+y:151: PresetChargesAndVirtualSitesWarning: Preset charges were provided (via `charge_from_molecules`) alongside a force
+field that includes virtual site parameters. Note that virtual sites will be applied charges from the force field and 
+cannot be given preset charges. Virtual sites may also affect the charges of their orientation atoms, even if those 
+atoms are given preset charges.
+  warnings.warn(
+<span class="trun-01-startup-r7">✓</span> solvated: <span class="trun-01-startup-r5">25463</span> atoms, <span class="trun-01-startup-r5">7600</span> waters  <span class="trun-01-startup-r4">4s</span>
+<span class="trun-01-startup-r2">ℹ</span> wrote solvated.pdb
+<span class="trun-01-startup-r7">✓</span> system: <span class="trun-01-startup-r5">25463</span> particles, <span class="trun-01-startup-r5">24119</span> constraints, <span class="trun-01-startup-r5">6</span> forces  <span class="trun-01-startup-r4">0s</span>
+<span class="trun-01-startup-r2">⠇</span>   <span class="trun-01-startup-r2">relaxing initial clashes</span> <span class="trun-01-startup-r9">-383,220 kJ/mol</span> <span class="trun-01-startup-r4">464 iterations</span> <span class="trun-01-startup-r4">648.3 MB rss · 77.4 GB free · 886.0 MB swap</span> <span class="trun-01-startup-r4">0:00:04</span>
+<span class="trun-01-startup-r7">✓</span> clashes relaxed  <span class="trun-01-startup-r4">4s</span>
+<span class="trun-01-startup-r2">ℹ</span> restrained <span class="trun-01-startup-r5">1290</span> atoms at <span class="trun-01-startup-r5">1000.0</span> kJ/mol/nm²
+<span class="trun-01-startup-r2">ℹ</span> platforms available: Reference, CPU, OpenCL
+<span class="trun-01-startup-r2">→</span> benchmarking <span class="trun-01-startup-r5">2</span> platforms <span class="trun-01-startup-r9">(</span>CPU, OpenCL<span class="trun-01-startup-r9">)</span>
+<span class="trun-01-startup-r2">ℹ</span>   CPU            <span class="trun-01-startup-r5">28.9</span> ns/day
+<span class="trun-01-startup-r6">⚠</span> OpenCL does not support mixed precision here; using single
+<span class="trun-01-startup-r2">ℹ</span>   OpenCL        <span class="trun-01-startup-r5">245.7</span> ns/day
+<span class="trun-01-startup-r7">✓</span> using OpenCL at <span class="trun-01-startup-r5">245.7</span> ns/day
+</pre>
+</figure>

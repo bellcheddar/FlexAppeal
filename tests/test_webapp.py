@@ -911,17 +911,58 @@ def test_the_example_lists_every_option_from_the_registry(client):
 
 @pytest.mark.skipif(not _example_built(), reason="the example run has not been built")
 def test_the_example_run_actually_went_the_distance(client):
-    """Guards against committing a truncated or aborted run as the reference."""
+    """Guards against committing a truncated or aborted run as the reference.
+
+    The length comes from the example's own config.json rather than a number
+    written here, because the committed example changes and a hard-coded figure
+    turns swapping it into a test failure that says nothing about the run. What
+    matters is that the trajectory got to the end of the production the bundle
+    was built to do.
+    """
+    import json
+
     from flexappeal import fxa
-    from flexappeal.webapp import EXAMPLE_FXA
+    from flexappeal.webapp import EXAMPLE_DIR, EXAMPLE_FXA
+
+    intended = json.loads((EXAMPLE_DIR / "config.json").read_text())
+    expected = intended["config"]["production_duration"]
 
     results = fxa.load(EXAMPLE_FXA.read_bytes(), verify_checksums=False)
     config = results.manifest.get("config", {})
-    assert config.get("production_duration") == 10.0, "the example is meant to be 10 ns"
+    assert config.get("production_duration") == expected, (
+        f"the results file ran {config.get('production_duration')} ns but the "
+        f"committed config asks for {expected}")
 
     times = results.metrics.get("time_ns") or []
     assert times, "no time axis in the results"
-    assert times[-1] >= 9.5, f"the run stopped at {times[-1]:.2f} ns, short of 10"
+    assert times[-1] >= expected * 0.95, (
+        f"the run stopped at {times[-1]:.2f} ns, short of {expected}")
+
+
+@pytest.mark.skipif(not _example_built(), reason="the example run has not been built")
+def test_the_example_exercises_the_binding_panels(client):
+    """The committed example must be a bound run, or most of the page is dead code.
+
+    This is the whole reason the example is a complex rather than apo protein:
+    an apo run renders the whole-system panels and not one binding-site panel,
+    so a swap back to one would quietly stop testing eleven of them.
+    """
+    pytest.importorskip("mdtraj")
+    from flexappeal import webapp as webapp_mod
+
+    webapp_mod._BINDING_CACHE.clear()
+    body = client.get("/example").get_data(as_text=True)
+    assert "The binding site" in body
+    assert "The whole system" in body
+    for panel in ("pose", "centroid", "occupancy", "interactions", "barcode",
+                  "clusters", "strain", "ligand_rmsf", "pocket_rmsf",
+                  "rmsd_2d", "dccm"):
+        assert f'id="plot-binding-{panel}"' in body, panel
+
+    # The depiction and the mobility legend are the two things on the page that
+    # are not a chart, and both come from the ligand rather than the trajectory.
+    assert "md-depiction" in body
+    assert "md-ramp" in body
 
 
 @pytest.mark.skipif(not _example_built(), reason="the example run has not been built")

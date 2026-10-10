@@ -494,7 +494,7 @@ def _binding_panels(results, content: bytes, label: str) -> dict[str, Any]:
 # Which committed run the Example tab shows. One name, because the directory,
 # the results file and the bundle are all named after it: changing the example
 # used to mean finding three strings that had to agree.
-EXAMPLE_NAME = "lysozyme_10ns"
+EXAMPLE_NAME = "lysozyme_benzene_100ns"
 EXAMPLE_DIR = REPO_ROOT / "examples" / EXAMPLE_NAME
 EXAMPLE_FXA = EXAMPLE_DIR / "output" / f"{EXAMPLE_NAME}.fxa"
 EXAMPLE_BUNDLE = f"examples/{EXAMPLE_NAME}/flexappeal_{EXAMPLE_NAME}.command"

@@ -95,7 +95,10 @@ mkdir -p "$HERE/output"
 find "$HERE/run" -name '*.fxa' -exec cp {} "$HERE/output/" \;
 
 step "rendering the terminal captures"
+# Both halves are captured. Without --analysis-log the Example tab shows the run
+# and nothing of what turned it into a results file, which is half the path.
 pixi run python scripts/terminal_capture.py "$HERE/terminal.log" \
+  --analysis-log "$HERE/analyse.log" \
   --out "$HERE/screenshots"
 
 step "compressing the raw captures"

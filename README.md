@@ -14,7 +14,7 @@
 
 ---
 
-FlexAppeal is a three-tab web application for protein molecular dynamics. The **Prepare** tab turns the OpenMM option surface into a guided form and emits a single self-contained file. You run that file on your own machine, where it installs its environment, benchmarks the available compute platforms, simulates, and analyses the full trajectory. It produces one results file, which the **Analysis** tab reads and renders as interactive plots and a three-dimensional structure viewer. The **Example** tab is a real 10 ns run of lysozyme, rendered through that same path, so what the documentation claims and what the software does cannot drift apart.
+FlexAppeal is a three-tab web application for protein molecular dynamics. The **Prepare** tab turns the OpenMM option surface into a guided form and emits a single self-contained file. You run that file on your own machine, where it installs its environment, benchmarks the available compute platforms, simulates, and analyses the full trajectory. It produces one results file, which the **Analysis** tab reads and renders as interactive plots and a three-dimensional structure viewer. The **Example** tab is a real 100 ns run of T4 lysozyme with benzene bound in its buried cavity, rendered through that same path, so what the documentation claims and what the software does cannot drift apart.
 
 **Why it matters:** setting up a correct MD run means stitching together structure repair, force-field selection, solvation, system construction, integrator and barostat choice, a staged equilibration protocol, and a set of reporters, across roughly 120 interacting parameters. A large fraction of the ways to get that wrong produce a trajectory that runs to completion and looks entirely plausible: solvent padding smaller than the non-bonded cutoff, so the protein interacts with its own periodic image; a 4 fs timestep without hydrogen mass repartitioning, so total energy climbs all run; CHARMM36 used with AMBER's cutoff scheme. FlexAppeal encodes those rules as validation rather than leaving them to be remembered. It is useful for: setting up a first simulation without a week of reading, reproducing someone else's protocol exactly, sweeping a parameter across replicates, and getting a standard analysis panel without writing MDTraj by hand.
 
@@ -26,7 +26,7 @@ The hosted application never simulates. That is a design decision, not a limitat
 
 | | |
 |---|---|
-| **A worked example** | A real 10 ns lysozyme run, committed and rendered by the same code that renders an upload |
+| **A worked example** | A real 100 ns lysozyme-benzene run, committed and rendered by the same code that renders an upload |
 | **Every OpenMM option, explained** | 115 parameters across 14 groups, each with a full sentence saying why its default is what it is |
 | **Validation that knows the physics** | Padding versus cutoff, timestep versus constraints, switching versus dispersion correction, membrane versus barostat |
 | **Live estimates** | Atom count, trajectory size and wall time update as you type |
@@ -56,7 +56,7 @@ Three properties fall out of that shape:
 - **Uploads stay small.** Tens of megabytes rather than the gigabytes a raw trajectory would be.
 - **Your trajectory stays yours.** Nothing in the bundle uploads anything.
 
-The **Example** tab is that whole path already walked: a 10 ns lysozyme run whose bundle, terminal recording and results file are all in `examples/lysozyme_10ns/`, rendered by the code that renders an upload.
+The **Example** tab is that whole path already walked: a 100 ns run of T4 lysozyme L99A with benzene, whose bundle, terminal recording and results file are all in `examples/lysozyme_benzene_100ns/`, rendered by the code that renders an upload. The ligand is the point. Hen egg-white lysozyme binds nothing, so the apo example beside it in `examples/lysozyme_10ns/` cannot exercise a single binding-site panel.
 
 ## 📋 Requirements
 
@@ -196,6 +196,19 @@ solvent, which this pipeline does not do, so `--energies` carries them in from
 wherever a study computed them. Without it the energy sub-score is pending and the
 other five are unaffected.
 
+The Analysis tab draws the same binding-site measurements for a single run, under
+a heading that says plainly there is no grade on that page and why: a grade is a
+rank within a cohort, and one run is not a cohort. Eleven panels, the 2D depiction
+shaded by atom mobility, and a frame slider that moves the structure viewer and
+every chart together.
+
+The Example tab shows them on the committed 100 ns benzene run, where two of the
+twelve stay empty for reasons worth stating. Benzene has no nitrogen, oxygen or
+sulphur, so there are no polar contacts to occupy; and it has no rotatable bond,
+so there is no torsion to flip and the conformation sub-score rests on the strain
+alone. Both are properties of the molecule rather than of the measurement, and
+the page says so where the panel would have been.
+
 ## 🧪 Validation
 
 The physics is checked against known values rather than against itself. Every fixture in the test suite is a real results file from a real run.
@@ -270,8 +283,10 @@ Roadmap, newest ideas at the top. Suggestions welcome.
 - [ ] Umbrella-sampling and steered-MD protocols (currently out of scope by design)
 - [ ] A "reproduce this" button that rebuilds a bundle from an uploaded `.fxa`
 - [x] **Trajectory playback on load.** The structure panel starts looping as soon as the frames are in, one pass every 50 seconds, skipped for anyone whose system asks for reduced motion.
-- [ ] **Work around the OpenCL memory leak.** OpenMM's OpenCL platform grows by roughly 3 kB per integration step on an M1 Max, measured with no reporters attached, so it is the platform rather than anything FlexAppeal does. The 10 ns reference run ended 8 GB up; a 100 ns run of the same system would need about 80 GB. Neither `Context.reinitialize(preserveState=True)` nor destroying and rebuilding the `Simulation` reclaims it. The run now measures its own slope and warns in time to restart from the checkpoint, which does release it, but a bundle that segments a long run across processes automatically would be better than asking the user to notice.
-- [x] **A worked example.** A real 10 ns run of hen egg-white lysozyme (1AKI, 19,433 atoms with water) is committed to the repository, and the Example tab renders it through the same code path as an upload: the panels come from `plots.build_all()`, the Mol\* viewer loads the topology and trajectory out of the same `.fxa`, and the option tables are read from the registry. So the page cannot drift from the product -- if the Analysis tab breaks, this breaks with it, in CI. The terminal captures are the bytes the run actually printed, replayed through the library that produced them. `bash examples/lysozyme_10ns/rebuild.sh` regenerates all of it.
+- [ ] **Work around the OpenCL memory leak.** OpenMM's OpenCL platform grows by roughly 3 kB per integration step on an M1 Max, measured with no reporters attached, so it is the platform rather than anything FlexAppeal does. The 10 ns reference run ended 8 GB up. Neither `Context.reinitialize(preserveState=True)` nor destroying and rebuilding the `Simulation` reclaims it, and the run measures its own slope and warns in time to restart from the checkpoint, which does release it.
+
+  The 100 ns benzene run since then says the warning's model is wrong, though, and in the direction that costs a user eight hours. Resident memory climbed linearly at 0.78 GB per percent to 46 GB at 64% of the run, then *fell* to 34.4 GB by the end, finishing with 8.4 MB of swap added on a 96 GB machine. The growth plateaus and the allocator gives it back. A linear fit over the first few percent does not see that, so the run projected 105 GB still to come and advised a restart it did not need. The slope needs refitting against this trace before the advice is trustworthy.
+- [x] **A worked example.** A real 100 ns run of T4 lysozyme L99A with benzene bound in its buried cavity (181L, 25,463 atoms with water) is committed to the repository, and the Example tab renders it through the same code path as an upload: the panels come from `plots.build_all()`, the Mol\* viewer loads the topology and trajectory out of the same `.fxa`, and the option tables are read from the registry. So the page cannot drift from the product -- if the Analysis tab breaks, this breaks with it, in CI. The terminal captures are the bytes the run actually printed, replayed through the library that produced them. `bash examples/lysozyme_benzene_100ns/rebuild.sh` regenerates all of it, in about eight and a half hours.
 - [x] **Apple Silicon runs on the GPU.** OpenMM's OpenCL platform was being disqualified on every Mac: Apple's implementation supports single precision only, the default configuration asks for mixed (correct on CUDA), and context creation fails with "No compatible OpenCL platform is available" -- which names the platform rather than the property, so the benchmark caught it and silently fell back to the CPU. Measured on solvated lysozyme, 19,433 atoms, M1 Max: **29.5 ns/day on CPU against 206 on OpenCL**, so a 10 ns run took eight hours instead of seventy minutes. Unsupported properties are now dropped rather than fatal, the substitution is announced, and the check probes the platform in front of it rather than hard-coding a list.
 - [x] **Rich terminal output.** The CLI and both generated scripts share one palette and print through [rich](https://github.com/Textualize/rich): tables for structure reports, determinate bars for the integration stages, an indeterminate spinner for minimisation (whose iteration counter is not monotonic, so a percentage would run backwards), and a live memory readout beside every bar. Swap is the figure that matters -- a run that spills out of RAM slows by an order of magnitude with no other symptom -- so it is on screen throughout and warns once, loudly, if this run is what pushed the machine there. Off a terminal it degrades to plain milestone lines with no escape sequences, which is what makes a `nohup` log readable.
 - [x] **Deployed to [flexappeal.mdeller.com](https://flexappeal.mdeller.com).** Port 8004 on the shared droplet, behind nginx with a Let's Encrypt certificate and HTTP/2. Verified in production rather than merely health-checked: a structure upload renders all 115 options and finds lysozyme's four disulfides, a bundle builds and its generated scripts compile, and a results file renders eleven panels. Each application on the box serves its own certificate, which is the failure the unconditional-certbot rule exists to prevent.

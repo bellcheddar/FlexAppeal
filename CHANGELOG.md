@@ -3,6 +3,55 @@
 Dated history. Goals and non-goals live in `PROJECT_PLAN.md`; the roadmap is the
 checkbox list in `README.md`.
 
+## 2026-10-10
+
+### Changed
+
+- **The Example tab is now a 100 ns run of T4 lysozyme L99A with benzene.**
+  Previously a 10 ns apo run of hen egg-white lysozyme, which renders the
+  whole-system panels and not one binding-site panel, so eleven panels and the
+  2D depiction were shipping untested by the page whose job is to prove the
+  product works. The new example is PDB 181L, 25,463 atoms with water, 100 ns of
+  production in 8.05 h at 298.3 ns/day on OpenCL, and it exercises every
+  binding-site panel the Analysis tab can draw.
+
+  Two panels stay empty, and the page says why where each would have been.
+  Benzene has no nitrogen, oxygen or sulphur, so there are no polar contacts to
+  occupy; and it has no rotatable bond, so there is no torsion to flip. Both are
+  facts about the molecule, not gaps in the measurement.
+
+  The apo example stays in `examples/lysozyme_10ns/` as the ligandless case.
+- **The example's length guard reads the example's own `config.json`.** It
+  asserted 10 ns literally, so swapping the committed example failed a test whose
+  message named the wrong problem. It now compares the results file against the
+  production duration the committed bundle was built to do, which is the thing
+  worth guarding, and keeps the 95% floor against a truncated run.
+
+### Added
+
+- **`rebuild.sh` captures the analysis half too.** It called
+  `scripts/terminal_capture.py` without `--analysis-log`, so a rebuilt example
+  rendered the run's terminal output and nothing of what turned it into a results
+  file. Nine captures now rather than seven.
+- **A test that the committed example is a bound run.** It asserts all eleven
+  binding panel ids, the depiction and the mobility legend are on `/example`, so
+  a swap back to an apo example cannot quietly stop testing them.
+
+### Measured
+
+- **The OpenCL memory growth plateaus and then reverses.** The README has carried
+  an extrapolation since the 10 ns run: 8 GB up over 10 ns, so about 80 GB for
+  100 ns of the same system. The 100 ns run says otherwise. Resident memory grew
+  linearly at 0.78 GB per percent to 46 GB at 64% of the run, then fell to
+  34.4 GB by the end, adding 8.4 MB of swap on a 96 GB machine.
+
+  This matters because the run's own warning fits a line to the early slope and
+  acted on it: it reported memory growing by 1.3 GB per percent, projected
+  105 GB still to come, and advised stopping and restarting from the checkpoint.
+  Had that been followed it would have cost eight hours of a run that finished
+  comfortably. The warning needs refitting against this trace before its advice
+  is worth taking.
+
 ## 2026-10-09
 
 ### Added
