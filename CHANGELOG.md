@@ -174,6 +174,19 @@ checkbox list in `README.md`.
   at the same fraction. The barcode is capped at twenty-eight rows, busiest first,
   and four hundred columns, because twenty-eight rows is already a tall panel and
   the tail is contacts present in a handful of frames.
+- **The energy gap, named rather than papered over.** With no `--energies` file the
+  command now says in one warning that FlexAppeal cannot compute MM/GBSA or an
+  interaction energy, why (every frame needs rescoring in implicit solvent from a
+  rebuilt parameterised system, and nothing in the pipeline produces one), and
+  exactly what is lost: the energy panel, the MM/GBSA column of the league table,
+  and the 0.15 energy weight, which DeepFlex renormalises away and records as
+  pending. A partly supplied cohort is flagged too, because a percentile needs a
+  cohort and a complex without an energy takes no percentile rather than a last
+  place it did not earn.
+- **A per-term energy decomposition, carried through.** `terms` in the energies
+  file fills the energy breakdown panel from somebody else's `MMPBSA.py` output.
+  Carried rather than interpreted: these are not FlexAppeal's numbers and it has no
+  basis for arguing with them beyond refusing an absolute block.
 
 ## 2026-07-27
 

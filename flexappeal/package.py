@@ -372,6 +372,8 @@ def assemble(sources: list[Source], *, package_name: str,
     warnings.extend(_settings_disagreements(sources))
 
     seen: dict[str, str] = {}
+    with_energies: list[str] = []
+    panel_lines: list[dict[str, Any]] = []
     for source in sources:
         warnings.extend(source.notes)
         receptor = source.receptor()
@@ -413,7 +415,13 @@ def assemble(sources: list[Source], *, package_name: str,
         supplied = _energies_for(energies, compound, receptor)
         if supplied:
             measured.metrics.update(supplied)
-        _add(package, measured)
+            with_energies.append(cid)
+        terms = _energy_terms(energies, compound, receptor)
+        if terms:
+            summary = dict(measured.panels_summary or {})
+            summary["mmpbsa_terms"] = terms
+            measured.panels_summary = summary
+        _add(package, measured, panel_lines)
         package.register_receptor(
             receptor,
             protein_name=str(source.structure.get("filename") or "") or None,
@@ -429,8 +437,48 @@ def assemble(sources: list[Source], *, package_name: str,
             "file is a package of receptor-ligand complexes."
         )
 
+    # `manifests/panels.jsonl` is not in the spec's member layout, and DeepFlex
+    # reads the receptor flexibility summary rows and the energy decomposition
+    # out of it rather than out of `metrics/`. The same numbers are also in
+    # `metrics/` where the spec puts them; FXA2_PROGRESS.md lists this as a gap
+    # for the other side rather than a decision taken here.
+    if panel_lines:
+        package.add_text(
+            "manifests/panels.jsonl",
+            "".join(json.dumps(line, default=_plain) + "\n" for line in panel_lines))
+
+    if not with_energies:
+        warnings.append(
+            "no binding energies: FlexAppeal cannot compute MM/GBSA or an "
+            "interaction energy, because both need every frame rescored in "
+            "implicit solvent from a rebuilt parameterised system, and nothing in "
+            "the pipeline produces one. The keys are omitted rather than written "
+            "as zero, so the energy sub-score is recorded as pending and DeepFlex "
+            "says so on the page. The cost is the energy panel, the MM/GBSA column "
+            "of the league table and the 0.15 energy weight, which DeepFlex "
+            "renormalises away. Supply them with --energies if the study has them."
+        )
+    elif len(with_energies) < len(package.complexes):
+        warnings.append(
+            f"binding energies were supplied for {len(with_energies)} of "
+            f"{len(package.complexes)} complexes. The energy sub-score is a "
+            f"percentile within a receptor's own cohort, so the complexes without "
+            f"one take no percentile rather than a last place they did not earn."
+        )
+
     warnings.extend(_set_kind(package))
     return package, warnings
+
+
+def _plain(value: Any) -> Any:
+    """numpy scalars reduced to Python ones, for the JSON-lines manifest."""
+    import numpy as np  # noqa: PLC0415
+
+    if isinstance(value, np.generic):
+        return value.item()
+    if isinstance(value, np.ndarray):
+        return value.tolist()
+    raise TypeError(f"{type(value).__name__} is not JSON-serialisable")
 
 
 def _set_kind(package: fxa2.Package) -> list[str]:
@@ -465,7 +513,8 @@ def _set_kind(package: fxa2.Package) -> list[str]:
     ]
 
 
-def _add(package: fxa2.Package, measured: measure.Measured) -> None:
+def _add(package: fxa2.Package, measured: measure.Measured,
+         panel_lines: list[dict[str, Any]]) -> None:
     """Write one complex's members into the package."""
     cid = measured.complex_id
     package.add_complex(cid)
@@ -492,6 +541,9 @@ def _add(package: fxa2.Package, measured: measure.Measured) -> None:
         package.add_arrays(f"barcode/{cid}.npz", **measured.barcode)
     if measured.conformer is not None:
         package.add_arrays(f"conformer/{cid}.npz", **measured.conformer)
+    if measured.panels_summary:
+        panel_lines.append({"complex_id": cid, "receptor": measured.receptor,
+                            **measured.panels_summary})
 
 
 def build(paths: list[Path], *, out: Path, package_name: str | None = None,
@@ -572,4 +624,39 @@ def _energies_for(energies: dict | None, compound: str,
                 f"ligand: only the difference is a binding quantity."
             )
         out[key] = float(value)
+    return out
+
+
+def _energy_terms(energies: dict | None, compound: str,
+                  receptor: str) -> dict[str, dict[str, list[float]]]:
+    """An optional per-term decomposition, for the energy breakdown panel.
+
+    `{"gb": {"VDWAALS": [mean, sd, sem], "EEL": [...]}, "pb": {...}}`, the
+    difference block only, exactly as `MMPBSA.py` reports it. Carried through
+    rather than interpreted: these are somebody else's numbers and this writer
+    has no basis for arguing with them beyond the sanity check above.
+    """
+    entry = energies.get(f"{compound}/{receptor}") if energies else None
+    if entry is None and energies:
+        entry = energies.get(compound)
+    terms = (entry or {}).get("terms") if isinstance(entry, dict) else None
+    if not isinstance(terms, dict):
+        return {}
+
+    out: dict[str, dict[str, list[float]]] = {}
+    for method, block in terms.items():
+        if not isinstance(block, dict):
+            continue
+        cleaned: dict[str, list[float]] = {}
+        for term, values in block.items():
+            if isinstance(values, (int, float)):
+                values = [values]
+            if not isinstance(values, list) or not values:
+                continue
+            if not all(isinstance(v, (int, float)) for v in values):
+                raise PackageError(
+                    f"{compound}: the {method} {term} term is not a list of numbers")
+            cleaned[str(term)] = [float(v) for v in values[:3]]
+        if cleaned:
+            out[str(method).lower()] = cleaned
     return out

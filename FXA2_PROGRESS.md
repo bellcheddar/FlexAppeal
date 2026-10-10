@@ -4,10 +4,12 @@ Running log for the version 2 package writer, specified in `DEEPFLEX_FXA2_SPEC.m
 and driven by `FXA2_BUILD_PROMPT.md`. Rewritten at every step boundary, so an
 interrupted session can be resumed from this file alone.
 
-**Current step:** 6 of 10 (`S_E`, the energies).
-**Validator last reported:** accepted. **pose 100%, occupancy 100%, interactions
-100%, ranking 100%, grade 62.5%, payload 40%**, 26 interaction rows. Energy,
-convergence, conformation and receptor panels are at 0%, which is steps 6 to 9.
+**Current step:** 7 of 10 (`S_conv`, the block split and the pose clusters).
+**Validator last reported:** accepted, with `--energies` supplied. **pose 100%,
+occupancy 100%, interactions 100%, energy 100%, ranking 100%, grade 75%,
+payload 40%**, 26 interaction rows, 4 energy terms. Without `--energies` the
+energy group is 0% and grade 62.5%, which is the documented gap below.
+Convergence, conformation and receptor panels are at 0%: steps 7 to 9.
 
 ---
 
@@ -257,9 +259,33 @@ out without asking.
 league table, and `S_E`, whose 0.15 weight DeepFlex renormalises away and records
 as pending. The grade, the ranks and the other five sub-scores are unaffected.
 
-So the keys are omitted, never written as `0`. Where a study has these numbers from
-elsewhere, `flexappeal package --energies <file.json>` carries them in, and then
-the energy page draws in full.
+So the keys are omitted, never written as `0`, and the command says what that costs
+rather than leaving a reader to find an empty panel.
+
+Where a study has the numbers from elsewhere, `flexappeal package --energies
+<file.json>` carries them in and the energy page draws in full. The file is keyed on
+the compound name, or `<compound>/<receptor>` where one compound was run against
+several, because the complex id is a salted hash that is fresh for every package
+file and nobody can write it down in advance:
+
+```json
+{
+  "benzamidine/3PTB": {
+    "mmpbsa_gb_dg": -38.4, "mmpbsa_gb_sd": 2.6,
+    "lie_total_mean": -28.9, "lie_total_sd": 1.4, "lie_drift_slope": 0.12,
+    "terms": {"gb": {"VDWAALS": [-22.4, 1.9, 0.1], "EEL": [-61.2, 4.1, 0.2]}}
+  }
+}
+```
+
+Only the seven keys section 4 lists under `S_E` are taken, plus the optional
+per-term block, so a sidecar cannot be used to smuggle a grade into the package. A
+`*_dg` over 1,000 kcal/mol in magnitude is refused: the three absolute MM/PBSA
+blocks are each around -100,000 kcal/mol, and a percentile over absolute blocks
+ranks the size of the system rather than the affinity of the ligand.
+
+With energies supplied, every group except the receptor panels and
+`pocket_traj_path` reaches 100%.
 
 ## Two files deliberately left untracked
 

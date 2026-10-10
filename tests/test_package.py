@@ -920,3 +920,83 @@ def test_a_shift_the_size_of_the_box_is_a_periodic_image_and_is_flagged(deposite
     assert any("periodic boundary" in note for note in measured.notes)
     # And the contacts really do survive, which is the point.
     assert measured.metrics["in_pocket_fraction"] > 0.5
+
+
+# ---------------------------------------------------------------------------
+#  S_E: the energies, which FlexAppeal cannot compute
+# ---------------------------------------------------------------------------
+
+
+def test_without_energies_the_subscore_is_pending_and_the_cost_is_named(written, study):
+    """Omitting a key leaves the sub-score pending, which is honest.
+
+    MM/GBSA and the interaction energy both need every frame rescored in implicit
+    solvent from a rebuilt parameterised system, and nothing in FlexAppeal's
+    pipeline produces one. The warning has to say what that costs rather than
+    leaving a reader to find an empty panel.
+    """
+    _, warnings_out = package.assemble(study, package_name="no_energies")
+    message = " ".join(warnings_out)
+    assert "cannot compute MM/GBSA" in message
+    assert "pending" in message
+    assert "--energies" in message
+
+    read_back = fxa2.read(written)
+    for cid in read_back.complexes:
+        metrics = read_back.metrics(cid)
+        for key in package.ENERGY_KEYS:
+            assert key not in metrics, key
+
+
+def test_a_partly_supplied_cohort_is_flagged(deposited, tmp_path):
+    """A percentile needs a cohort, and a complex without an energy takes none."""
+    path = tmp_path / "energies.json"
+    path.write_text(json.dumps({"BEN": {"mmpbsa_gb_dg": -40.0}}))
+    sources = [make_source(deposited, compound="BEN", pdb_id="3PTB"),
+               make_source(deposited, compound="AMD", pdb_id="3PTB")]
+    _, warnings_out = package.assemble(
+        sources, package_name="partial", energies=package._read_energies(path))
+    assert any("1 of 2 complexes" in w for w in warnings_out)
+
+
+def test_a_per_term_decomposition_is_carried_through(deposited, tmp_path):
+    """The energy breakdown panel, from somebody else's MMPBSA.py output."""
+    path = tmp_path / "energies.json"
+    path.write_text(json.dumps({"BEN": {
+        "mmpbsa_gb_dg": -38.4,
+        "terms": {"gb": {"VDWAALS": [-22.4, 1.9, 0.1], "EEL": [-61.2, 4.1, 0.2]}},
+    }}))
+    built, _ = package.assemble(
+        [make_source(deposited)], package_name="terms",
+        energies=package._read_energies(path))
+    lines = built.members["manifests/panels.jsonl"].decode().strip().splitlines()
+    record = json.loads(lines[0])
+    assert record["mmpbsa_terms"]["gb"]["VDWAALS"] == [-22.4, 1.9, 0.1]
+    assert record["complex_id"] == built.complexes[0]
+
+
+def test_a_term_block_that_is_not_numbers_is_refused(deposited, tmp_path):
+    path = tmp_path / "energies.json"
+    path.write_text(json.dumps({"BEN": {"terms": {"gb": {"EEL": ["a lot"]}}}}))
+    with pytest.raises(PackageError, match="not a list of numbers"):
+        package.assemble([make_source(deposited)], package_name="bad",
+                         energies=package._read_energies(path))
+
+
+def test_the_drift_slope_is_read_from_the_metrics_record(deposited, tmp_path):
+    """DeepFlex reads `lie_drift_slope` from `metrics/`, not from `harvest/`.
+
+    It is fitted over the scored window, which only the pose layer knows, so
+    writing it in one place and not the other left the drift penalty never once
+    firing on the DeepFlex side. Both members carry the same record here, which
+    is what keeps that from mattering.
+    """
+    path = tmp_path / "energies.json"
+    path.write_text(json.dumps({"BEN": {"mmpbsa_gb_dg": -40.0,
+                                        "lie_drift_slope": 0.4}}))
+    built, _ = package.assemble(
+        [make_source(deposited)], package_name="slope",
+        energies=package._read_energies(path))
+    cid = built.complexes[0]
+    for member in (f"metrics/{cid}.json", f"harvest/{cid}.json"):
+        assert json.loads(built.members[member])["lie_drift_slope"] == 0.4
