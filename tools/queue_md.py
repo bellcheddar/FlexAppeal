@@ -87,18 +87,33 @@ def run_row(row: dict, *, out_dir: Path, production_ns: float,
     if equil_ns is not None:
         command += ["--equil-ns", str(equil_ns)]
 
-    log(f"starting {name}: {row['note']}")
+    # Streamed line by line to this queue's own log rather than captured and
+    # printed at the end. A captured 24-hour run shows nothing at all until it
+    # finishes, which is the one time progress is worth having: there is no way
+    # to tell a run that is slow from one that has hung.
+    row_log = out_dir / f"{name}.log"
+    log(f"starting {name}: {row['note']}  (log: {row_log})")
     started = time.time()
-    result = subprocess.run(command, cwd=ROOT, capture_output=True, text=True)
+    with row_log.open("w") as handle:
+        process = subprocess.Popen(command, cwd=ROOT, stdout=subprocess.PIPE,
+                                   stderr=subprocess.STDOUT, text=True,
+                                   bufsize=1)
+        for line in process.stdout:
+            handle.write(line)
+            handle.flush()
+            # Echoed selectively: the queue log is the one a human reads, and
+            # a full StateDataReporter stream would bury the stage changes.
+            if any(key in line for key in
+                   ("minimis", "heating", "NPT", "production", "platform",
+                    "released", "resumed", "done in", "Error", "error",
+                    "Traceback", "NaN", "reusing", "membrane protocol")):
+                print(f"    {line.rstrip()}", flush=True)
+        returncode = process.wait()
     elapsed = time.time() - started
 
-    tail = (result.stdout or "").strip().splitlines()[-6:]
-    for line in tail:
-        print(f"    {line}", flush=True)
-    if result.returncode != 0:
-        error = (result.stderr or "").strip().splitlines()[-8:]
-        log(f"{name} FAILED after {elapsed / 60:.1f} min")
-        for line in error:
+    if returncode != 0:
+        log(f"{name} FAILED after {elapsed / 60:.1f} min; see {row_log}")
+        for line in row_log.read_text().strip().splitlines()[-8:]:
             print(f"    {line}", flush=True)
     else:
         log(f"{name} finished in {elapsed / 60:.1f} min")
@@ -110,7 +125,7 @@ def run_row(row: dict, *, out_dir: Path, production_ns: float,
             speed = json.loads(run_json.read_text()).get("ns_per_day")
         except json.JSONDecodeError:
             pass
-    return {"name": name, "ok": result.returncode == 0,
+    return {"name": name, "ok": returncode == 0,
             "minutes": round(elapsed / 60, 1), "ns_per_day": speed}
 
 

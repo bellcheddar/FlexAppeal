@@ -1,0 +1,215 @@
+#!/usr/bin/env python3
+"""Analyse one finished or in-flight production run.
+
+Sections 5.4 to 5.6 end to end: resolve the motifs, build the reference motif
+coordinates, superpose each frame on the core and score it. Writes one JSON per
+run, which is what the Runs library in section 6 reads.
+
+Safe to run on a trajectory that is still being written, which is what section
+2.3's streaming analysis needs: mdtraj reads whatever frames are on disk, and a
+later pass simply sees more of them.
+"""
+
+from __future__ import annotations
+
+import argparse
+import json
+import sys
+import time
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT))
+
+KLIFS_CACHE = ROOT / "data" / "cache" / "klifs"
+GPCRDB_CACHE = ROOT / "data" / "cache" / "gpcrdb"
+
+# The kinase motifs section 5.4 asks to be scored, by KLIFS region name. The
+# pocket scaffold is excluded on purpose: it is the superposition reference, and
+# scoring a motif against the frame it was superposed on would report zero.
+KINASE_MOTIFS = ("g.l", "alphaC", "hinge", "c.l", "xDFG", "A-loop")
+
+# Section 5.5's receptor motifs, by GPCRdb segment, plus the NPxxY stretch which
+# is a span of generic numbers rather than a segment.
+GPCR_MOTIFS = ("TM5", "TM6", "TM7", "H8", "NPxxY")
+
+
+def log(message: str) -> None:
+    print(f"[{time.strftime('%H:%M:%S')}] {message}", flush=True)
+
+
+def kinase_setup(start_pdb: Path, reference_pdb: str):
+    """Motif residues, core and reference ensembles for a kinase run."""
+    from flexappeal.refstates import Catalogue, kinase_id, kinase_references
+    from flexappeal.refstates import ensembles, pocket, refs
+    from flexappeal.refstates.traj import core_agreement, scaffold_core
+
+    catalogue = Catalogue(KLIFS_CACHE)
+    kid = kinase_id(catalogue)
+    ids = pocket.structure_ids(catalogue, kid)
+    log(f"KLIFS kinase {kid}, {len(ids)} structures")
+
+    import gemmi
+
+    structure = gemmi.read_structure(str(start_pdb))
+    structure.setup_entities()
+    chain = structure[0][0]
+
+    own = pocket.pocket_map(catalogue, ids[reference_pdb.upper()])
+    last = max(r.seqid.num for r in chain)
+    motif_residues: dict[str, list[int]] = {}
+    for name in KINASE_MOTIFS:
+        if name == "A-loop":
+            residues = pocket.activation_loop(own, chain, last_residue=last)
+        else:
+            residues = own.region(name)
+        present = [n for n in residues if any(r.seqid.num == n for r in chain)]
+        if present:
+            motif_residues[name] = present
+
+    core = scaffold_core(own)
+    ensemble_rows = kinase_references(catalogue, kid)
+
+    # Each reference resolves its own residue numbers, which is what makes the
+    # ABL1a and ABL1b entries comparable at all: 3PYY is 19 residues offset and
+    # a shared residue list would read every motif at the wrong place in it.
+    maps: dict[str, pocket.PocketMap] = {}
+
+    def pocket_for(code: str):
+        if code not in maps:
+            maps[code] = pocket.pocket_map(catalogue, ids[code])
+        return maps[code]
+
+    def motifs_for(code: str):
+        found = pocket_for(code)
+        out: dict[str, list[int]] = {}
+        for name, residues in motif_residues.items():
+            if name == "A-loop":
+                theirs = pocket.activation_loop(found)
+                # Lengths must match the trajectory's motif or the RMSD is
+                # meaningless; trimmed to the shorter and skipped if it cannot.
+                theirs = theirs[:len(residues)]
+            else:
+                theirs = found.region(name)
+            if len(theirs) == len(residues):
+                out[name] = theirs
+        return out
+
+    def core_for(code: str):
+        return scaffold_core(pocket_for(code)).residues
+
+    rows = {}
+    for which in ("active", "inactive"):
+        entries = []
+        for entry in ensemble_rows[which].entries:
+            code = str(entry["pdb"]).upper()
+            if code not in ids:
+                continue
+            path = refs.fetch_mmcif(code, KLIFS_CACHE)
+            entries.append({"pdb": code, "path": str(path),
+                            "chain": entry.get("chain") or ""})
+        rows[which] = entries
+        log(f"{which}: {len(entries)} references")
+
+    built = ensembles.build(rows, motif_residues_for=motifs_for,
+                            core_residues_for=core_for)
+
+    alignment = ensembles.align_to_common_frame(built)
+    log(f"aligned {alignment['n_aligned']} references onto "
+        f"{alignment['target']}: core residual mean "
+        f"{alignment['mean_core_rmsd_a']} A, max {alignment['max_core_rmsd_a']} A"
+        + (f", {alignment['n_dropped']} dropped" if alignment['n_dropped'] else ""))
+
+    cores = {code: motifs[ensembles.CORE_KEY]
+             for state in built for code, motifs in built[state].by_code.items()}
+    agreement = core_agreement(cores)
+    log(f"core agreement across {agreement.get('n')} references: mean "
+        f"{agreement.get('mean_rmsd_a')} A, worst {agreement.get('max_rmsd_a')} A "
+        f"({agreement.get('worst')})")
+    return motif_residues, core, built, own, {"rigidity": agreement,
+                                               "alignment": alignment}
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--name", required=True)
+    parser.add_argument("--start", type=Path, required=True)
+    parser.add_argument("--kind", choices=("kinase", "gpcr"), required=True)
+    parser.add_argument("--reference-pdb", default="2GQG",
+                        help="the entry whose pocket map resolves the "
+                             "construct's own motif residues")
+    parser.add_argument("--run-dir", type=Path, default=None)
+    parser.add_argument("--stride", type=int, default=1)
+    parser.add_argument("--out", type=Path, default=ROOT / "data" / "analysis")
+    args = parser.parse_args()
+
+    run_dir = args.run_dir or (ROOT / "data" / "md" / args.name)
+    trajectory = run_dir / "trajectory.dcd"
+    solvated = run_dir / "solvated.pdb"
+    if not trajectory.is_file():
+        raise SystemExit(f"no trajectory at {trajectory}")
+
+    from flexappeal.refstates import ensembles, traj
+
+    log(f"loading {trajectory.name} (stride {args.stride})")
+    loaded = traj.load(solvated, trajectory, stride=args.stride)
+    mapping = traj.deposited_numbering(args.start, loaded.topology)
+    changed = traj.renumber(loaded.topology, mapping)
+    log(f"{loaded.n_frames} frames, {changed} residues restored to deposited "
+        f"numbering ({min(mapping.values())} to {max(mapping.values())})")
+
+    if args.kind != "kinase":
+        raise SystemExit("the receptor path is not wired up yet")
+
+    (motif_residues, core, built, own,
+     agreement) = kinase_setup(args.start, args.reference_pdb)
+    log(f"core: {len(core.residues)} residues, {core.source}")
+    for name, residues in sorted(motif_residues.items()):
+        log(f"  motif {name}: {len(residues)} residues {residues[:4]}"
+            f"{'...' if len(residues) > 4 else ''}")
+
+    from flexappeal.refstates.kinase import classify_dfg
+    from flexappeal.refstates.pocket import r_spine, r_spine_state
+
+    def rule_labels(chain, index):
+        """The rule-based half of section 5.6, per frame.
+
+        Only the measures that one frame answers by itself. The DFG call needs
+        the vendored comparison frame, which is built against a reference rather
+        than per frame, so the spine is what reaches the score here and the DFG
+        state is reported separately.
+        """
+        spine = r_spine(own, chain)
+        state = r_spine_state(chain, spine)
+        return {"xDFG": (state["state"], "r_spine")}
+
+    run = traj.analyse(loaded, name=args.name, kind=args.kind, core=core,
+                       motif_residues=motif_residues,
+                       reference_motifs=ensembles.for_scoring(built),
+                       rule_labels=rule_labels)
+
+    out_dir = Path(args.out)
+    out_dir.mkdir(parents=True, exist_ok=True)
+    payload = run.as_row()
+    payload["ensembles"] = {state: e.as_row() for state, e in built.items()}
+    payload["core_agreement"] = agreement
+    path = out_dir / f"{args.name}.json"
+    path.write_text(json.dumps(payload, indent=2))
+
+    last = run.frames[-1] if run.frames else None
+    if last is not None:
+        log(f"frame {last.time_ns:.1f} ns: whole score "
+            f"{last.whole_s if last.whole_s is None else round(last.whole_s, 3)} "
+            f"({last.whole_label}), {last.n_conflicts} conflicts")
+        for motif in last.motifs:
+            if motif.s is None:
+                continue
+            log(f"   {motif.motif:8s} s {motif.s:+.3f}  {motif.label:12s} "
+                f"d_act {motif.d_act_a:.2f} ({motif.nearest_active}) "
+                f"d_inact {motif.d_inact_a:.2f} ({motif.nearest_inactive})")
+    log(f"wrote {path}")
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
