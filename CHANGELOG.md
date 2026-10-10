@@ -7,6 +7,16 @@ checkbox list in `README.md`.
 
 ### Changed
 
+- **The example intro now describes the run it is showing.** It still said 1AKI,
+  hen egg-white lysozyme, 10 ns, 19,433 atoms, an M1 Max and a 200 ps
+  equilibration. It is 181L, T4 lysozyme L99A with benzene, 1.80 A, 100 ns,
+  25,463 atoms with 7,600 waters, an M2 Ultra and a 1 ns equilibration, and the
+  ligand is parameterised with OpenFF 2.2.1 and AM1-BCC charges.
+- **The trajectory clip's caption no longer claims to be this page's run.** The
+  clip was rendered from the 10 ns apo run and is decorative, so it now says it
+  is illustrative rather than naming the Example tab's own data. Re-rendering it
+  from the committed run would let it say otherwise.
+
 - **The Example tab is now a 100 ns run of T4 lysozyme L99A with benzene.**
   Previously a 10 ns apo run of hen egg-white lysozyme, which renders the
   whole-system panels and not one binding-site panel, so eleven panels and the
@@ -32,6 +42,35 @@ checkbox list in `README.md`.
 
 ### Added
 
+- **A grade meter on the Analysis tab, and `flexappeal/grade.py` behind it.** The
+  page used to carry a paragraph saying there was no grade on it, that this was
+  deliberate, and that a study package was the way to get one. That was
+  unnecessary. DeepFlex already grades a complex whose sub-scores are incomplete
+  by renormalising the missing weight across the rest rather than filling it with
+  a neutral value, so one complex with no cohort is a case its own arithmetic
+  covers. Withholding the number and pointing at another site was worse for a
+  reader than running the same arithmetic here.
+
+  The module is a transcription of DeepFlex's `config/grade.toml` and
+  `pipeline/grade.py`: the six weights, the five ramps, the bands with their
+  sub-bands, the sparse-fingerprint fallback that may only lower a score, and
+  both hard gates. `tests/test_grade.py` pins every one of those numbers against
+  the values published in the spec, because a transcription is worth having only
+  while it agrees with the original.
+
+  What stays DeepFlex's is what needs the cohort. The energy sub-score is a
+  percentile among the other ligands against the same receptor, so it is pending
+  and its 15% is spread over the five that were measured; the meter shows the
+  struck-through 15% beside the weight each sub-score actually bore. Both rank
+  columns need the cohort too.
+
+  Nothing from this module is written into a `.fxa`. Spec section 7 reserves the
+  grade to DeepFlex on ingest so a file carries one copy of the judgement; this
+  one is rendered and discarded.
+
+  The committed example grades **A, 83.6**: pose 73.5, occupancy 100,
+  interactions 100, convergence 40.4, conformation 100.
+
 - **RDKit on the deployed site.** It was left out of `requirements.txt` on the
   reasoning that a chemistry toolkit was too much to carry for two charts on a
   small box. Both halves of that were wrong. It is three panels and the 2D
@@ -52,6 +91,12 @@ checkbox list in `README.md`.
   a swap back to an apo example cannot quietly stop testing them.
 
 ### Removed
+
+- **The two measurement notes shown under that paragraph.** The bond-order
+  inference caveat and the no-rotatable-bond note. They are still recorded on the
+  measurement and still travel into a package, where DeepFlex handles them; they
+  were caveats about how a number was made, printed above the numbers, which is
+  not where a reader needs them.
 
 - **The 10 ns apo example.** Two committed examples means two multi-megabyte
   results files in a public repository serving one Example tab, and the apo case

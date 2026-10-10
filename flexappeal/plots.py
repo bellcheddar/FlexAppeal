@@ -865,11 +865,14 @@ def build_reanalysis(metrics: dict[str, Any]) -> list[dict[str, Any]]:
 # ===========================================================================
 #
 # The same measurements an `.fxa` version 2 package carries, drawn for the one
-# complex an upload contains. There is deliberately no grade here: the six
-# sub-scores are weighted and banded in DeepFlex, and the energy sub-score, the
-# league table and both rank columns are percentiles within a receptor's own
-# cohort, which a single complex does not have. These panels show what was
-# measured and leave the judgement where its definition lives.
+# complex an upload contains. The grade that goes above them is built separately
+# in `flexappeal.grade`, which is a transcription of DeepFlex's own weights and
+# bands; these builders stay about what was measured.
+#
+# What a single complex still cannot have is anything needing the cohort: the
+# energy sub-score is a percentile among the other ligands run against the same
+# receptor, and the league table and both rank columns are positions in it. A
+# package is what produces those.
 
 # Interaction types, in the order they are stacked and coloured. Polar and ionic
 # are the directional, specific ones and get the first two slots; hydrophobic is

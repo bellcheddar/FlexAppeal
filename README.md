@@ -196,11 +196,21 @@ solvent, which this pipeline does not do, so `--energies` carries them in from
 wherever a study computed them. Without it the energy sub-score is pending and the
 other five are unaffected.
 
-The Analysis tab draws the same binding-site measurements for a single run, under
-a heading that says plainly there is no grade on that page and why: a grade is a
-rank within a cohort, and one run is not a cohort. Eleven panels, the 2D depiction
-shaded by atom mobility, and a frame slider that moves the structure viewer and
-every chart together.
+The Analysis tab draws the same binding-site measurements for a single run, and
+grades it. Eleven panels, the 2D depiction shaded by atom mobility, a frame slider
+that moves the structure viewer and every chart together, and a meter carrying the
+letter, the composite score and each sub-score with the weight it actually bore.
+
+The grade is DeepFlex's, not a second opinion. `flexappeal/grade.py` is a
+transcription of its `grade.toml` and `grade.py`, and the test suite pins every
+weight, ramp, band and gate against the published values so the two cannot drift.
+A single complex can be graded because DeepFlex already grades one whose
+sub-scores are incomplete: the missing weight is renormalised across the rest
+rather than filled with a neutral value, which is exactly the case a lone complex
+presents. The energy sub-score is the one that needs the cohort, being a
+percentile among the other ligands run against the same receptor, so its 15% is
+spread over the five that were measured and the meter says so. Both rank columns
+need the cohort too, and a package is still what produces them.
 
 The Example tab shows them on the committed 100 ns benzene run, where two of the
 twelve stay empty for reasons worth stating. Benzene has no nitrogen, oxygen or

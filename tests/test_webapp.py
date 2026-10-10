@@ -1331,11 +1331,13 @@ def test_a_ligand_upload_shows_the_binding_panels(client):
         assert f'id="plot-binding-{panel}"' in body, panel
 
 
-def test_the_binding_section_says_there_is_no_grade(client):
-    """The weights and the bands live in DeepFlex, and a cohort of one is none.
+def test_the_binding_section_shows_a_grade(client):
+    """A single complex is graded, and the meter shows what the grade rests on.
 
-    Showing these measurements without saying that would invite a reader to
-    assume the absence of a grade means a bad one.
+    The page used to say there was no grade and point at DeepFlex. That was
+    unnecessary: DeepFlex already grades a complex with incomplete sub-scores by
+    renormalising the missing weight away, so one complex with no cohort is a
+    case its own arithmetic covers.
     """
     fixture = FIXTURES / "trypsin_ben.fxa"
     if not fixture.is_file():
@@ -1345,8 +1347,21 @@ def test_the_binding_section_says_there_is_no_grade(client):
 
     webapp_mod._BINDING_CACHE.clear()
     body = _analyse(client, fixture.read_bytes()).get_data(as_text=True)
-    assert "no grade here" in body
-    assert "flexappeal package" in body
+
+    assert "md-grade" in body
+    assert "md-grade-letter" in body
+    # Every sub-score is named, including the one that cannot be measured here.
+    for label in ("Pose", "Occupancy", "Interactions", "Energy",
+                  "Convergence", "Conformation"):
+        assert f">{label}</th>" in body, label
+    # And the page says why the energy weight was redistributed rather than
+    # leaving a reader to wonder what a struck-through 15% means.
+    assert "percentile among the other" in body
+    assert "not measured here" in body
+
+    # The copy this replaced must be gone, both halves of it.
+    assert "no grade here" not in body
+    assert "bond orders were inferred" not in body
 
 
 def test_an_apo_upload_shows_no_binding_section(client):

@@ -452,8 +452,9 @@ def _binding_panels(results, content: bytes, label: str) -> dict[str, Any]:
         return _BINDING_CACHE[key]
 
     record: dict[str, Any] = {"panels": [], "notes": [], "depiction": None,
-                              "painted": False}
+                              "painted": False, "grade": None}
     try:
+        from flexappeal import grade as grade_mod  # noqa: PLC0415
         from flexappeal import package as package_mod  # noqa: PLC0415
 
         measured, reasons = package_mod.measure_results(results, label)
@@ -463,6 +464,10 @@ def _binding_panels(results, content: bytes, label: str) -> dict[str, Any]:
             record["panels"] = plots.build_binding(measured)
             record["notes"] = list(measured.notes)
             record["painted"] = bool(measured.depiction_painted)
+            # Graded here and not in the package: spec section 7 reserves the
+            # grade to DeepFlex on ingest so there is only ever one copy of the
+            # judgement in a file. This one is rendered and discarded.
+            record["grade"] = grade_mod.meter(grade_mod.score_one(measured))
             if measured.depiction_svg:
                 # A data URI rather than a route: the diagram is a few kilobytes
                 # and belongs to the page that measured it, so serving it
@@ -485,11 +490,14 @@ def _binding_panels(results, content: bytes, label: str) -> dict[str, Any]:
 #  The worked example
 # ---------------------------------------------------------------------------
 #
-# A real 10 ns run of hen egg-white lysozyme, committed to the repository and
-# rendered through the same code path as an upload. Deliberately not a
+# A real 100 ns run of T4 lysozyme L99A with benzene, committed to the repository
+# and rendered through the same code path as an upload. Deliberately not a
 # screenshot or a written-up transcript: the panels below are built by
 # plots.build_all() from the .fxa the run actually produced, so a change that
 # breaks the Analysis tab breaks this page too and cannot ship looking fine.
+#
+# A complex rather than an apo protein because an apo run draws none of the
+# binding-site panels, so an apo example would leave most of the tab untested.
 
 # Which committed run the Example tab shows. One name, because the directory,
 # the results file and the bundle are all named after it: changing the example

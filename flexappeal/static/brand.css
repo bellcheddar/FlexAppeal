@@ -468,6 +468,82 @@ a { color: var(--md-primary); }
   border-left: 2px solid var(--md-border); color: var(--md-text-muted);
   font-size: 12px;
 }
+/* The binding grade. Weighted and banded in flexappeal/grade.py, which is a
+   transcription of DeepFlex's own grade.toml, so the meter and a DeepFlex report
+   read the same for the same run.
+
+   A dial beside a table rather than a gauge arc: the number needs a scale with
+   the band boundaries on it to mean anything, and a reader who wants to know why
+   a run scored what it did needs the six rows under it more than they need the
+   dial. The bands are drawn from the same values the letter came from, passed
+   through from the template, so the ticks cannot drift from the thresholds. */
+.md-grade {
+  display: flex; gap: 22px; align-items: flex-start; flex-wrap: wrap;
+  margin: 4px 0 14px;
+}
+.md-grade-dial {
+  flex: 0 0 auto; display: flex; flex-direction: column; align-items: center;
+  justify-content: center; width: 104px; height: 104px; border-radius: 50%;
+  border: 3px solid var(--md-border); background: var(--md-bg-alt);
+}
+.md-grade-letter { font-size: 34px; font-weight: 700; line-height: 1; }
+.md-grade-score { font-size: 12px; color: var(--md-text-muted); margin-top: 4px; }
+.md-grade-score em { font-style: normal; opacity: 0.65; }
+/* Band colour on the ring and the letter only. The bars below stay neutral: a
+   sub-score is not itself graded, and colouring each row would imply bands that
+   only the composite has. */
+.md-grade-A { border-color: var(--md-accent-green); }
+.md-grade-A .md-grade-letter { color: #00875a; }
+.md-grade-B { border-color: var(--md-accent-amber); }
+.md-grade-B .md-grade-letter { color: #8a6500; }
+.md-grade-C { border-color: var(--md-accent-red); }
+.md-grade-C .md-grade-letter { color: var(--md-accent-red); }
+
+.md-grade-body { flex: 1 1 320px; min-width: 300px; }
+.md-grade-scale {
+  position: relative; height: 10px; border-radius: 5px;
+  background: var(--md-bg-alt); border: 1px solid var(--md-border);
+  margin: 6px 0 26px;
+}
+.md-grade-fill {
+  position: absolute; inset: 0 auto 0 0; border-radius: 4px;
+  background: linear-gradient(90deg, #9fb3c8, #4a6c8f);
+}
+.md-grade-tick { position: absolute; top: -3px; bottom: -3px; width: 1px;
+  background: var(--md-text-muted); }
+.md-grade-tick::after {
+  content: attr(data-label); position: absolute; top: 14px; left: 0;
+  transform: translateX(-50%); font-size: 10px; letter-spacing: 0.04em;
+  color: var(--md-text-muted); white-space: nowrap;
+}
+
+.md-grade-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+.md-grade-table th[scope="row"] {
+  text-align: left; font-weight: 500; padding: 3px 10px 3px 0; white-space: nowrap;
+}
+.md-grade-bar-cell { width: 100%; }
+.md-grade-bar {
+  display: block; height: 7px; border-radius: 4px; background: var(--md-bg-alt);
+  border: 1px solid var(--md-border); overflow: hidden;
+}
+.md-grade-bar > span { display: block; height: 100%; background: #6b8cae; }
+.md-grade-value {
+  text-align: right; padding-left: 10px; font-variant-numeric: tabular-nums;
+  width: 4ch;
+}
+.md-grade-weight {
+  text-align: right; padding-left: 12px; color: var(--md-text-muted);
+  font-variant-numeric: tabular-nums; width: 5ch;
+}
+.md-grade-table tr.is-pending th[scope="row"] { color: var(--md-text-muted); }
+.md-grade-pending { font-size: 11px; color: var(--md-text-muted); }
+
+@media (max-width: 640px) {
+  .md-grade { gap: 14px; }
+  .md-grade-dial { width: 84px; height: 84px; }
+  .md-grade-letter { font-size: 28px; }
+}
+
 .md-plot { width: 100%; height: 340px; }
 .md-plot-small { height: 210px; }
 .md-plot-error { font-size: 13px; color: var(--md-accent-red); }

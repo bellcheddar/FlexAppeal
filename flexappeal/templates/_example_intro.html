@@ -15,11 +15,17 @@
 <section class="md-card md-intro md-example-lede">
   <h2>A complete run, start to finish</h2>
   <p>
-    This is hen egg-white lysozyme &mdash; <a href="https://www.rcsb.org/structure/1AKI"
-    target="_blank" rel="noopener noreferrer">PDB&nbsp;1AKI</a>, the orthorhombic form at
-    1.5&nbsp;&Aring; &mdash; simulated for <strong>10&nbsp;nanoseconds</strong> in explicit water
-    on an Apple&nbsp;M1&nbsp;Max. It is the same three steps the two tabs either side of this one
-    describe: configure a run, run the single file it hands you, upload what comes back.
+    This is T4 lysozyme L99A with benzene bound in its buried non-polar cavity &mdash;
+    <a href="https://www.rcsb.org/structure/181L" target="_blank"
+    rel="noopener noreferrer">PDB&nbsp;181L</a>, X-ray at 1.80&nbsp;&Aring; &mdash; simulated for
+    <strong>100&nbsp;nanoseconds</strong> in explicit water on an Apple&nbsp;M2&nbsp;Ultra. It is
+    the same three steps the two tabs either side of this one describe: configure a run, run the
+    single file it hands you, upload what comes back.
+  </p>
+  <p>
+    The ligand is the point. A run with nothing bound draws the whole-system panels and not one
+    of the eleven binding-site panels, so this cavity &mdash; the one the literature uses to ask
+    what a buried non-polar site will hold &mdash; is what makes the rest of this page real.
   </p>
   <p>
     Nothing here is illustrative. The tables are read out of the run's own
@@ -33,19 +39,22 @@
       <span class="md-example-step">1</span>
       <h3>Prepared</h3>
       <p>
-        1AKI loaded from the RCSB, hydrogens added at pH&nbsp;7.4, solvated in a
-        dodecahedral box with 1.2&nbsp;nm padding and neutralised to 0.15&nbsp;M NaCl.
-        <strong>2,194</strong> solute atoms became <strong>19,433</strong> with water.
+        181L loaded from the RCSB, benzene kept and its bond orders taken from the
+        chemical dictionary, hydrogens added at pH&nbsp;7.4, solvated in a dodecahedral
+        box with 1.2&nbsp;nm padding and neutralised to 0.15&nbsp;M NaCl.
+        <strong>3,023</strong> solute atoms became <strong>25,463</strong> with
+        7,600 waters.
       </p>
     </div>
     <div>
       <span class="md-example-step">2</span>
       <h3>Ran</h3>
       <p>
-        One <code>.command</code> file, run from Terminal. It benchmarked the machine's
-        platforms, minimised, heated to 310&nbsp;K, equilibrated for 200&nbsp;ps while
-        releasing restraints, then produced 10&nbsp;ns at 4&nbsp;fs with hydrogen-mass
-        repartitioning.
+        One <code>.command</code> file, run from Terminal. It parameterised benzene with
+        OpenFF&nbsp;2.2.1 and AM1-BCC charges, benchmarked the machine's platforms, minimised,
+        heated to 310&nbsp;K, equilibrated for 1&nbsp;ns while releasing restraints, then
+        produced 100&nbsp;ns at 4&nbsp;fs with hydrogen-mass repartitioning &mdash;
+        8.05&nbsp;hours at 298&nbsp;ns/day on OpenCL.
       </p>
     </div>
     <div>
