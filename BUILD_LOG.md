@@ -94,3 +94,40 @@ Timestamped, one line per meaningful event, for the reference-state build
   pass section 5.1's validation. Fit RMSD 0.20 A for the inactive model and
   2.51 A for the active, which is the activation difference showing up before
   any simulation runs.
+- `16:0x` **Both β2AR membrane systems build.** Three faults in the way, and the
+  error message named none of them.
+  - The deposited CAU has no hydrogens, so the SMIRNOFF template could not match
+    the residue in the topology. Fixed the way bundles already do it, by taking
+    chemistry from the CCD definition and coordinates from the deposition.
+  - `addMembrane` believed gemmi's placeholder `CRYST1` of 1 1 1 and sized the
+    box height from the lipid patch rather than from the 9.4 nm receptor, which
+    wrapped it onto itself (D014). Not a precision problem, which was the first
+    guess: it failed identically on the CPU at double precision.
+  - The built system's contents exceed its own periodic box. Whole lipids are
+    kept when the patch is tiled, so the bilayer overhangs by about 9 Å a side,
+    and `addSolvent` then fills the box interior where those atoms already sit
+    once the boundary applies. 235 overlapping pairs, 231 water against water,
+    460 solvent molecules of 42,022. As-built energy is **+136,000,000 kJ/mol**
+    in single precision against **-2,060,000** on the CPU at double, with water
+    oxygens carrying 200,000 kJ/mol/nm.
+- `16:0x` Finding the third one took four diagnostics and the first three
+  hypotheses were wrong, which is worth recording because each was plausible:
+  it is not precision (the unrestrained system survives on OpenCL single), not
+  minimisation depth (uncapped and capped both minimise to -2.79 M unrestrained),
+  and not the restraint formulation. The restraint is correct, and
+  `periodicdistance` is the right form rather than a plain harmonic: OpenMM
+  wraps coordinates into the box, so the plain form reported a 5,045,427,552
+  kJ/mol restraint term on atoms sitting exactly at their reference positions
+  where `periodicdistance` reported 18.
+- `16:0x` Repair added to the build rather than worked around in the protocol:
+  solvent molecules overlapping another molecule's periodic image are deleted,
+  water before ions so the neutralisation `addMembrane` chose is preserved, and
+  a clash between two non-solvent molecules is reported and left alone, because
+  deleting a lipid or part of the receptor is not a repair.
+- `16:0x` Phase 4 analysis complete and verified on the partial ABL1 trajectory:
+  43 frames scored, all six motifs, every motif RMSD between 0.16 and 4.11 Å.
+  Two of the three bugs found along the way produced confident wrong answers
+  rather than errors (FINDINGS section 3).
+- `16:0x` Phase 6: a fifth tab reading one SQLite file, with the per-run
+  explorer, the generated finding and the reference browser where P1 and P2 are
+  visible to a reader as 17 of 17 with three unlabelled.
