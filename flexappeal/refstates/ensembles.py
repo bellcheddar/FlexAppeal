@@ -93,6 +93,95 @@ def motif_coordinates(ca: dict[int, tuple], residues: list[int]):
         return None
 
 
+# How many of the references a residue has to appear in to stay in a motif.
+# There is a real trade-off here and it is not avoidable: requiring every
+# reference leaves a 38-residue helix with nothing, and requiring none leaves
+# the motif defined by whichever structure resolved least. 0.9 keeps the motif
+# nearly whole while discarding the few partial depositions that would otherwise
+# set its size for everyone.
+MOTIF_COVERAGE = 0.9
+MOTIF_MINIMUM_RESIDUES = 3
+
+
+def common_motif_residues(references: dict[str, list[dict[str, Any]]], *,
+                          motif_residues_for: callable,
+                          coverage: float = MOTIF_COVERAGE,
+                          minimum: int = MOTIF_MINIMUM_RESIDUES
+                          ) -> tuple[dict[str, list[int]], dict[str, Any]]:
+    """Per motif, the residues enough references resolve to be comparable.
+
+    All-or-nothing per motif is the right rule for comparing one motif across
+    two structures, and applied to the residue list a caller *wants* it silently
+    drops the large motifs. TM6 is 38 residues through the most mobile helix of
+    the receptor and no deposition resolves all of them, so every reference
+    failed the check and the motif went unscored; the kinase activation loop
+    went the same way. Both are the motif that carries the state, which makes
+    them the worst two to lose, and nothing in the output said they were gone.
+
+    Intersecting across every reference is no better: on 116 GPCRdb entries it
+    leaves every motif empty, because a handful of partial depositions decide
+    the answer for all of them.
+
+    So a residue stays if `coverage` of the references resolve it, and the
+    references that do not resolve the surviving set are dropped for that motif
+    by `build`. The correspondence stays exact residue to residue, which is what
+    makes an RMSD between two structures mean anything, and the cost is visible:
+    the report says how many residues each motif kept and how many references
+    can still be compared on it.
+    """
+    import numpy as np
+
+    counts: dict[str, dict[int, int]] = {}
+    present_in: dict[str, int] = {}
+    wanted: dict[str, list[int]] = {}
+    seen = 0
+    for rows in references.values():
+        for row in rows:
+            path = Path(row["path"])
+            if not path.is_file():
+                continue
+            ca = ca_by_residue(path, str(row.get("chain") or ""))
+            if not ca:
+                continue
+            seen += 1
+            for motif, residues in (motif_residues_for(
+                    str(row["pdb"]).upper()) or {}).items():
+                wanted.setdefault(motif, list(residues))
+                tally = counts.setdefault(motif, {})
+                found = [n for n in residues if n in ca]
+                # Coverage is taken over the references that have this motif at
+                # all, not over every reference. Helix 8 is absent or disordered
+                # in most beta2AR depositions, and measured against all of them
+                # it kept no residues; measured against the ones that have it,
+                # it is perfectly comparable on a smaller ensemble. The ensemble
+                # size is reported so a reader knows which it is.
+                if len(found) >= minimum:
+                    present_in[motif] = present_in.get(motif, 0) + 1
+                    for number in found:
+                        tally[number] = tally.get(number, 0) + 1
+
+    if not seen:
+        return {}, {"n_references": 0}
+
+    kept: dict[str, list[int]] = {}
+    report: dict[str, Any] = {"n_references": seen, "coverage": coverage,
+                              "motifs": {}, "dropped": []}
+    for motif, tally in counts.items():
+        available = present_in.get(motif, 0)
+        residues = sorted(n for n, count in tally.items()
+                          if count >= coverage * available)
+        report["motifs"][motif] = {
+            "requested": len(wanted.get(motif, [])),
+            "kept": len(residues),
+            "references_with_motif": available,
+        }
+        if len(residues) < minimum or available < 2:
+            report["dropped"].append(motif)
+            continue
+        kept[motif] = residues
+    return kept, report
+
+
 def build(references: dict[str, list[dict[str, Any]]], *,
           motif_residues_for: callable,
           core_residues_for: callable) -> dict[str, MotifEnsemble]:

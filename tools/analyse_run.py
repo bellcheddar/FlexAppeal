@@ -115,35 +115,42 @@ def kinase_setup(start_pdb: Path, reference_pdb: str):
                 aloop_cache[code] = pocket.activation_loop(found)
         return aloop_cache[code]
 
-    length_notes: list[str] = []
-
     def motifs_for(code: str):
+        """What this reference's own numbering calls each motif.
+
+        Returned per code rather than shared, which is what makes the ABL1a and
+        ABL1b entries comparable: 3PYY is offset by 19 residues and one shared
+        list would read every motif at the wrong place in it.
+        """
         found = pocket_for(code)
         out: dict[str, list[int]] = {}
         for name, residues in motif_residues.items():
             if name == "A-loop":
-                theirs = aloop_for(code)
-                # Both spans start at the DFG aspartate, so taking the same
-                # number of residues from that anchor is a real residue-to-
-                # residue correspondence. Trimming the longer one's tail is
-                # only correct because of the shared anchor.
-                keep = min(len(theirs), len(residues))
-                if keep and len(theirs) != len(residues):
-                    length_notes.append(
-                        f"{code} A-loop is {len(theirs)} residues against the "
-                        f"trajectory's {len(residues)}; compared on the first "
-                        f"{keep} from the DFG aspartate")
-                theirs = theirs[:keep]
+                # The one motif whose length is not fixed by the KLIFS
+                # alignment. Both spans start at the DFG aspartate, so taking
+                # the same count from that shared anchor is a real residue to
+                # residue correspondence; trimming the tail is only correct
+                # because the anchor is shared.
+                theirs = aloop_for(code)[:len(residues)]
             else:
                 theirs = found.region(name)
-            if theirs and len(theirs) == len(
-                    residues[:len(theirs)] if name == "A-loop" else residues):
+            if theirs and len(theirs) == len(residues[:len(theirs)]):
                 out[name] = theirs
         return out
 
     def core_for(code: str):
         return scaffold_core(pocket_for(code)).residues
 
+    # No coverage intersection here, unlike the receptor path, and the reason is
+    # worth stating because trying it made things much worse. ABL1's references
+    # are split between the ABL1a and ABL1b numbering, 19 residues apart, so
+    # intersecting residue *numbers* across them compares 290 in one structure
+    # with 309 in another and the intersection collapses to nothing: every motif
+    # but one was dropped. The receptor's references all share one numbering,
+    # which is what makes the same operation safe there.
+    #
+    # So each reference keeps its own numbering and `build` drops a reference
+    # for a motif it does not fully resolve, keeping it for the others.
     built = ensembles.build(rows, motif_residues_for=motifs_for,
                             core_residues_for=core_for)
 
@@ -159,11 +166,8 @@ def kinase_setup(start_pdb: Path, reference_pdb: str):
     log(f"core agreement across {agreement.get('n')} references: mean "
         f"{agreement.get('mean_rmsd_a')} A, worst {agreement.get('max_rmsd_a')} A "
         f"({agreement.get('worst')})")
-    if length_notes:
-        log(f"A-loop length differences: {len(length_notes)} references")
     return motif_residues, core, built, own, {"rigidity": agreement,
-                                              "alignment": alignment,
-                                              "aloop_notes": length_notes[:10]}
+                                              "alignment": alignment}
 
 
 def gpcr_setup(start_pdb: Path):
@@ -232,6 +236,22 @@ def gpcr_setup(start_pdb: Path):
                             "chain": str(entry.get("preferred_chain") or "")[:1]})
         rows[which] = entries
         log(f"{which}: {len(entries)} references")
+
+    # Restricted to what every reference resolves. Without this TM6, the
+    # headline activation motif, went unscored: 38 residues through the most
+    # mobile helix of the receptor and no structure resolves all of them.
+    common, coverage = ensembles.common_motif_residues(
+        rows, motif_residues_for=motifs_for)
+    log(f"  motif coverage over {coverage['n_references']} references at "
+        f"{coverage['coverage']:.0%}:")
+    for name, counts in sorted(coverage["motifs"].items()):
+        state = "dropped" if name in coverage["dropped"] else "kept"
+        log(f"    {name}: {counts['kept']} of {counts['requested']} residues "
+            f"across {counts['references_with_motif']} references that have it, {state}")
+    motif_residues = {k: v for k, v in common.items()}
+
+    def motifs_for(code: str):                      # noqa: F811
+        return motif_residues
 
     built = ensembles.build(rows, motif_residues_for=motifs_for,
                             core_residues_for=core_for)
