@@ -1,0 +1,62 @@
+{% extends "base.html" %}
+{% block title %}Runs{% endblock %}
+{% block description %}Every results file kept in this library, with the full analysis for each one.{% endblock %}
+
+{% block content %}
+{% include "_banner.html" %}
+
+<section class="md-card md-intro">
+  <h2>Runs</h2>
+  <p>
+    Every results file kept here. Open one for the same panels an upload gets:
+    the grade, the binding site, the whole system, and the trajectory in the
+    viewer.
+  </p>
+  {% if runs | length == 1 %}
+    <p class="md-note">
+      One run so far, the committed example. Anything you upload on the
+      <a href="{{ url_for('analysis.analysis_page') }}">Analysis tab</a> can be
+      added from there, and nothing is added without you asking: a results file
+      can carry a receptor and a compound that are not published, and this site
+      is public.
+    </p>
+  {% endif %}
+</section>
+
+{% if runs %}
+  <section class="md-card md-panel is-wide">
+    <table class="md-table md-runs-table">
+      <thead>
+        <tr>
+          <th scope="col">Run</th>
+          <th scope="col">Length</th>
+          <th scope="col">Packed</th>
+          <th scope="col">Added</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for run in runs %}
+          <tr>
+            <th scope="row">
+              {% if run.broken %}
+                <span class="md-run-name">{{ run.label }}</span>
+                <span class="md-run-broken">{{ run.broken }}</span>
+              {% else %}
+                <a class="md-run-name" href="{{ url_for('analysis.run_page', run_id=run.id) }}">{{ run.label }}</a>
+                <span class="md-run-meta">
+                  {{ run.source }}{% if run.has_ligands %} · has a ligand{% endif %}{% if run.tier %} · {{ run.tier }} tier{% endif %}
+                </span>
+              {% endif %}
+            </th>
+            <td>{% if run.duration_ns %}{{ run.duration_ns }}<span class="md-units">ns</span>{% else %}&mdash;{% endif %}</td>
+            <td>
+              {% if run.frames %}{{ run.frames }}<span class="md-units">frames</span>{% else %}&mdash;{% endif %}
+            </td>
+            <td class="md-run-when">{{ run.created_at[:16].replace('T', ' ') }}</td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </section>
+{% endif %}
+{% endblock %}

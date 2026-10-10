@@ -7,6 +7,9 @@ checkbox list in `README.md`.
 
 ### Changed
 
+- **The example's "nothing here is illustrative" paragraph is gone.** It argued
+  for the page's own credibility, which the page demonstrates by rendering.
+
 - **The trajectory clip is the committed run again, with benzene in it.** It had
   been rendered from the old 10 ns apo run, so its caption had been reduced to
   calling itself illustrative. Re-rendered in PyMOL from the 100 ns benzene
@@ -85,6 +88,39 @@ checkbox list in `README.md`.
   worth guarding, and keeps the 95% floor against a truncated run.
 
 ### Added
+
+- **A Runs tab: a library of kept results files.** Each row opens on the full
+  analysis for that run -- the grade, the binding site, the whole system, the
+  viewer -- so a reader can drill into any of them without re-uploading
+  anything. Seeded with the committed example, which is served straight out of
+  `examples/` rather than copied in, so a fresh checkout has a populated tab with
+  no setup and the two cannot drift.
+
+  The descriptions move. The Example tab prints each panel's blurb above the
+  plot because it is teaching the product; a reader who opened their own run
+  wants the chart first, so here the same text sits in a closed `<details>`
+  under its own panel. The same `panel.blurb`, not a second set of words to keep
+  in step.
+
+  **An upload is kept only when the uploader asks.** A results file can carry a
+  receptor and a compound nobody has published, this site is public, and the
+  library is readable by anyone who finds it, so the checkbox says who can read
+  it rather than only that it will be saved. Unticked, an upload behaves exactly
+  as before: analysed in a scratch session and swept.
+
+  A directory, not a database: a run is one `.fxa` plus a line of metadata and
+  the listing is a handful of rows. Run ids are random tokens rather than job
+  names, because two runs can share a name and a name chosen by an uploader
+  would otherwise decide where a file lands on disk. The id is matched against a
+  pattern that admits no dot or separator and the resolved path is checked
+  against the root as well, because a traversal here would serve any file on the
+  box through the viewer's structure route.
+- **`_grade_meter.html` and `_results_context`, so three pages cannot drift.**
+  The Analysis tab, the Example tab and a run in the library render the same
+  measurements of the same kind of file, and they had already drifted once: the
+  binding panels reached the Analysis tab a release before the Example tab,
+  because only one of the two routes had been given them. One context builder,
+  one meter partial, three callers.
 
 - **The MM/GBSA term panel, which was the last one DeepFlex had and this did
   not.** A horizontal bar of the difference block -- van der Waals,

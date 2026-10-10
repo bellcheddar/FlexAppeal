@@ -1,0 +1,139 @@
+{% extends "base.html" %}
+{% block title %}{{ run_label }}{% endblock %}
+{% block description %}The full analysis for one run: the grade, the binding site, the whole system and the trajectory.{% endblock %}
+
+{#
+  One run from the library. The same measurements the Analysis tab shows, with
+  two differences that are the point of this page.
+
+  The prose is gone. The Example tab explains what a panel means because it is
+  teaching the product; here a reader already knows and wants the chart, so each
+  description moves to a `<details>` under its own panel and is closed by
+  default. The text is the same `panel.blurb` the other pages print above the
+  plot, so there is one description per panel rather than a second set to keep
+  in step.
+#}
+
+{% block content %}
+{% include "_banner.html" %}
+
+<section class="md-card md-run-header">
+  <p class="md-run-back"><a href="{{ url_for('analysis.runs_page') }}">&larr; All runs</a></p>
+  <h2>{{ run_label }}</h2>
+  <p class="md-run-sub">
+    {{ summary.duration_ns }} ns
+    {% if summary.force_field %} · {{ summary.force_field }}{% endif %}
+    {% if summary.platform %} · {{ summary.platform }}{% endif %}
+    {% if summary.structure.filename %} · {{ summary.structure.filename }}{% endif %}
+  </p>
+  {% if tiles %}
+    <dl class="md-tiles">
+      {% for t in tiles %}
+        <div class="md-tile">
+          <dt>{{ t.label }}</dt>
+          <dd>{{ t.value }}{% if t.unit %}<span class="md-tile-unit">{{ t.unit }}</span>{% endif %}</dd>
+        </div>
+      {% endfor %}
+    </dl>
+  {% endif %}
+</section>
+
+{% if warnings %}
+  <div class="md-issues">
+    {% for w in warnings %}
+      <div class="md-issue md-issue-warning"><strong>⚠</strong><span>{{ w }}</span></div>
+    {% endfor %}
+  </div>
+{% endif %}
+
+{% if has_viewer %}
+  <section class="md-card md-viewer-card">
+    <h3>Structure</h3>
+    <div class="md-viewer-stage">
+      <div id="molstar-viewer"
+           data-structure="{{ url_for('analysis.structure_file', token=token) }}"
+           data-trajectory="{{ url_for('analysis.trajectory_file', token=token) }}"
+           data-frames="{{ summary.frames_packed or 0 }}"
+           data-duration="{{ summary.duration_ns or 0 }}"></div>
+      {% if binding and binding.depiction %}
+        <figure class="md-depiction">
+          <img src="{{ binding.depiction }}" loading="lazy"
+               alt="{% if binding.painted %}Two-dimensional structure of the ligand, each atom shaded by how far it moved over the scored window{% else %}Two-dimensional structure of the ligand{% endif %}">
+          <figcaption>
+            {% if binding.painted %}
+              <span class="md-depiction-label">mobility</span>
+              <span class="md-ramp" aria-hidden="true">
+                {% for edge, colour in mobility_bands %}<i style="background: {{ colour }}"></i>{% endfor %}
+              </span>
+              <span class="md-ramp-ticks" aria-hidden="true">
+                <b>0</b><b>{{ mobility_ceiling }}+ Å</b>
+              </span>
+            {% else %}
+              <span class="md-depiction-label">structure only: no per-atom mobility</span>
+            {% endif %}
+          </figcaption>
+        </figure>
+      {% endif %}
+    </div>
+    {% if (summary.frames_packed or 0) > 1 %}
+      <div class="md-scrubber">
+        <label for="scrub">Trajectory</label>
+        <input type="range" id="scrub" min="0" max="{{ summary.frames_packed - 1 }}"
+               value="0" step="1"
+               data-frames="{{ summary.frames_packed }}"
+               data-duration="{{ summary.duration_ns or 0 }}"
+               aria-describedby="scrub-readout">
+        <span id="scrub-readout" class="md-scrub-readout">0.0 ns</span>
+        <button class="md-button" type="button" id="scrub-play"
+                aria-label="Pause the trajectory">Pause</button>
+      </div>
+    {% endif %}
+    <p class="md-viewer-status" id="viewer-status">Loading the structure…</p>
+  </section>
+{% endif %}
+
+{% macro panel_card(panel) %}
+  <section class="md-card md-panel {% if panel.wide %}is-wide{% endif %}">
+    <h3>{{ panel.title }}</h3>
+    <div class="md-plot" id="plot-{{ panel.id }}"
+         data-figure='{{ panel.figure | tojson }}'></div>
+    {% if panel.blurb %}
+      <details class="md-panel-more">
+        <summary>What this shows</summary>
+        <p>{{ panel.blurb }}</p>
+      </details>
+    {% endif %}
+  </section>
+{% endmacro %}
+
+{% if binding and binding.panels %}
+  <section class="md-card md-section-head">
+    <h2>The binding site</h2>
+    {% include "_grade_meter.html" %}
+  </section>
+  {% for panel in binding.panels %}{{ panel_card(panel) }}{% endfor %}
+  <section class="md-card md-section-head"><h2>The whole system</h2></section>
+{% endif %}
+
+{% for panel in panels %}{{ panel_card(panel) }}{% endfor %}
+
+{% if convergence %}
+  <section class="md-card md-panel is-wide">
+    <h3>Convergence</h3>
+    <div class="md-multiples">
+      {% for c in convergence %}
+        <div class="md-plot md-plot-small" id="plot-{{ c.id }}"
+             data-figure='{{ c.figure | tojson }}'></div>
+      {% endfor %}
+    </div>
+    <details class="md-panel-more">
+      <summary>What this shows</summary>
+      <p>
+        Each measure on its own axis. Energies, temperature and density differ by
+        orders of magnitude, so sharing a plot between any two of them would make
+        their alignment arbitrary and any apparent correlation fictional.
+      </p>
+    </details>
+  </section>
+{% endif %}
+{% endblock %}

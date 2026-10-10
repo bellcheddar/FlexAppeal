@@ -863,11 +863,17 @@ def _example_built():
     return EXAMPLE_FXA.is_file()
 
 
-def test_the_example_tab_is_in_the_navigation(client):
-    """Three tabs, and the third points at the example."""
+def test_every_tab_is_in_the_navigation(client):
+    """Four now: prepare, analyse, the example, and the runs library.
+
+    Counted rather than listed, because a tab added without a number is a tab
+    that looks like part of the previous one.
+    """
     html = client.get("/").get_data(as_text=True)
-    assert html.count("md-tab-num") == 3
-    assert "/example" in html
+    assert html.count("md-tab-num") == 4
+    # Prepare is the site root, not /prepare.
+    for path in ("/", "/analysis", "/example", "/runs"):
+        assert f'href="{path}"' in html, path
 
 
 def test_the_example_page_answers_either_way(client):
@@ -1553,3 +1559,136 @@ def test_the_ligand_is_drawn_without_hydrogens(client):
 
     script = (REPO_ROOT / "flexappeal" / "static" / "analysis.js").read_text()
     assert "ignoreHydrogens = true" in script
+
+
+# ===========================================================================
+#  The runs library
+# ===========================================================================
+
+
+@pytest.fixture
+def library(tmp_path, client):
+    """A client whose runs library is empty apart from the committed example."""
+    from flask import current_app
+
+    with client.application.app_context():
+        current_app.config["RUNS_ROOT"] = tmp_path
+    client.application.config["RUNS_ROOT"] = tmp_path
+    return client
+
+
+def test_the_runs_tab_is_in_the_navigation(library):
+    body = library.get("/runs").get_data(as_text=True)
+    assert "Runs" in body
+    assert 'href="/runs"' in body
+
+
+@pytest.mark.skipif(not _example_built(), reason="the example run has not been built")
+def test_the_library_is_seeded_with_the_committed_example(library):
+    """A fresh checkout has a populated Runs tab with no setup.
+
+    The example is served out of `examples/` rather than copied into the
+    library, so the two cannot drift.
+    """
+    from flexappeal import webapp as webapp_mod
+
+    with library.application.app_context():
+        rows = webapp_mod.list_runs()
+    assert [r["id"] for r in rows] == [webapp_mod.EXAMPLE_RUN_ID]
+    assert rows[0]["duration_ns"] == 100.0
+    assert rows[0]["has_ligands"] is True
+
+
+@pytest.mark.skipif(not _example_built(), reason="the example run has not been built")
+def test_a_run_shows_the_same_panels_an_upload_gets(library):
+    """The point of the tab: drill down from a row to the whole analysis."""
+    import re
+
+    pytest.importorskip("mdtraj")
+    from flexappeal import webapp as webapp_mod
+
+    webapp_mod._BINDING_CACHE.clear()
+    body = library.get("/runs/example").get_data(as_text=True)
+
+    ids = re.findall(r'id="plot-([a-z0-9_\-]+)"', body)
+    assert len(ids) == len(set(ids)), "a plot id is repeated"
+    assert len(ids) > 20, ids
+    assert "md-grade-letter" in body, "the grade meter is missing"
+    assert "molstar-viewer" in body, "the viewer is missing"
+
+
+@pytest.mark.skipif(not _example_built(), reason="the example run has not been built")
+def test_each_panel_carries_a_collapsible_description(library):
+    """Brief, under the chart, and closed. The Example tab explains above the
+    plot because it is teaching; a reader here wants the chart first."""
+    import re
+
+    pytest.importorskip("mdtraj")
+    body = library.get("/runs/example").get_data(as_text=True)
+
+    assert body.count("md-panel-more") >= 15
+    assert "<summary>What this shows</summary>" in body
+    # Closed by default: no `open` attribute on any of them.
+    assert not re.search(r'<details class="md-panel-more"[^>]*\bopen\b', body)
+    # And the verbose example prose is not on this page.
+    assert "Nothing here is illustrative" not in body
+    assert "A complete run, start to finish" not in body
+
+
+def test_an_upload_is_not_kept_unless_it_is_asked_for(library):
+    """A results file can carry an unpublished receptor and compound, and this
+    site is public. Keeping one is a choice, never a side effect of analysing."""
+    import io
+
+    fixture = FIXTURES / "trypsin_ben.fxa"
+    if not fixture.is_file():
+        pytest.skip("tests/fixtures/trypsin_ben.fxa is missing")
+    from flexappeal import webapp as webapp_mod
+
+    library.post("/analysis",
+                 data={"fxa_file": (io.BytesIO(fixture.read_bytes()), "r.fxa")},
+                 content_type="multipart/form-data")
+    with library.application.app_context():
+        kept = [r for r in webapp_mod.list_runs()
+                if r["id"] != webapp_mod.EXAMPLE_RUN_ID]
+    assert kept == []
+
+
+def test_an_upload_is_kept_when_it_is(library):
+    import io
+
+    fixture = FIXTURES / "trypsin_ben.fxa"
+    if not fixture.is_file():
+        pytest.skip("tests/fixtures/trypsin_ben.fxa is missing")
+    from flexappeal import webapp as webapp_mod
+
+    body = library.post(
+        "/analysis",
+        data={"fxa_file": (io.BytesIO(fixture.read_bytes()), "r.fxa"),
+              "keep_run": "1", "run_label": "kept by the test"},
+        content_type="multipart/form-data").get_data(as_text=True)
+    assert "Kept in the library" in body
+
+    with library.application.app_context():
+        kept = [r for r in webapp_mod.list_runs()
+                if r["id"] != webapp_mod.EXAMPLE_RUN_ID]
+    assert len(kept) == 1
+    assert kept[0]["label"] == "kept by the test"
+    assert library.get(f"/runs/{kept[0]['id']}").status_code == 200
+
+
+@pytest.mark.parametrize("run_id", [
+    "..", "../etc", "..%2F..%2Fetc", "a.b", "", "/etc/passwd",
+    "x" * 80, "a b",
+])
+def test_a_run_id_cannot_escape_the_library(library, run_id):
+    """The id arrives in a URL, so it is untrusted. A traversal here would serve
+    any file on the box through the viewer's structure route."""
+    assert library.get(f"/runs/{run_id}").status_code in (404, 308)
+
+
+def test_the_warning_about_keeping_names_the_consequence(library):
+    """Not "this will be saved" but who can then read it."""
+    body = library.get("/analysis").get_data(as_text=True)
+    assert "keep_run" in body
+    assert "unpublished" in body

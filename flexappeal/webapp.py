@@ -18,11 +18,13 @@ from __future__ import annotations
 import io
 import json
 import os
+import re
 import secrets
 import shutil
 import subprocess
 import sys
 import time
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -397,27 +399,19 @@ def analysis_page():
     token, path = new_session()
     (path / "results.fxa").write_bytes(content)
 
-    summary = fxa.summarise(results)
-    binding = _binding_panels(results, content, results.job_name)
+    # Kept in the library only when the uploader asks. A results file can carry
+    # a receptor and a compound somebody has not published, and this site is
+    # public, so nothing an upload brings is listed for other visitors without
+    # that being an explicit choice.
+    kept = None
+    if request.form.get("keep_run"):
+        kept = keep_run(content, label=request.form.get("run_label", ""))
+
     return render_template(
         "analysis.html",
         active="analysis",
-        results=results,
-        summary=summary,
-        token=token,
-        tiles=plots.tiles(summary, results.metrics),
-        binding=binding,
-        mobility_bands=MOBILITY_BANDS,
-        mobility_ceiling=MOBILITY_CEILING,
-        panels=plots.build_all(results)["panels"],
-        convergence=plots.convergence(
-            plots.parse_state_data(results.members["state_data.csv"])
-            if "state_data.csv" in results.members else {}
-        ),
-        has_viewer=bool(results.topology_pdb),
-        warnings=results.warnings,
-        reanalysis_metrics=analysis.METRICS,
-    )
+        kept_run=kept,
+        **_results_context(results, content, token))
 
 
 # The binding panels are measured from the trajectory rather than read out of
@@ -589,6 +583,75 @@ def _example_captures() -> dict[str, list[str]]:
     return grouped
 
 
+def _results_context(results, content: bytes, token: str) -> dict[str, Any]:
+    """Everything a results file renders into, built once for every page.
+
+    The Analysis tab, the Example tab and a run in the library all show the same
+    measurements of the same kind of file, and they drifted the moment there
+    were two copies of this dict: the binding panels reached the Analysis tab a
+    release before the Example tab, because only one of the two routes had been
+    given them. One builder, three callers.
+    """
+    summary = fxa.summarise(results)
+    return {
+        "results": results,
+        "summary": summary,
+        "token": token,
+        "tiles": plots.tiles(summary, results.metrics),
+        "binding": _binding_panels(results, content, results.job_name),
+        "mobility_bands": MOBILITY_BANDS,
+        "mobility_ceiling": MOBILITY_CEILING,
+        "panels": plots.build_all(results)["panels"],
+        "convergence": plots.convergence(
+            plots.parse_state_data(results.members["state_data.csv"])
+            if "state_data.csv" in results.members else {}
+        ),
+        "has_viewer": bool(results.topology_pdb),
+        "warnings": results.warnings,
+        "reanalysis_metrics": analysis.METRICS,
+    }
+
+
+@analysis_bp.route("/runs", methods=["GET"])
+def runs_page():
+    """The library: every kept run, newest first, the example always present."""
+    return render_template("runs.html", active="runs", runs=list_runs())
+
+
+@analysis_bp.route("/runs/<run_id>", methods=["GET"])
+def run_page(run_id: str):
+    """One run, rendered with the same panels an upload gets.
+
+    Its own session token, so the viewer can fetch the structure and the
+    trajectory the same way it does for an upload. A run in the library is
+    durable; the scratch copy the viewer reads from is not, and is remade on
+    demand when the sweeper has been through.
+    """
+    content = run_content(run_id)
+    try:
+        results = fxa.load(content, verify_checksums=False)
+    except fxa.FxaError as exc:
+        abort(404, str(exc))
+
+    token, path = new_session()
+    (path / "results.fxa").write_bytes(content)
+
+    label = run_id
+    if run_id != EXAMPLE_RUN_ID:
+        try:
+            label = json.loads(
+                (run_directory(run_id) / "run.json").read_text()
+            ).get("label") or results.job_name
+        except (OSError, json.JSONDecodeError):
+            label = results.job_name
+    else:
+        label = results.job_name
+
+    return render_template(
+        "run_detail.html", active="runs", run_id=run_id, run_label=label,
+        **_results_context(results, content, token))
+
+
 @analysis_bp.route("/example", methods=["GET"])
 def example_page():
     if not EXAMPLE_FXA.is_file():
@@ -599,9 +662,7 @@ def example_page():
 
     content = EXAMPLE_FXA.read_bytes()
     results = fxa.load(content, verify_checksums=False)
-    summary = fxa.summarise(results)
     config = results.manifest.get("config", {})
-    binding = _binding_panels(results, content, results.job_name)
 
     return render_template(
         "analysis.html",
@@ -612,22 +673,140 @@ def example_page():
             "manifest": results.manifest,
             "bundle": EXAMPLE_BUNDLE,
         },
-        results=results,
-        summary=summary,
-        token=_example_session(),
-        tiles=plots.tiles(summary, results.metrics),
-        binding=binding,
-        mobility_bands=MOBILITY_BANDS,
-        mobility_ceiling=MOBILITY_CEILING,
-        panels=plots.build_all(results)["panels"],
-        convergence=plots.convergence(
-            plots.parse_state_data(results.members["state_data.csv"])
-            if "state_data.csv" in results.members else {}
-        ),
-        has_viewer=bool(results.topology_pdb),
-        warnings=results.warnings,
-        reanalysis_metrics=analysis.METRICS,
-    )
+        **_results_context(results, content, _example_session()))
+
+
+# ---------------------------------------------------------------------------
+#  The runs library
+# ---------------------------------------------------------------------------
+#
+# A directory of kept results files, one per run, listed on the Runs tab so a
+# reader can open any of them and get the same panels an upload gets. Separate
+# from `web_scratch`, which is the opposite thing: scratch is per-visit, opaque
+# and swept, and this is durable and addressed by a name a person can read.
+#
+# Deliberately a directory rather than a database. A run is one `.fxa` plus a
+# line of metadata, the listing is a handful of entries, and a schema migration
+# for that would cost more than it saves.
+DEFAULT_RUNS_ROOT = REPO_ROOT / "web_runs"
+
+# The committed example is always in the library and does not live in that
+# directory: it is served straight out of `examples/`, so the two cannot drift
+# and a fresh checkout has a populated Runs tab with no setup at all.
+EXAMPLE_RUN_ID = "example"
+
+_RUN_ID = re.compile(r"^[a-zA-Z0-9][a-zA-Z0-9_-]{0,63}$")
+
+
+def _runs_root() -> Path:
+    return Path(current_app.config["RUNS_ROOT"])
+
+
+def run_directory(run_id: str) -> Path:
+    """Resolve a run id to its directory, refusing anything that escapes.
+
+    The id arrives in a URL, so it is untrusted: the pattern admits no dot and
+    no separator, and the resolved path is checked against the root as well,
+    which is belt and braces on purpose. A traversal here would serve any file
+    on the box through the viewer's structure route.
+    """
+    if not _RUN_ID.match(run_id or ""):
+        abort(404)
+    root = _runs_root().resolve()
+    path = (root / run_id).resolve()
+    if path != root and root not in path.parents:
+        abort(404)
+    return path
+
+
+def _run_record(run_id: str, content: bytes, meta: dict) -> dict:
+    """One row of the listing, read from the results file itself.
+
+    From the file rather than from the metadata beside it, so a row cannot
+    describe something the file does not contain.
+    """
+    try:
+        results = fxa.load(content, verify_checksums=False)
+    except fxa.FxaError as exc:
+        return {"id": run_id, "label": meta.get("label") or run_id,
+                "broken": str(exc)}
+    summary = fxa.summarise(results)
+    return {
+        "id": run_id,
+        "label": meta.get("label") or results.job_name,
+        "job_name": results.job_name,
+        "duration_ns": summary.get("duration_ns"),
+        "frames": summary.get("frames_packed"),
+        "atoms": summary.get("atoms_packed"),
+        "created_at": meta.get("added_at") or summary.get("created_at") or "",
+        "tier": summary.get("tier"),
+        "has_ligands": bool(results.has_ligands),
+        "source": meta.get("source") or "upload",
+        "broken": None,
+    }
+
+
+def list_runs() -> list[dict]:
+    """Every run in the library, the committed example first.
+
+    A directory that cannot be read is skipped rather than fatal: the listing is
+    a convenience and one bad entry must not cost the page.
+    """
+    rows: list[dict] = []
+    if EXAMPLE_FXA.is_file():
+        rows.append(_run_record(
+            EXAMPLE_RUN_ID, EXAMPLE_FXA.read_bytes(),
+            {"label": EXAMPLE_NAME, "source": "committed example"}))
+
+    root = _runs_root()
+    if root.is_dir():
+        for path in sorted(root.iterdir(), reverse=True):
+            if not path.is_dir() or not _RUN_ID.match(path.name):
+                continue
+            stored = path / "results.fxa"
+            if not stored.is_file():
+                continue
+            meta = {}
+            try:
+                meta = json.loads((path / "run.json").read_text())
+            except (OSError, json.JSONDecodeError):
+                pass
+            try:
+                rows.append(_run_record(path.name, stored.read_bytes(), meta))
+            except OSError:
+                continue
+    return rows
+
+
+def run_content(run_id: str) -> bytes:
+    """The results file for one run, or a 404."""
+    if run_id == EXAMPLE_RUN_ID:
+        if not EXAMPLE_FXA.is_file():
+            abort(404)
+        return EXAMPLE_FXA.read_bytes()
+    stored = run_directory(run_id) / "results.fxa"
+    if not stored.is_file():
+        abort(404)
+    return stored.read_bytes()
+
+
+def keep_run(content: bytes, label: str = "") -> str:
+    """Add an uploaded results file to the library, and return its id.
+
+    The id is a random token rather than the job name. Two runs can share a
+    name, and a name chosen by an uploader would otherwise decide where a file
+    lands on disk.
+    """
+    run_id = secrets.token_urlsafe(9).replace("_", "-").replace("=", "")[:16]
+    path = _runs_root() / run_id
+    path.mkdir(parents=True, exist_ok=True)
+    (path / "results.fxa").write_bytes(content)
+    (path / "run.json").write_text(json.dumps({
+        "label": (label or "").strip()[:120],
+        "added_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+        "source": "upload",
+    }, indent=2))
+    return run_id
 
 
 def _load_results(token: str) -> fxa.Results:
@@ -675,6 +854,9 @@ def create_app() -> Flask:
     scratch_root = Path(os.environ.get("FLEXAPPEAL_SCRATCH_ROOT", str(DEFAULT_SCRATCH_ROOT)))
     scratch_root.mkdir(parents=True, exist_ok=True)
     app.config["SCRATCH_ROOT"] = scratch_root
+    runs_root = Path(os.environ.get("FLEXAPPEAL_RUNS_ROOT", str(DEFAULT_RUNS_ROOT)))
+    runs_root.mkdir(parents=True, exist_ok=True)
+    app.config["RUNS_ROOT"] = runs_root
     sweep_scratch(scratch_root)
 
     app.jinja_env.globals["FLEXAPPEAL_VERSION"] = FLEXAPPEAL_VERSION

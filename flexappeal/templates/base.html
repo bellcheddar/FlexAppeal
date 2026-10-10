@@ -47,7 +47,13 @@
        class="md-tab {% if active == 'example' %}is-active{% endif %}"
        {% if active == 'example' %}aria-current="page"{% endif %}>
       <span class="md-tab-num">3</span> Example
-      <span class="md-tab-hint">a real 10 ns run, start to finish</span>
+      <span class="md-tab-hint">a real 100 ns run, start to finish</span>
+    </a>
+    <a href="{{ url_for('analysis.runs_page') }}"
+       class="md-tab {% if active == 'runs' %}is-active{% endif %}"
+       {% if active == 'runs' %}aria-current="page"{% endif %}>
+      <span class="md-tab-num">4</span> Runs
+      <span class="md-tab-hint">every kept run, with its panels</span>
     </a>
   </div>
 </nav>

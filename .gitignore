@@ -11,6 +11,9 @@ __pycache__/
 
 # Per-request working directories (web app)
 web_scratch/
+# The runs library: whatever a visitor chose to keep, which is their data and
+# not this repository's.
+web_runs/
 
 # Generated README artefacts (produced by marcs-vibe-coding readme_forge.py)
 README.polished.md

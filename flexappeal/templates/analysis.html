@@ -34,6 +34,24 @@
         <strong>Choose a .fxa file</strong>
         <em id="drop-hint">or drag it here</em>
       </label>
+      {# Opt in, never by default. A results file can carry a receptor and a
+         compound nobody has published, this site is public, and the Runs tab is
+         readable by anyone who finds it. So keeping a run is a choice the
+         uploader makes with the box in front of them, not a side effect of
+         pressing Analyse. #}
+      <label class="md-keep">
+        <input type="checkbox" name="keep_run" value="1">
+        <span>
+          Add this run to the <a href="{{ url_for('analysis.runs_page') }}">Runs</a> tab
+          <em>Anyone who can reach this site can then open it. Leave unticked for
+          anything unpublished.</em>
+        </span>
+      </label>
+      <label class="md-keep-label">
+        <span class="md-visually-hidden">A name for this run in the list</span>
+        <input type="text" name="run_label" maxlength="120"
+               placeholder="Name it in the list (optional)">
+      </label>
       <button type="submit" class="md-button md-button-primary">Analyse →</button>
     </form>
 
@@ -52,6 +70,16 @@
       {% for w in warnings %}
         <div class="md-issue md-issue-warning"><strong>⚠</strong><span>{{ w }}</span></div>
       {% endfor %}
+    </div>
+  {% endif %}
+
+  {% if kept_run %}
+    <div class="md-issues">
+      <div class="md-issue md-issue-ok"><strong>✓</strong><span>
+        Kept in the library as
+        <a href="{{ url_for('analysis.run_page', run_id=kept_run) }}">this run</a>,
+        and listed on the <a href="{{ url_for('analysis.runs_page') }}">Runs</a> tab.
+      </span></div>
     </div>
   {% endif %}
 
@@ -152,71 +180,7 @@
   {% if binding and binding.panels %}
     <section class="md-card md-section-head">
       <h2>The binding site</h2>
-      {% if binding.grade %}
-        {% set g = binding.grade %}
-        <div class="md-grade">
-          <div class="md-grade-dial md-grade-{{ g.band }}">
-            <span class="md-grade-letter">{{ g.grade }}</span>
-            <span class="md-grade-score">{{ g.score }}<em>/100</em></span>
-          </div>
-          <div class="md-grade-body">
-            <div class="md-grade-scale" role="img"
-                 aria-label="score {{ g.score }} of 100, band {{ g.grade }}">
-              <span class="md-grade-fill is-{{ g.band }}"
-                    style="width: {{ g.score }}%"></span>
-              <span class="md-grade-tick" style="left: {{ g.b_min }}%"
-                    data-label="B {{ g.b_min | int }}"></span>
-              <span class="md-grade-tick" style="left: {{ g.a_min }}%"
-                    data-label="A {{ g.a_min | int }}"></span>
-            </div>
-            <table class="md-grade-table">
-              <tbody>
-                {% for row in g.rows %}
-                  <tr {% if row.pending %}class="is-pending"{% endif %}>
-                    <th scope="row">
-                      {{ row.label }}
-                      {# The measurement a sub-score was read off, where the
-                         number itself is worth seeing. Under the label rather
-                         than in a cell of its own: the score column holds one
-                         number per row and nothing else. #}
-                      {% if row.measured %}
-                        <span class="md-grade-measured">{{ row.measured }}</span>
-                      {% endif %}
-                    </th>
-                    <td class="md-grade-bar-cell">
-                      {% if row.pending %}
-                        <span class="md-grade-pending">{{ row.reason }}</span>
-                      {% else %}
-                        {# Every scored row gets a bar, including a zero: the
-                           track is drawn whatever the fill, so a nought reads as
-                           a measured nought rather than as a missing panel. #}
-                        <span class="md-grade-bar is-{{ row.band }}">
-                          <span style="width: {{ row.score }}%"></span>
-                        </span>
-                      {% endif %}
-                    </td>
-                    <td class="md-grade-value">
-                      {% if row.pending %}&mdash;{% else %}{{ row.score }}{% endif %}
-                    </td>
-                    <td class="md-grade-weight">
-                      {% if row.pending %}
-                        <s>{{ (row.weight * 100) | int }}%</s>
-                      {% else %}
-                        {{ row.applied | round | int }}%
-                      {% endif %}
-                    </td>
-                  </tr>
-                {% endfor %}
-              </tbody>
-            </table>
-          </div>
-        </div>
-        {% if g.gate_applied %}
-          <p class="md-panel-blurb">
-            <strong>Capped {{ g.gate_applied }}:</strong> {{ g.notes | join(' ') }}
-          </p>
-        {% endif %}
-      {% endif %}
+      {% include "_grade_meter.html" %}
     </section>
     {% for panel in binding.panels %}
       <section class="md-card md-panel {% if panel.wide %}is-wide{% endif %}">
