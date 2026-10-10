@@ -83,6 +83,15 @@ ION_RESNAMES = frozenset({
     "NA", "CL", "K", "MG", "CA", "ZN", "SOD", "CLA", "POT", "BR", "IOD", "LI",
     "CS", "RB", "F", "MN", "FE", "CU", "NI", "CO",
 })
+# Lipids, which section 6.1 bans alongside the waters and the ions. A PDB residue
+# name is three characters wide, so POPC is written and read back as POP: both
+# spellings are listed, because selecting on the configured name alone matches
+# nothing and the failure is silent.
+LIPID_RESNAMES = frozenset({
+    "POPC", "POP", "POPE", "POPS", "POPG", "POPA", "POPI", "DOPC", "DOP",
+    "DPPC", "DPP", "DMPC", "DMP", "DLPC", "DLP", "CHL1", "CHL", "CHOL",
+    "SAPI", "SSM", "PSM", "DGPC", "DGP",
+})
 
 # The ligand residue name in every pocket crop. Fixed by section 6.1, and the 3D
 # viewer selects on it.
@@ -691,6 +700,12 @@ def _check_pocket_pdb(package: ReadPackage, cid: str) -> list[str]:
             problems.append(f"traj/{cid}_pocket.pdb contains {resname}; no waters")
         if resname in ION_RESNAMES:
             problems.append(f"traj/{cid}_pocket.pdb contains the ion {resname}")
+        # Not in check 7's list, which names the waters and the ions, but section
+        # 6.1's prose bans lipids from the crop in the same breath. Flagged for
+        # the same reason: a bilayer in a binding-site view is noise that hides
+        # the site, and the writer never produces one.
+        if resname in LIPID_RESNAMES:
+            problems.append(f"traj/{cid}_pocket.pdb contains the lipid {resname}")
 
     if LIGAND_RESNAME not in atom_resnames:
         problems.append(

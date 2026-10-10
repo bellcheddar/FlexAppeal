@@ -289,6 +289,33 @@ checkbox list in `README.md`.
   frame the detector picks is its business: what has to hold is that the count
   starts at `equil_start_frame`.
 
+### Changed
+
+- **A default-length run no longer needs gigabytes to package.** FlexAppeal's
+  default job is 100 ns at 10 ps, which is 10,000 frames, and three
+  superpositions each hold a copy of the coordinates: measured at 1,022 MB for
+  2,000 frames of a 3,000-atom system, so five gigabytes for a default run and
+  tens for a membrane one, where `protein_ligand` keeps the lipids as well.
+
+  Three changes, in order of how much each bought. Sources are now reduced to
+  protein plus the kept heteroatoms with the selection and the stride applied by
+  `md.load` itself, so the large array never exists; nothing measured here reads a
+  water, an ion or a lipid, and section 6.1 bans all three from the crop anyway.
+  Frames are capped at 2,000, with the frame spacing in the manifest multiplied by
+  whatever was skipped, because every scalar is a statistic over the scored window
+  and 2,000 frames agree with 10,000 to more digits than anybody reads. And a
+  superposition reference is now one frame rather than a whole second copy:
+  `superpose` reads only `reference.xyz[frame]`, and the fitted RMSDs are
+  bit-identical either way, which was checked rather than assumed.
+
+  Peak is 805 MB for 2,000 frames and bounded there for a run of any length.
+- **Lipids are stripped from the pocket crop and flagged by the conformance
+  check.** Section 6.1 bans them alongside the waters and the counter-ions, and
+  check 7 names only the latter two; a bilayer in a binding-site view is noise
+  that hides the site. Both spellings are listed, because a PDB residue name is
+  three characters wide so POPC is written and read back as POP, and selecting on
+  the configured name alone matches nothing silently.
+
 ## 2026-07-27
 
 ### Added

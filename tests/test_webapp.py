@@ -1154,3 +1154,36 @@ def test_the_clip_stays_small():
     poster = PACKAGE_ROOT / "static" / "lysozyme-poster.webp"
     assert clip.stat().st_size < 500_000, f"the clip has grown to {clip.stat().st_size:,} bytes"
     assert poster.stat().st_size < 40_000, "the poster is meant to paint instantly"
+
+
+def test_uploading_a_version_2_package_is_refused_by_version(client, tmp_path):
+    """The Analysis tab shows one run; a version 2 .fxa is a whole study.
+
+    It has a `metrics/<cid>.json` per complex and no `metrics.json`, so before
+    the reader checked the version first this came back as "missing
+    metrics.json": a message about truncation, for a file that was not truncated.
+    The tab needs no change to handle one, but it does need to say what it is.
+    """
+    import io as _io
+
+    from flexappeal import fxa2
+
+    package = fxa2.Package(package_name="study", flexappeal_version="0.1.0")
+    lid = package.register_ligand("benzamidine")
+    package.register_receptor("3PTB")
+    cid = fxa2.complex_id(lid, "3PTB")
+    package.add_complex(cid)
+    package.add_json(f"metrics/{cid}.json", {"complex_id": cid, "status": "ok"})
+    package.add_json(f"pocket/{cid}.json", {"complex_id": cid, "status": "ok"})
+    package.add_text(f"traj/{cid}_pocket.pdb",
+                     "ATOM      1  C1  LIG A   1       0.000   0.000   0.000\nEND\n")
+    path = package.write(tmp_path / "study.fxa")
+
+    response = client.post("/analysis", data={
+        "fxa_file": (_io.BytesIO(path.read_bytes()), "study.fxa")},
+        content_type="multipart/form-data")
+    body = response.get_data(as_text=True)
+    assert response.status_code == 200
+    assert "format version 2" in body
+    assert "flexappeal package" in body
+    assert "truncated" not in body

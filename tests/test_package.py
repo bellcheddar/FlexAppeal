@@ -1502,3 +1502,86 @@ def test_the_exit_count_is_taken_over_the_window(deposited):
     assert measured.metrics["n_exit_events"] == windowed
     # And the excursion really is in there to be miscounted.
     assert whole == 1
+
+
+# ---------------------------------------------------------------------------
+#  What a default-length run costs
+# ---------------------------------------------------------------------------
+
+
+def test_the_measurement_stride_leaves_a_short_run_alone():
+    assert package.measurement_stride(0) == 1
+    assert package.measurement_stride(500) == 1
+    assert package.measurement_stride(package.MAX_MEASURE_FRAMES) == 1
+
+
+def test_a_default_length_run_is_strided_into_the_cap():
+    """FlexAppeal's default job is 100 ns at 10 ps: ten thousand frames.
+
+    Three superpositions each hold a copy of the coordinates, so the cap is what
+    keeps an ordinary job from needing several gigabytes to produce statistics
+    that do not change past two thousand frames.
+    """
+    stride = package.measurement_stride(10_000)
+    assert stride == 5
+    assert 10_000 // stride <= package.MAX_MEASURE_FRAMES
+
+
+def test_the_frame_spacing_follows_the_stride(monkeypatch):
+    """A stride left out of the spacing mislabels every x axis by that factor."""
+    fixture = FIXTURES / "trypsin_ben.fxa"
+    if not fixture.is_file():
+        pytest.skip("tests/fixtures/trypsin_ben.fxa is missing")
+
+    whole = package.load_fxa1(fixture)
+    monkeypatch.setattr(package, "MAX_MEASURE_FRAMES", 10)
+    strided = package.load_fxa1(fixture)
+
+    stride = package.measurement_stride(whole.trajectory.n_frames)
+    assert stride > 1
+    assert strided.trajectory.n_frames < whole.trajectory.n_frames
+    assert strided.frame_spacing_ps == pytest.approx(
+        whole.frame_spacing_ps * stride)
+    assert any("inside 10 frames" in note for note in strided.notes)
+    # And the trajectory's own times still agree with the spacing, so the series
+    # and the manifest cannot disagree about the x axis.
+    axis, note = measure.time_axis(strided.trajectory, strided.frame_spacing_ps)
+    assert note is None
+    assert float(axis[1] - axis[0]) == pytest.approx(
+        strided.frame_spacing_ps / 1000.0, rel=1e-3)
+
+
+def test_the_measurement_selection_drops_what_nothing_reads(deposited):
+    """Water, ions and lipids: section 6.1 bans all three from the crop, and no
+    measurement here reads one."""
+    import mdtraj as md
+
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", UserWarning)
+        wet = md.load(str(TRYPSIN))                   # 68 waters
+    indices = package.measurement_selection(wet.topology, ["BEN"])
+    assert indices is not None
+    kept = {wet.topology.atom(int(i)).residue.name for i in indices}
+    assert not kept & (fxa2.SOLVENT_RESNAMES | fxa2.ION_RESNAMES
+                       | fxa2.LIPID_RESNAMES)
+    assert "BEN" in kept
+
+
+def test_a_selection_with_nothing_to_drop_is_left_alone(deposited):
+    """None rather than a copy of every index: the caller keeps what it has."""
+    assert package.measurement_selection(deposited.topology, ["BEN"]) is None
+
+
+def test_a_lipid_in_a_pocket_crop_is_flagged():
+    """Section 6.1 bans lipids alongside the waters, and a bilayer in a
+    binding-site view is noise that hides the site."""
+    from test_fxa2 import POCKET_PDB, build_package
+
+    built = build_package()
+    cid = built.complexes[0]
+    greasy = POCKET_PDB + (
+        "ATOM      9  P   POP C   1      12.000   0.000   0.000  1.00  0.00           P\n")
+    built.members[f"traj/{cid}_pocket.pdb"] = greasy.encode()
+    problems = fxa2._check_pocket_pdb(
+        fxa2.ReadPackage(manifest=built.manifest(), members=built.members), cid)
+    assert any("lipid POP" in p for p in problems)

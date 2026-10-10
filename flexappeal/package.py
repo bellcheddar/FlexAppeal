@@ -37,6 +37,22 @@ from typing import Any
 from . import fxa2, measure
 from .options import FLEXAPPEAL_VERSION
 
+# Frames used for the measurements, at most. Every scalar here is a statistic
+# over the scored window, and a statistic over 2,000 frames and one over 10,000
+# agree to more digits than anybody reads; what the extra frames cost is real,
+# because three superpositions each hold a copy of the coordinates.
+#
+# FlexAppeal's default run is 100 ns at 10 ps, which is 10,000 frames, so this
+# cap is reached by an ordinary job rather than by an unusual one. At 3,000 atoms
+# that was a gigabyte for 2,000 frames and would have been five for 10,000; on a
+# membrane system, where `protein_ligand` keeps the lipids too, it was tens of
+# gigabytes and would simply have failed.
+#
+# 2,000 is also the length of DeepFlex's own production runs, so a package built
+# at the cap carries the frame count its report was designed around.
+MAX_MEASURE_FRAMES = 2000
+
+
 # How a version 1 payload tier maps onto a warning. `full` keeps every atom and
 # 2,000 frames, which is as good as a run directory for everything but the
 # chemistry; the lighter tiers are decimated and the numbers say so.
@@ -165,8 +181,54 @@ def _reimage(traj, label: str, notes: list[str]) -> None:
                      f"that span two molecules may be wrong by a box length")
 
 
+def measurement_selection(topology, resnames: list[str]) -> Any:
+    """The atoms the measurements need: the protein and the kept heteroatoms.
+
+    Everything else is dropped before the coordinates are read. That is not only
+    a memory decision, although it is mostly that: section 6.1 bans waters,
+    counter-ions and lipids from the pocket crop, and a 10 A shell drawn around a
+    ligand in a solvated bilayer is mostly bilayer. Nothing measured here reads a
+    solvent atom, so there is no reason to carry one.
+
+    Returns None when the selection would match nothing, which means the
+    topology is not shaped the way this expects and the caller should keep
+    everything rather than measure an empty trajectory.
+    """
+    import numpy as np  # noqa: PLC0415
+
+    wanted = ["protein"] + [f"resname {name}" for name in resnames]
+    indices = topology.select(" or ".join(wanted))
+    if len(indices) == 0 or len(indices) == topology.n_atoms:
+        return None
+    return np.asarray(indices)
+
+
+def measurement_stride(n_frames: int) -> int:
+    """Frames to skip so the measurement stays inside `MAX_MEASURE_FRAMES`."""
+    if n_frames <= MAX_MEASURE_FRAMES:
+        return 1
+    return int(-(-n_frames // MAX_MEASURE_FRAMES))
+
+
+def _frame_count(path: Path) -> int | None:
+    """How many frames a trajectory holds, without reading its coordinates."""
+    import mdtraj as md  # noqa: PLC0415
+
+    try:
+        with md.open(str(path)) as handle:
+            return len(handle)
+    except (OSError, ValueError, TypeError, NotImplementedError):
+        return None
+
+
 def load_run_directory(path: Path) -> Source:
-    """A finished run directory: `topology.pdb` plus a `trajectory.*`."""
+    """A finished run directory: `topology.pdb` plus a `trajectory.*`.
+
+    Reduced on the way in rather than afterwards. A default FlexAppeal job is
+    100 ns at 10 ps, which is 10,000 frames of whatever `traj_selection` kept, so
+    loading it whole and then throwing most of it away is the difference between
+    a gigabyte and a job that does not finish.
+    """
     import mdtraj as md  # noqa: PLC0415
 
     topology = path / "topology.pdb"
@@ -183,8 +245,21 @@ def load_run_directory(path: Path) -> Source:
         except (OSError, ValueError):
             run_manifest = {}
 
-    traj = md.load(str(candidates[0]), top=str(topology))
     notes: list[str] = []
+    resnames = [str(n).strip().upper()
+                for n in (config.get("keep_heteroatoms") or []) if str(n).strip()]
+    atom_indices = measurement_selection(md.load_topology(str(topology)), resnames)
+
+    stride = measurement_stride(_frame_count(candidates[0]) or 0)
+    if stride > 1:
+        notes.append(
+            f"{path.name}: read every {stride} frames, which keeps the "
+            f"measurement inside {MAX_MEASURE_FRAMES} frames. Every scalar here "
+            f"is a statistic over the scored window and is unchanged by it; the "
+            f"frame spacing in the manifest describes the frames actually written")
+
+    traj = md.load(str(candidates[0]), top=str(topology),
+                   atom_indices=atom_indices, stride=stride)
     _reimage(traj, path.name, notes)
 
     # The bundle fetched a chemical definition for each heteroatom it kept, and it
@@ -196,11 +271,18 @@ def load_run_directory(path: Path) -> Source:
             ligand_dir = candidate / "ligands"
             break
 
+    # The spacing of the frames this package carries, which is the configured
+    # spacing times whatever was skipped. The report prints it and uses it to
+    # turn a frame index into nanoseconds, so a stride left out of it mislabels
+    # every x axis by that factor.
+    spacing = _frame_spacing_ps(config, run_manifest, traj.n_frames * stride)
+    if spacing is not None:
+        spacing *= stride
+
     return Source(
         label=path.name, origin="run directory", trajectory=traj,
         config=config, structure=structure, run_manifest=run_manifest,
-        frame_spacing_ps=_frame_spacing_ps(config, run_manifest, traj.n_frames),
-        ligand_dir=ligand_dir, notes=notes,
+        frame_spacing_ps=spacing, ligand_dir=ligand_dir, notes=notes,
     )
 
 
@@ -244,6 +326,25 @@ def load_fxa1(path: Path) -> Source:
         # The configured interval describes the frames the run wrote; the file
         # carries every nth of them.
         spacing *= stride
+
+    # The same reduction as a run directory, after the fact rather than before:
+    # the payload is already in memory and a decimated one is small. It still
+    # matters at the `full` tier, which keeps every atom including the solvent
+    # and the bilayer.
+    resnames = [str(n).strip().upper()
+                for n in (results.config.get("keep_heteroatoms") or [])
+                if str(n).strip()]
+    atom_indices = measurement_selection(traj.topology, resnames)
+    if atom_indices is not None:
+        traj = traj.atom_slice(atom_indices)
+    measure_stride = measurement_stride(traj.n_frames)
+    if measure_stride > 1:
+        traj = traj[::measure_stride]
+        if spacing is not None:
+            spacing *= measure_stride
+        notes.append(
+            f"{path.name}: read every {measure_stride} frames, which keeps the "
+            f"measurement inside {MAX_MEASURE_FRAMES} frames")
 
     return Source(
         label=path.stem, origin="version 1 .fxa", trajectory=traj,

@@ -320,12 +320,14 @@ def _rename_ligand(text: str, resnames: list[str]) -> str:
 def _strip_solvent(traj, keep: np.ndarray) -> np.ndarray:
     """Drop any water, counter-ion or lipid from an atom selection.
 
-    Section 6.1 bans them from the crop. A decimated version 1 payload has
-    usually dropped them already, but a run directory's topology has not, and a
-    pocket shell drawn around a ligand in explicit solvent is mostly water.
+    Section 6.1 bans all three from the crop. `flexappeal.package` already
+    reduces a source to protein and ligand before measuring it, so this is the
+    second line rather than the first: a version 1 `.fxa` written at the `full`
+    payload tier keeps every atom, and a 10 A shell drawn around a ligand in a
+    bilayer is mostly lipid.
     """
     topology = traj.topology
-    banned = fxa2.SOLVENT_RESNAMES | fxa2.ION_RESNAMES
+    banned = fxa2.SOLVENT_RESNAMES | fxa2.ION_RESNAMES | fxa2.LIPID_RESNAMES
     return np.array(
         [i for i in keep
          if topology.atom(int(i)).residue.name.strip().upper() not in banned],
@@ -444,7 +446,7 @@ def detect_equilibration(series: np.ndarray, *,
 # ===========================================================================
 
 
-def _copy(traj):
+def _copy(traj, frames: slice | None = None):
     """An independent copy, because `superpose` rewrites coordinates in place.
 
     Three different superpositions are taken below and each has to fit against
@@ -454,25 +456,32 @@ def _copy(traj):
     """
     import mdtraj as md  # noqa: PLC0415
 
+    window = slice(None) if frames is None else frames
     return md.Trajectory(
-        xyz=traj.xyz.copy(), topology=traj.topology, time=traj.time,
+        xyz=traj.xyz[window].copy(), topology=traj.topology, time=traj.time[window],
         unitcell_lengths=(None if traj.unitcell_lengths is None
-                          else traj.unitcell_lengths.copy()),
+                          else traj.unitcell_lengths[window].copy()),
         unitcell_angles=(None if traj.unitcell_angles is None
-                         else traj.unitcell_angles.copy()),
+                         else traj.unitcell_angles[window].copy()),
     )
 
 
 def _fit(traj, fit_on: np.ndarray):
     """A copy superposed on frame 0 over the given atoms.
 
-    The reference is a *second* copy, not the trajectory being fitted. MDTraj's
-    `superpose` rewrites coordinates in place, so passing a trajectory as its own
-    reference moves frame 0 first and then fits every later frame against the
-    moved version. A rigid 2 A translation came out as 1.88 A that way: wrong,
-    plausible, and a unit test away from shipping.
+    The reference is a *separate* object, not the trajectory being fitted.
+    MDTraj's `superpose` rewrites coordinates in place, so passing a trajectory
+    as its own reference moves frame 0 first and then fits every later frame
+    against the moved version. A rigid 2 A translation came out as 1.88 A that
+    way: wrong, plausible, and a unit test away from shipping.
+
+    One frame of reference, not a whole copy of it. `superpose` reads only
+    `reference.xyz[frame]`, so a full second copy doubled the peak memory of
+    every fit for nothing; on a long run that is the difference between a
+    gigabyte and two. Checked rather than assumed: the fitted RMSDs are
+    bit-identical either way.
     """
-    reference = _copy(traj)
+    reference = _copy(traj, slice(0, 1))
     fitted = _copy(traj)
     fitted.superpose(reference, frame=0, atom_indices=fit_on)
     return fitted
