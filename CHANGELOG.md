@@ -146,6 +146,34 @@ checkbox list in `README.md`.
   the fallback is the configured frame spacing and the last resort is the frame
   index. Both fallbacks add a note saying which, because an axis labelled
   nanoseconds that is really frame numbers is an error a reader cannot see.
+- **An interaction fingerprint, typed by geometry rather than by chemistry.**
+  Polar contact, ionic and hydrophobic, from heavy-atom distances. DeepFlex uses
+  ProLIF for this, which needs bond orders, formal charges and ring perception;
+  FlexAppeal has none of those for a ligand at this point, because the SDF the
+  bundle fetched stays on the user's machine and never enters the package.
+  **Nothing is claimed as a pi-stack**, and the interaction record says so in a
+  note rather than leaving a reader to assume the vocabulary matches a `.dfx`.
+
+  No angle term on the hydrogen bond, deliberately: a decimated payload may carry
+  no hydrogens at all, and a criterion that silently changes definition depending
+  on which source the trajectory came from is worse than one that is coarse
+  everywhere.
+
+  Checked against the chemistry: benzamidine's amidinium to trypsin's ASP189 comes
+  out as both a polar contact and ionic, at 100% occupancy, present at frame 0.
+  That is the interaction the complex is known for, so a fingerprint that misses it
+  is measuring the wrong atoms whatever else its numbers look like.
+- **Interactions that never happened are not columns.** The candidate set is every
+  pair the topology makes geometrically possible, which for a pocket is mostly
+  pairs that never come within their cutoff. Keeping them cost two numbers:
+  `hbond_occupancy_mean` read 0.07 instead of 0.44, because it was the mean over
+  dozens of zeros rather than over the hydrogen bonds that exist, and the occupancy
+  table carried eighty-two rows claiming contacts at 0%.
+- **`summary/` and `barcode/`.** The occupancy table records a mean lifetime beside
+  each occupancy, which is what separates one long contact from a hundred flickers
+  at the same fraction. The barcode is capped at twenty-eight rows, busiest first,
+  and four hundred columns, because twenty-eight rows is already a tall panel and
+  the tail is contacts present in a handful of frames.
 
 ## 2026-07-27
 

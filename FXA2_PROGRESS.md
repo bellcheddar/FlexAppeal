@@ -4,10 +4,10 @@ Running log for the version 2 package writer, specified in `DEEPFLEX_FXA2_SPEC.m
 and driven by `FXA2_BUILD_PROMPT.md`. Rewritten at every step boundary, so an
 interrupted session can be resumed from this file alone.
 
-**Current step:** 5 of 10 (`S_int`, `summary/`, `barcode/`).
-**Validator last reported:** accepted. **pose 100%, occupancy 100%, ranking 100%,
-grade 50%, payload 20%.** Interactions, energy, convergence, conformation and
-receptor panels are at 0%, which is steps 5 to 9.
+**Current step:** 6 of 10 (`S_E`, the energies).
+**Validator last reported:** accepted. **pose 100%, occupancy 100%, interactions
+100%, ranking 100%, grade 62.5%, payload 40%**, 26 interaction rows. Energy,
+convergence, conformation and receptor panels are at 0%, which is steps 6 to 9.
 
 ---
 
@@ -36,7 +36,7 @@ Section 12 of the spec, which is also the commit boundaries.
 - [x] 2. `metrics/`, `pocket/`, one pocket PDB, one complex. **Validated.**
 - [ ] 3. The scored window, `S_pose`, `S_occ`.
 - [x] 4. `series/` and `traj/<cid>_scrub.pdb`.
-- [ ] 5. `S_int`, `summary/`, `barcode/`.
+- [x] 5. `S_int`, `summary/`, `barcode/`.
 - [ ] 6. `S_E`, the energies.
 - [ ] 7. `S_conv`, the block split and the pose clusters.
 - [ ] 8. `S_conf`, the strain excess and the torsions.
@@ -155,6 +155,56 @@ point without anything raising, so the fallback is the configured
 `traj_interval` and the last resort is the frame index. Both fallbacks add a note
 saying which was used, because an x axis labelled nanoseconds that is really frame
 numbers is the kind of error a reader cannot see.
+
+### D10. The interaction fingerprint is typed by geometry, not by chemistry
+
+DeepFlex's own interaction layer uses ProLIF, which needs bond orders, formal
+charges and ring perception. FlexAppeal has none of those for a ligand at this
+point: the SDF the bundle fetched stays on the user's machine and never enters the
+package, and re-deriving chemistry from coordinates alone is how a fingerprint
+acquires types it cannot justify. ProLIF would also be a new scientific
+dependency, which the build prompt says to stop and ask about.
+
+So three types, all of which heavy-atom geometry supports:
+
+| Type | Criterion |
+|---|---|
+| `HBond` | ligand N/O/S within **3.5 A** of receptor N/O/S: the standard heavy-atom polar-contact proxy |
+| `Ionic` | ligand N within **4.0 A** of an ASP/GLU carboxylate oxygen, or ligand O within 4.0 A of LYS NZ, ARG NE/NH1/NH2 or a HIS ring nitrogen |
+| `Hydrophobic` | ligand C within **4.5 A** of a carbon in ALA, VAL, LEU, ILE, PHE, MET, PRO, TRP, CYS or TYR |
+
+**Nothing is claimed as a pi-stack**, and the interaction record says so in a note
+rather than leaving a reader to assume the vocabulary matches a `.dfx`. The
+occupancies themselves are honest; the type vocabulary is coarser.
+
+No angle term on the hydrogen bond, deliberately. A decimated payload may carry no
+hydrogens at all, a ligand's hydrogens have no template in an MDTraj topology, and
+a criterion that silently changes definition depending on which source the
+trajectory came from is worse than one that is coarse everywhere.
+
+Validated against the chemistry: benzamidine's amidinium to trypsin's ASP189 comes
+out as both `HBond` and `Ionic` at 100% occupancy, present at frame 0. That is the
+interaction the complex is known for, so a fingerprint that misses it is measuring
+the wrong atoms whatever its occupancies look like.
+
+`n_key_interactions` uses DeepFlex's threshold (occupancy at or above **0.3** over
+the scored window) rather than the spec's wording ("of those [at frame 0], the ones
+you treat as key"), so the two sides agree on which contacts carry the grade.
+
+### D11. Interactions never seen are not columns
+
+The candidate set is every pair the topology makes geometrically possible, and for
+a pocket that is mostly pairs which never come within their cutoff. Those are
+dropped before anything is computed. Keeping them cost two numbers: with them
+`hbond_occupancy_mean` read 0.07 instead of 0.44, because it was the mean over
+dozens of zeros rather than over the hydrogen bonds that exist, and the occupancy
+table filled with eighty-two rows claiming contacts at 0%. A ProLIF dataframe has
+no such columns either, so dropping them is also what keeps these comparable.
+
+The occupancy table drops one more class: a contact seen only in the discarded
+head and absent at frame 0, which would be a row at 0% and reads as a contact that
+never formed. It is still in the barcode, which covers the whole trajectory, and
+that is where a reader should see it.
 
 ## Divergences between the spec and the reader that actually ingests these files
 

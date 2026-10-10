@@ -511,6 +511,276 @@ def residue_contacts(traj, ligand_residue: int,
 
 
 # ===========================================================================
+#  Interactions, section 5.3, 5.5 and the S_int inputs
+# ===========================================================================
+
+# Typed by geometry and element, with no chemistry toolkit involved. FlexAppeal
+# has no bond orders, no formal charges and no ring perception for a ligand at
+# this point: the SDF the bundle fetched stays on the user's machine and never
+# enters the package, and re-deriving chemistry from coordinates alone is how a
+# fingerprint acquires types it cannot justify.
+#
+# So the three types here are the ones that heavy-atom geometry supports, and
+# nothing claims to be a pi-stack. That is a real loss against a ProLIF
+# fingerprint and it is recorded in the interaction record rather than glossed:
+# the occupancies are honest, the type vocabulary is coarser.
+#
+# `HBond` is the standard heavy-atom hydrogen-bond proxy, a polar contact. The
+# angle term is deliberately absent: a decimated payload may carry no hydrogens
+# at all, a ligand's hydrogens have no template in an MDTraj topology, and a
+# criterion that silently changes definition depending on which source the
+# trajectory came from is worse than one that is coarse everywhere.
+HBOND_CUTOFF_A = 3.5
+IONIC_CUTOFF_A = 4.0
+HYDROPHOBIC_CUTOFF_A = 4.5
+
+POLAR_ELEMENTS = frozenset({"N", "O", "S"})
+HYDROPHOBIC_RESIDUES = frozenset({
+    "ALA", "VAL", "LEU", "ILE", "PHE", "MET", "PRO", "TRP", "CYS", "TYR",
+})
+# Side-chain atoms that carry a formal charge at physiological pH.
+ANIONIC_ATOMS = {("ASP", "OD1"), ("ASP", "OD2"), ("GLU", "OE1"), ("GLU", "OE2")}
+CATIONIC_ATOMS = {("LYS", "NZ"), ("ARG", "NE"), ("ARG", "NH1"), ("ARG", "NH2"),
+                  ("HIS", "ND1"), ("HIS", "NE2"), ("HIP", "ND1"), ("HIP", "NE2")}
+
+# An interaction holding this fraction of the scored window is treated as key.
+# DeepFlex's own threshold, so the two agree on which contacts carry the grade.
+KEY_INTERACTION_MIN_OCCUPANCY = 0.3
+
+# The fingerprint is sampled rather than computed on every frame of a long run.
+# The barcode is capped at 400 columns anyway, and an occupancy over 600 frames
+# and one over 2,000 are the same number to more digits than anybody reads.
+MAX_FINGERPRINT_FRAMES = 600
+# Distances are thresholded in blocks of pairs so that a large ligand against a
+# large pocket never materialises a frames-by-pairs float array.
+PAIR_BLOCK = 4096
+
+
+def _candidate_pairs(topology, ligand_heavy: np.ndarray,
+                     residue_indices) -> tuple[np.ndarray, list[tuple[int, str]], dict]:
+    """Every (ligand atom, receptor atom) pair that could be a typed interaction.
+
+    Returns the pairs, the (residue index, type) each one would contribute to,
+    and the cutoff per type. Built once from the topology, because which type a
+    pair could be is a property of the atoms rather than of the frame.
+    """
+    pairs: list[tuple[int, int]] = []
+    labels: list[tuple[int, str]] = []
+    cutoffs: dict[str, float] = {
+        "HBond": HBOND_CUTOFF_A,
+        "Ionic": IONIC_CUTOFF_A,
+        "Hydrophobic": HYDROPHOBIC_CUTOFF_A,
+    }
+
+    ligand = [(int(i), topology.atom(int(i)).element.symbol) for i in ligand_heavy]
+    for index in residue_indices:
+        residue = topology.residue(int(index))
+        if not residue.is_protein:
+            continue
+        name = residue.name.strip().upper()
+        hydrophobic_residue = name in HYDROPHOBIC_RESIDUES
+        for atom in residue.atoms:
+            element = atom.element.symbol
+            if element == "H":
+                continue
+            anionic = (name, atom.name) in ANIONIC_ATOMS
+            cationic = (name, atom.name) in CATIONIC_ATOMS
+            for ligand_atom, ligand_element in ligand:
+                if element in POLAR_ELEMENTS and ligand_element in POLAR_ELEMENTS:
+                    pairs.append((ligand_atom, atom.index))
+                    labels.append((index, "HBond"))
+                if (anionic and ligand_element == "N") or \
+                        (cationic and ligand_element == "O"):
+                    pairs.append((ligand_atom, atom.index))
+                    labels.append((index, "Ionic"))
+                if hydrophobic_residue and element == "C" and ligand_element == "C":
+                    pairs.append((ligand_atom, atom.index))
+                    labels.append((index, "Hydrophobic"))
+
+    return np.array(pairs, dtype=int).reshape(-1, 2), labels, cutoffs
+
+
+def fingerprint(traj, ligand_heavy: np.ndarray, residue_indices
+                ) -> tuple[np.ndarray, list[tuple[int, str]], int]:
+    """Per-frame interaction bits, one column per (residue, type).
+
+    Returns the bit matrix (frames by interactions), the (residue index, type)
+    of each column, and the frame stride used.
+    """
+    import mdtraj as md  # noqa: PLC0415
+
+    pairs, labels, cutoffs = _candidate_pairs(traj.topology, ligand_heavy,
+                                              residue_indices)
+    step = max(1, int(np.ceil(traj.n_frames / MAX_FINGERPRINT_FRAMES)))
+    sampled = traj[::step]
+    if not len(pairs):
+        return np.zeros((sampled.n_frames, 0), dtype=bool), [], step
+
+    columns: dict[tuple[int, str], np.ndarray] = {}
+    periodic = sampled.unitcell_vectors is not None
+    for begin in range(0, len(pairs), PAIR_BLOCK):
+        block = pairs[begin:begin + PAIR_BLOCK]
+        distances = md.compute_distances(sampled, block, periodic=periodic) * 10.0
+        for offset, (residue, itype) in enumerate(labels[begin:begin + len(block)]):
+            close = distances[:, offset] <= cutoffs[itype]
+            key = (residue, itype)
+            if key in columns:
+                np.logical_or(columns[key], close, out=columns[key])
+            else:
+                columns[key] = close
+
+    # Only interactions that were actually seen. The candidate set above is every
+    # pair the topology makes geometrically possible, which for a pocket is
+    # mostly pairs that never come within their cutoff, and keeping those as
+    # all-zero columns quietly ruins two of the numbers below:
+    # `hbond_occupancy_mean` becomes the mean over dozens of zeros rather than
+    # over the hydrogen bonds that exist, and the occupancy table fills with rows
+    # claiming a contact at 0%. A ProLIF fingerprint has no such columns, so
+    # dropping them is also what keeps these numbers comparable to one.
+    ordered = sorted((key for key, column in columns.items() if column.any()),
+                     key=lambda key: (key[0], key[1]))
+    bits = np.stack([columns[key] for key in ordered], axis=1) if ordered \
+        else np.zeros((sampled.n_frames, 0), dtype=bool)
+    return bits, ordered, step
+
+
+def _mean_lifetime(column: np.ndarray, frame_ns: float) -> float | None:
+    """The mean length of an uninterrupted run of presence, in nanoseconds.
+
+    This is what separates one long contact from a hundred flickers at the same
+    occupancy, which is why the spec asks for it rather than only the fraction.
+    """
+    if not column.any() or frame_ns <= 0:
+        return None
+    padded = np.concatenate([[0], column.astype(np.int8), [0]])
+    edges = np.diff(padded)
+    starts = np.flatnonzero(edges == 1)
+    ends = np.flatnonzero(edges == -1)
+    return float(np.mean(ends - starts) * frame_ns)
+
+
+def interaction_records(traj, cid: str, ligand_heavy: np.ndarray, residue_indices,
+                        start: int, time_ns: np.ndarray
+                        ) -> tuple[dict | None, list[dict] | None, dict | None]:
+    """The interaction record, the occupancy table and the barcode.
+
+    `S_int` is the mean of the key-interaction occupancy and the Tanimoto to
+    frame 0, so both have to come from one fingerprint: computing them from two
+    different contact definitions would average two different claims.
+    """
+    bits, columns, step = fingerprint(traj, ligand_heavy, residue_indices)
+    if not len(columns):
+        return None, None, None
+
+    topology = traj.topology
+    sampled_time = time_ns[::step][: bits.shape[0]]
+    frame_ns = float(np.median(np.diff(sampled_time))) if len(sampled_time) > 1 else 0.0
+
+    # The scored window, in the sampled frame index rather than the full one.
+    window_start = min(int(np.ceil(start / step)), max(0, bits.shape[0] - 1))
+    window = bits[window_start:]
+    if not len(window):
+        return None, None, None
+
+    at_t0 = bits[0]
+    occupancy = window.mean(axis=0)
+    notes: list[str] = [
+        "interactions are typed from heavy-atom geometry (polar contact, ionic "
+        "and hydrophobic) rather than from a chemistry toolkit, so nothing here "
+        "is claimed as a pi-stack and the type vocabulary is coarser than a "
+        "ProLIF fingerprint's"
+    ]
+    if step > 1:
+        notes.append(f"the fingerprint is sampled every {step} frames")
+
+    record: dict[str, Any] = {
+        "complex_id": cid,
+        # DeepFlex's scorer skips the interaction sub-score unless the record
+        # carries this, and the spec does not mention it.
+        "status": "ok",
+        "n_t0_interactions": int(at_t0.sum()),
+    }
+
+    if at_t0.any():
+        retained = window[:, at_t0].sum(axis=1) / at_t0.sum()
+        record["pose_memory_mean"] = float(retained.mean())
+        intersection = (window & at_t0).sum(axis=1).astype(float)
+        union = (window | at_t0).sum(axis=1).astype(float)
+        with np.errstate(divide="ignore", invalid="ignore"):
+            tanimoto = np.where(union > 0, intersection / union, np.nan)
+        if np.isfinite(tanimoto).any():
+            record["tanimoto_t0_mean"] = float(np.nanmean(tanimoto))
+        # Present late and absent at frame 0.
+        record["n_interactions_gained"] = int((window.any(axis=0) & ~at_t0).sum())
+    else:
+        notes.append(
+            "no typed interaction at frame 0, so the pose memory and the Tanimoto "
+            "to frame 0 are undefined and omitted rather than written as zero")
+
+    key = occupancy >= KEY_INTERACTION_MIN_OCCUPANCY
+    record["n_key_interactions"] = int(key.sum())
+    if key.any():
+        record["key_interaction_occupancy_mean"] = float(occupancy[key].mean())
+
+    hbond = np.array([itype == "HBond" for _, itype in columns], dtype=bool)
+    if hbond.any():
+        record["hbond_occupancy_mean"] = float(occupancy[hbond].mean())
+
+    if record["n_t0_interactions"] < 4:
+        notes.append(
+            f"only {record['n_t0_interactions']} typed interaction(s) at frame 0: "
+            f"a fingerprint that coarse is not trusted on its own and DeepFlex "
+            f"flags the complex")
+    record["notes"] = notes
+
+    # ---- the occupancy table, section 5.5 ----------------------------------
+    summary: list[dict[str, Any]] = []
+    for index, (residue_index, itype) in enumerate(columns):
+        # A contact seen only in the discarded head, and not at frame 0, says
+        # nothing about the scored window: it would appear as a row at 0%
+        # occupancy, which reads as a contact that never formed. It is still in
+        # the barcode, which covers the whole trajectory, and that is where a
+        # reader should see it.
+        if occupancy[index] <= 0.0 and not at_t0[index]:
+            continue
+        residue = topology.residue(int(residue_index))
+        summary.append({
+            "residue": f"{residue.name}{residue.resSeq}",
+            "resid": int(residue.resSeq),
+            "itype": itype,
+            "occupancy": float(occupancy[index]),
+            "mean_lifetime_ns": _mean_lifetime(window[:, index], frame_ns),
+            # 1 or 0 from a measurement, never a guess: a 0 claims the contact
+            # formed later and a 1 claims it was there from the start.
+            "present_at_t0": int(bool(at_t0[index])),
+        })
+
+    # ---- the barcode, section 5.3 ------------------------------------------
+    # Busiest first, because the tail is contacts present in a handful of frames
+    # and twenty-eight rows is already a tall panel.
+    full_occupancy = bits.mean(axis=0)
+    order = np.argsort(-full_occupancy)[:fxa2.MAX_BARCODE_ROWS]
+    order = order[full_occupancy[order] > 0]
+    column_step = max(1, int(np.ceil(bits.shape[0] / fxa2.MAX_BARCODE_COLS)))
+    shown = bits[::column_step][:, order]
+    labels = []
+    for index in order:
+        residue_index, itype = columns[int(index)]
+        residue = topology.residue(int(residue_index))
+        labels.append(f"{residue.name}{residue.resSeq} {itype}")
+
+    barcode = {
+        "z": shown.T.astype(np.uint8),
+        "labels": np.array(labels, dtype=object),
+        "time_ns": sampled_time[::column_step].astype(np.float64),
+        "n_contacts_total": np.int32(len(columns)),
+        # Frames of the original trajectory per barcode column.
+        "step": np.int32(step * column_step),
+    }
+    return record, summary, barcode
+
+
+# ===========================================================================
 #  The whole measurement for one complex
 # ===========================================================================
 
@@ -709,6 +979,13 @@ def _measure(traj, cid: str, receptor: str, ligand: str, resnames: list[str],
         # is absent.
         structures[f"{cid}_scrub.pdb"] = scrub_pdb(pose_fit, crop_atoms, resnames)
 
+    interactions, summary, barcode = interaction_records(
+        traj, cid, heavy, pocket["indices_raw"], start, time_ns)
+    if interactions is None:
+        notes.append(
+            "no typed interaction was found in any frame, so the interaction "
+            "sub-score is left pending rather than scored on nothing")
+
     # The whole trajectory, not the scored window: DeepFlex draws the discarded
     # head in a different colour, which is how a reader sees what was thrown
     # away. It decimates to about 400 points for the wire itself.
@@ -734,5 +1011,6 @@ def _measure(traj, cid: str, receptor: str, ligand: str, resnames: list[str],
     return Measured(
         complex_id=cid, receptor=receptor, ligand_id=ligand,
         metrics=metrics, pocket=pocket_record, structures=structures,
-        series=series, notes=notes,
+        series=series, interactions=interactions, summary=summary,
+        barcode=barcode, notes=notes,
     )

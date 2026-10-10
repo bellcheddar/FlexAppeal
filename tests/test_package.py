@@ -782,3 +782,141 @@ def test_a_trajectory_with_its_own_time_stamps_keeps_them(deposited):
     axis, note = measure.time_axis(traj, 999.0)
     assert note is None
     assert axis[1] == pytest.approx(0.01)
+
+
+# ---------------------------------------------------------------------------
+#  S_int, the occupancy table and the barcode, sections 5.3 and 5.5
+# ---------------------------------------------------------------------------
+
+
+def test_the_fingerprint_finds_the_interaction_benzamidine_actually_makes(written):
+    """Benzamidine's amidinium makes a salt bridge to trypsin's ASP189.
+
+    That is the interaction the complex is known for, so it is the one worth
+    asserting: a fingerprint that reports plausible occupancies and misses this
+    is measuring the wrong atoms.
+    """
+    read_back = fxa2.read(written)
+    rows = read_back.summary(read_back.complexes[0])
+    salt_bridge = [row for row in rows
+                   if row["resid"] == 189 and row["itype"] == "Ionic"]
+    assert salt_bridge, sorted({(r["resid"], r["itype"]) for r in rows})
+    assert salt_bridge[0]["occupancy"] > 0.5
+    assert salt_bridge[0]["present_at_t0"] == 1
+
+
+def test_the_occupancy_table_lists_only_interactions_that_happened(written):
+    """A row at 0% that was also absent at frame 0 claims a contact never seen.
+
+    The candidate set is every pair the topology makes geometrically possible,
+    which for a pocket is mostly pairs that never come within their cutoff.
+    Keeping those as rows also drags `hbond_occupancy_mean` down to the mean over
+    dozens of zeros rather than over the hydrogen bonds that exist. A contact
+    present at frame 0 and then lost is kept, because that loss is exactly what
+    the pose memory measures.
+    """
+    read_back = fxa2.read(written)
+    for cid in read_back.complexes:
+        for row in read_back.summary(cid):
+            assert row["occupancy"] > 0.0 or row["present_at_t0"] == 1, row
+
+
+def test_every_occupancy_lies_in_zero_to_one(written):
+    read_back = fxa2.read(written)
+    for cid in read_back.complexes:
+        for row in read_back.summary(cid):
+            assert 0.0 <= row["occupancy"] <= 1.0
+        record = read_back.interactions(cid)
+        for key in ("tanimoto_t0_mean", "pose_memory_mean",
+                    "key_interaction_occupancy_mean", "hbond_occupancy_mean"):
+            if record.get(key) is not None:
+                assert 0.0 <= record[key] <= 1.0, key
+
+
+def test_the_interaction_record_carries_its_status(written):
+    """DeepFlex's scorer skips the sub-score without it, and the spec omits it."""
+    read_back = fxa2.read(written)
+    for cid in read_back.complexes:
+        record = read_back.interactions(cid)
+        assert record["status"] == "ok"
+        assert record["complex_id"] == cid
+
+
+def test_the_record_says_the_typing_is_geometric(written):
+    """The type vocabulary is coarser than ProLIF's and the file has to say so."""
+    read_back = fxa2.read(written)
+    notes = " ".join(read_back.interactions(read_back.complexes[0])["notes"])
+    assert "pi-stack" in notes
+
+
+def test_the_barcode_is_within_its_caps_and_labelled(written):
+    read_back = fxa2.read(written)
+    for cid in read_back.complexes:
+        barcode = read_back.arrays(f"barcode/{cid}.npz")
+        rows, cols = barcode["z"].shape
+        assert rows <= fxa2.MAX_BARCODE_ROWS
+        assert cols <= fxa2.MAX_BARCODE_COLS
+        assert len(barcode["labels"]) == rows
+        assert barcode["z"].dtype == np.uint8
+        assert set(np.unique(barcode["z"])) <= {0, 1}
+        assert len(barcode["time_ns"]) == cols
+        assert int(barcode["n_contacts_total"]) >= rows
+
+
+def test_the_barcode_is_busiest_first(written):
+    """Twenty-eight rows is already a tall panel and the tail is noise."""
+    read_back = fxa2.read(written)
+    occupancies = read_back.arrays(
+        f"barcode/{read_back.complexes[0]}.npz")["z"].mean(axis=1)
+    assert list(occupancies) == sorted(occupancies, reverse=True)
+
+
+def test_the_barcode_labels_read_resname_resid_type(written):
+    read_back = fxa2.read(written)
+    for label in read_back.arrays(f"barcode/{read_back.complexes[0]}.npz")["labels"]:
+        residue, itype = str(label).split(" ")
+        assert itype in ("HBond", "Ionic", "Hydrophobic")
+        assert residue[:3].isalpha() and residue[3:].isdigit()
+
+
+def test_a_ligand_that_leaves_loses_its_pose_memory(deposited):
+    """The fingerprint has to register the ligand going, not just the RMSD."""
+    held = _measured(_translated(deposited, [[0, 0, 0]] * 20)).interactions
+    gone = _measured(
+        _translated(deposited, [[0, 0, 0]] + [[25.0, 0, 0]] * 19)).interactions
+    assert held["pose_memory_mean"] == pytest.approx(1.0)
+    assert gone["pose_memory_mean"] < 0.1
+    assert gone["tanimoto_t0_mean"] < 0.1
+
+
+def test_the_mean_lifetime_separates_one_contact_from_many_flickers(deposited):
+    """Two series at the same occupancy, one held and one flickering."""
+    held = np.array([0, 0, 1, 1, 1, 1, 1, 1, 0, 0], dtype=bool)
+    flicker = np.array([1, 0, 1, 0, 1, 0, 1, 0, 1, 0], dtype=bool)
+    assert held.mean() < flicker.mean() + 0.2        # roughly the same occupancy
+    assert measure._mean_lifetime(held, 0.01) > measure._mean_lifetime(flicker, 0.01)
+
+
+def test_a_departed_ligand_keeps_no_interaction_it_has_lost(deposited):
+    """Omit the key; never write a zero. A zero is read as a measurement."""
+    traj = _translated(deposited, [[0, 0, 0]] + [[25.0, 0, 0]] * 19)
+    measured = _measured(traj)
+    assert measured.interactions is not None
+    assert measured.interactions["pose_memory_mean"] < 0.1
+    assert measured.interactions["n_t0_interactions"] > 0
+
+
+def test_a_shift_the_size_of_the_box_is_a_periodic_image_and_is_flagged(deposited):
+    """Why `pbc_ok` exists at all, made concrete.
+
+    The cell here is about 64 A across, so a 60 A displacement is the same point
+    under the minimum image convention and the contacts correctly persist. The
+    measurements are not wrong: the coordinates are, and the only honest thing
+    the file can do is say so.
+    """
+    traj = _translated(deposited, [[0, 0, 0]] + [[60.0, 0, 0]] * 11)
+    measured = _measured(traj)
+    assert measured.metrics["pbc_ok"] is False
+    assert any("periodic boundary" in note for note in measured.notes)
+    # And the contacts really do survive, which is the point.
+    assert measured.metrics["in_pocket_fraction"] > 0.5
