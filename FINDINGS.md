@@ -429,6 +429,31 @@ builds its viewport controls after the structure-loading promise resolves, so
 labelling it once found no logo. Only a real browser shows that, and only after
 the page has settled. The retry is bounded rather than an observer left running.
 
+## 4c. The QC checklist
+
+Section 10's list, with where each one stands. Nothing here is marked done on
+the strength of having been attempted.
+
+| Item | State |
+|---|---|
+| Numbering maps, KLIFS position to residue | done. 3PYY resolves at the ABL1b +19 offset with nothing typed |
+| Numbering maps, generic number to residue | done. `R3.50` resolves to `R131`, which is section 5.5's own worked example |
+| Metrics on synthetic geometries | done. A salt bridge at 3.5 Å measures 3.5 Å; a helix rotated 0, 15, 30 and 45 degrees reports each angle |
+| State score symmetry | done. +1 on the active reference, −1 on the inactive, exactly 0 halfway, for any separation |
+| Membrane builder smoke test | done, and on a real run rather than 5 ps: the Tier 1 row is 1 ns of production |
+| Resume from checkpoint | done. A reloaded checkpoint continues the clock, and the resume branch is asserted to come before the equilibration branch |
+| P1 to P6 | P1 to P4 pass. P5 and P6 need the Tier 2 rows |
+| No metric all-NaN for a motif | done, and it is why TM6 and the activation loop were caught: both were silently unscored rather than NaN, which is the same fault wearing a different mask |
+| Playwright at both viewports | done. 8 pages at 1440×900 and 390×844, no console errors |
+| axe-core, zero serious or critical | done. 8 pages, zero. Eleven violations found and fixed getting there |
+| Performance targets | done. First paint 396 ms median against 2 s; bundle 0.4 MB against 150 MB |
+| Units everywhere | angstrom, nanoseconds, degrees, Å². Threshold lines labelled on the state map and the timeline |
+| Energy drift within limit | done. Within noise at 3σ on both runs; the 2 fs fallback is unused |
+
+Two things on that list were found to be wrong by writing the check rather than
+by reading the code, and both were mine: the drift criterion at one sigma, and
+the paint test's race. Neither would have been visible from inspection.
+
 ## 5. Production runs
 
 Tier 2 started at 17:04 on 10 October, in section 5.3's priority order: β2AR

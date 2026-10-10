@@ -20,7 +20,12 @@ is drafted. The spec's own acceptance criteria are met for every finished phase:
 | P2 αC label against KLIFS | 17 / 17 (≥ 85 %) |
 | P3 TM3–TM6 state separation, leave-one-out | 100 / 100 at 11.39 Å (≥ 90 %) |
 | P4 each start scores as its own state | 4 / 4 |
-| Test suite | 789 pass, 0 fail |
+| P5, P6 | pending the Tier 2 rows |
+| Test suite | 833 pass, 0 fail |
+| axe-core, 8 pages | zero serious or critical |
+| Playwright, 8 pages x 2 viewports | no console errors |
+| First paint | 396 ms median against a 2 s budget |
+| Energy drift | within noise at 3 sigma; the 2 fs fallback is unused |
 
 **What unblocks it.** One of:
 
