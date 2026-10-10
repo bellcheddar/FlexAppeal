@@ -412,3 +412,41 @@ def test_the_subcommand_is_reachable():
     assert result.returncode == 0, result.stderr[-400:]
     assert "--trajectory" in result.stdout
     assert "--family" in result.stdout
+
+
+def test_the_dssp_ribbon_is_decimated_and_keeps_its_gaps(tmp_path: Path):
+    """An undecimated per-frame heatmap is what made one page 24 MB before.
+
+    The gap check matters as much: an unassigned residue has to arrive as null
+    so the ribbon leaves it blank, rather than as coil, which would read as a
+    measurement that was never taken.
+    """
+    import json as _json
+
+    from flexappeal.refstates.web import MAX_RIBBON_COLUMNS
+    from flexappeal.webapp import create_app
+
+    analysis = tmp_path / "analysis"
+    analysis.mkdir()
+    frames = ["HHH-E"] * (MAX_RIBBON_COLUMNS * 3)
+    (analysis / "r.json").write_text(_json.dumps({
+        "dssp": {"n_frames": len(frames), "residues": [10, 11, 12, 13, 14],
+                 "frames": frames, "motifs": {}}}))
+
+    app = create_app()
+    client = app.test_client()
+    with app.app_context():
+        import flexappeal.refstates.web as web
+
+        original = web.analysis_file
+        web.analysis_file = lambda run_id: analysis / f"{run_id}.json"
+        try:
+            payload = client.get("/refstates/run/r/dssp.json").get_json()
+        finally:
+            web.analysis_file = original
+
+    assert len(payload["frames"]) <= MAX_RIBBON_COLUMNS
+    assert payload["n_frames_total"] == len(frames)
+    assert payload["stride"] >= 3
+    # The unassigned residue survives as the blank marker, not as coil.
+    assert payload["frames"][0][3] == "-"

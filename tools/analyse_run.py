@@ -269,6 +269,70 @@ def gpcr_setup(start_pdb: Path):
             {"rigidity": rigidity, "alignment": alignment})
 
 
+def secondary_structure(loaded, motif_residues: dict[str, list[int]]) -> dict:
+    """Per-frame DSSP, and each motif's helix and strand content (section 5.6).
+
+    Stored as the per-motif summary plus the whole-chain per-frame strings. The
+    strings are what the DSSP ribbon is drawn from and they are the bulk of it,
+    so they go in the run's JSON rather than into SQLite: section 7 puts
+    per-residue secondary structure outside the database for exactly this
+    reason, being a residues-by-frames matrix rather than a set of rows.
+
+    `simplified=False` so the eight DSSP classes survive. The three-class form
+    is derived where it is wanted; going the other way is impossible, and the
+    difference between a 3-10 helix and an alpha helix is the kind of local
+    change this is looking for.
+    """
+    from flexappeal.refstates import sse
+
+    try:
+        rows = sse.dssp_rows(loaded, simplified=False)
+    except Exception as exc:                                    # noqa: BLE001
+        log(f"DSSP unavailable: {str(exc)[:80]}")
+        return {}
+    if rows is None or len(rows) == 0:
+        return {}
+
+    protein = [r for r in loaded.topology.residues if r.is_protein]
+    numbers = [int(r.resSeq) for r in protein]
+    index_of = {number: position for position, number in enumerate(numbers)}
+
+    motifs: dict[str, dict] = {}
+    for name, residues in motif_residues.items():
+        indices = [index_of[n] for n in residues if n in index_of]
+        if not indices:
+            continue
+        helix, strand = [], []
+        for frame in range(len(rows)):
+            found = sse.motif_sse(rows[frame], name, indices,
+                                  [n for n in residues if n in index_of])
+            if found.helix_fraction is not None:
+                helix.append(found.helix_fraction)
+                strand.append(found.strand_fraction)
+        if not helix:
+            continue
+        motifs[name] = {
+            "n_residues": len(indices),
+            "helix_fraction_mean": sum(helix) / len(helix),
+            "helix_fraction_first": helix[0],
+            "helix_fraction_last": helix[-1],
+            "strand_fraction_mean": sum(strand) / len(strand),
+        }
+
+    return {
+        "n_frames": int(len(rows)),
+        "n_residues": len(numbers),
+        "residues": numbers,
+        # One character per residue per frame, which is only safe because every
+        # DSSP label renders to exactly one character; mdtraj writes an
+        # unassigned residue as the two-character "NA".
+        "frames": ["".join(sse.UNASSIGNED_CHAR if c == sse.UNASSIGNED
+                           else (c if str(c).strip() else "C")
+                           for c in row) for row in rows],
+        "motifs": motifs,
+    }
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--name", required=True)
@@ -333,6 +397,13 @@ def main() -> int:
             """
             return {"TM6": (ionic_lock(chain, own)["state"], "ionic_lock")}
 
+    dssp_payload = secondary_structure(loaded, motif_residues)
+    if dssp_payload:
+        log(f"DSSP: {dssp_payload['n_residues']} residues over "
+            f"{dssp_payload['n_frames']} frames; "
+            + ", ".join(f"{m} {v['helix_fraction_mean']:.0%} helix"
+                        for m, v in sorted(dssp_payload["motifs"].items())))
+
     run = traj.analyse(loaded, name=args.name, kind=args.kind, core=core,
                        motif_residues=motif_residues,
                        reference_motifs=ensembles.for_scoring(built),
@@ -341,6 +412,8 @@ def main() -> int:
     out_dir = Path(args.out)
     out_dir.mkdir(parents=True, exist_ok=True)
     payload = run.as_row()
+    if dssp_payload:
+        payload["dssp"] = dssp_payload
     payload["ensembles"] = {state: e.as_row() for state, e in built.items()}
     payload["core_agreement"] = agreement
     path = out_dir / f"{args.name}.json"

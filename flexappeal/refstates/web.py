@@ -21,11 +21,17 @@ from typing import Any
 
 from flask import Blueprint, abort, current_app, jsonify, render_template
 
+from ..webapp import _RUN_ID
+
 refstates_bp = Blueprint("refstates", __name__, url_prefix="/refstates")
 
 # Section 6.1's state tokens. Shape as well as colour, because the palette has
 # to work for a colour-blind reader and a state badge that is only a colour is
 # not a label.
+# What the ribbon can usefully draw. The example page learned this the hard
+# way: an undecimated per-frame heatmap made one page 24 MB.
+MAX_RIBBON_COLUMNS = 400
+
 STATE_SHAPES = {"active": "circle", "inactive": "square",
                 "intermediate": "diamond", "conflict": "triangle"}
 
@@ -33,6 +39,11 @@ SYSTEM_TITLES = {
     "abl1": ("ABL1 kinase in water", "Tyrosine kinase, DFG and activation loop"),
     "b2ar": ("β2AR in a POPC bilayer", "Class A GPCR, TM6 and NPxxY"),
 }
+
+
+def analysis_file(run_id: str) -> Path:
+    return (Path(current_app.root_path).parent / "data" / "analysis"
+            / f"{run_id}.json")
 
 
 def references_file() -> Path:
@@ -287,3 +298,39 @@ def about():
     return render_template("refstates_about.html", references=rows,
                            n_verified=len(verified), boltzmaker_sha=vendored,
                            active="refstates")
+
+
+@refstates_bp.get("/run/<run_id>/dssp.json")
+def dssp(run_id: str):
+    """Per-frame secondary structure, for the ribbon in section 6.2.
+
+    Served from the run's analysis file rather than from SQLite. Section 7 keeps
+    per-residue secondary structure out of the database because it is a
+    residues-by-frames matrix rather than a set of rows, and at one row per
+    residue per frame a 50 ns run would be millions of them.
+
+    Decimated to at most 400 columns, which is what the heatmap can draw. The
+    full resolution stays in the analysis file for anything that needs it.
+    """
+    if not _RUN_ID.match(run_id or ""):
+        abort(404)
+    path = analysis_file(run_id)
+    if not path.is_file():
+        abort(404)
+    try:
+        payload = json.loads(path.read_text()).get("dssp") or {}
+    except json.JSONDecodeError:
+        abort(404)
+    if not payload.get("frames"):
+        abort(404)
+
+    frames = payload["frames"]
+    stride = max(1, len(frames) // MAX_RIBBON_COLUMNS)
+    return jsonify({
+        "run_id": run_id,
+        "residues": payload.get("residues", []),
+        "frames": frames[::stride],
+        "stride": stride,
+        "n_frames_total": payload.get("n_frames"),
+        "motifs": payload.get("motifs", {}),
+    })

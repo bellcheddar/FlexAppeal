@@ -96,6 +96,26 @@
 </section>
 
 <section class="md-card md-panel is-wide">
+  <h3>Secondary structure over time</h3>
+  <div id="dssp-ribbon" class="md-plot" style="min-height:420px"></div>
+  <details class="md-readmore">
+    <summary>How to read this</summary>
+    <p>
+      One column per saved frame, one row per residue, coloured by the DSSP
+      class. A motif unwinding shows up as a horizontal band changing colour
+      part-way across. Computed with the full eight-class DSSP rather than the
+      simplified three, because the difference between an &alpha; helix and a
+      3-10 helix is the kind of local change worth seeing.
+    </p>
+    <p>
+      A residue DSSP could not assign is left blank rather than drawn as coil:
+      no assignment and an assignment of coil are different claims, and only one
+      of them is evidence of anything.
+    </p>
+  </details>
+</section>
+
+<section class="md-card md-panel is-wide">
   <h3>Reference state map</h3>
   <div id="state-map" class="md-plot" style="min-height:380px"></div>
   <details class="md-readmore">
@@ -263,6 +283,51 @@
                            font: {size: 11}, xanchor: "left"}];
   }
   Plotly.newPlot(target, traces, layout, {displayModeBar: false, responsive: true});
+})();
+
+// The DSSP ribbon. Classes are mapped to a small integer scale so one heatmap
+// can draw them, with the legend naming the class rather than the number.
+(async function () {
+  const target = document.getElementById("dssp-ribbon");
+  if (!target || typeof Plotly === "undefined") return;
+  let payload;
+  try {
+    const response = await fetch({{ url_for('refstates.dssp', run_id=run.run_id) | tojson }});
+    if (!response.ok) throw new Error(response.status);
+    payload = await response.json();
+  } catch (err) {
+    target.textContent = "Secondary structure has not been computed for this run.";
+    return;
+  }
+  const order = ["H", "G", "I", "E", "B", "T", "S", "C"];
+  const names = {H: "alpha helix", G: "3-10 helix", I: "pi helix",
+                 E: "beta strand", B: "beta bridge", T: "turn", S: "bend",
+                 C: "coil"};
+  const value = {};
+  order.forEach((c, i) => { value[c] = i; });
+  // Rows are residues, columns are frames, so the matrix is transposed from
+  // the per-frame strings the endpoint sends.
+  const z = payload.residues.map((_, r) =>
+    payload.frames.map(frame => {
+      const c = frame[r];
+      return (c === undefined || c === "-") ? null : (value[c] ?? value.C);
+    }));
+  const frameNs = payload.frames.map((_, i) => i * payload.stride * 0.1);
+  Plotly.newPlot(target, [{
+    z: z, x: frameNs, y: payload.residues, type: "heatmap",
+    colorscale: [
+      [0.000, "#2f6f4e"], [0.125, "#4a8f68"], [0.250, "#7fb394"],
+      [0.375, "#2b5d8a"], [0.500, "#6f93b8"], [0.625, "#c9a227"],
+      [0.750, "#d9c77a"], [1.000, "#e6e6e6"]],
+    zmin: 0, zmax: order.length - 1,
+    colorbar: {tickmode: "array", tickvals: order.map((c) => value[c]),
+               ticktext: order.map((c) => names[c]), thickness: 14},
+    hovertemplate: "residue %{y} at %{x:.1f} ns<extra></extra>",
+  }], {
+    margin: {l: 64, r: 16, t: 8, b: 48},
+    xaxis: {title: "time (ns)"},
+    yaxis: {title: "residue", autorange: "reversed"},
+  }, {displayModeBar: false, responsive: true});
 })();
 </script>
 {% endblock %}
