@@ -17,6 +17,7 @@ from __future__ import annotations
 import json
 import warnings
 import zipfile
+from pathlib import Path
 
 import numpy as np
 import pytest
@@ -1383,3 +1384,99 @@ def test_the_conformer_manifest_is_written_when_the_strain_was_measured(real_sou
         built.members["manifests/conformer.jsonl"].decode().splitlines()[0])
     assert record["n_rotatable"] == 2
     assert "strain_kcal" in record
+
+
+# ---------------------------------------------------------------------------
+#  depictions/ and annotations/, section 6.7 and 6.6
+# ---------------------------------------------------------------------------
+
+
+def test_a_ligand_diagram_is_written_and_shaded(real_source):
+    """Shaded by per-atom RMSF over the scored window, where that is possible."""
+    built, _ = package.assemble([real_source], package_name="depicted")
+    cid = built.complexes[0]
+    assert f"depictions/{cid}.svg" in built.members
+    svg = built.members[f"depictions/{cid}.svg"].decode()
+    assert svg.lstrip().startswith("<?xml") or "<svg" in svg
+    assert len(svg) < 100_000
+    assert json.loads(built.members["depictions/painted.json"]) == [cid]
+
+
+def test_only_shaded_diagrams_are_listed_as_painted(deposited):
+    """The mobility legend is a claim about colours.
+
+    Listing a plain diagram would draw a key for something that is not there.
+    The 3PTB fixture carries no hydrogens, so no molecule can be built from it
+    and there is no diagram at all.
+    """
+    built, _ = package.assemble([make_source(deposited)], package_name="plain")
+    assert "depictions/painted.json" not in built.members
+
+
+def test_no_depiction_member_is_a_chemistry_file(real_source):
+    """An SVG is a picture; the writer refuses anything that is not."""
+    built, _ = package.assemble([real_source], package_name="depicted")
+    for name in built.members:
+        if name.startswith("depictions/"):
+            assert name.endswith((".svg", ".json")), name
+
+
+def test_annotations_carry_the_accession(monkeypatch, deposited):
+    """Without this the receptor page has no accession and no protein name."""
+    from flexappeal import sources
+
+    monkeypatch.setattr(sources, "fetch_uniprot_for_pdb", lambda pdb: {
+        "accession": "P00760", "entry_name": "TRY1_BOVIN",
+        "protein_name": "Cationic trypsin"})
+    built, warnings_out = package.assemble(
+        [make_source(deposited)], package_name="annotated")
+    assert package.annotate(built) == []
+
+    record = json.loads(built.members["annotations/3PTB.json"])
+    assert record["label"] == "3PTB"
+    assert record["uniprot"]["accession"] == "P00760"
+    # No consensus numbering: that is a GPCR convention built from an alignment
+    # to a reference receptor, and FlexAppeal has neither.
+    assert record["n_generic_mapped"] == 0
+    assert "resid_to_generic" not in record
+    # The protein name reaches the manifest too, where the receptor list is.
+    assert built.receptors["3PTB"]["protein_name"] == "Cationic trypsin"
+
+
+def test_an_annotation_failure_costs_an_accession_and_nothing_else(monkeypatch,
+                                                                   deposited,
+                                                                   tmp_path):
+    """A packaging run has to work on a train."""
+    from flexappeal import sources
+
+    def refuse(pdb):
+        raise sources.SourceError("the network is down")
+
+    monkeypatch.setattr(sources, "fetch_uniprot_for_pdb", refuse)
+    built, _ = package.assemble([make_source(deposited)], package_name="offline")
+    warnings_out = package.annotate(built)
+    assert any("no accession" in w for w in warnings_out)
+    assert not [name for name in built.members if name.startswith("annotations/")]
+    # And the package is still conformant without them.
+    assert fxa2.conformance(fxa2.read(built.write(tmp_path / "offline.fxa"))) == []
+
+
+def test_annotations_are_off_unless_asked_for(deposited, tmp_path, monkeypatch):
+    """Nothing reaches the network during an ordinary packaging run."""
+    from flexappeal import sources
+
+    def explode(pdb):
+        raise AssertionError("the network was touched without --annotate")
+
+    monkeypatch.setattr(sources, "fetch_uniprot_for_pdb", explode)
+    built, _ = package.assemble([make_source(deposited)], package_name="quiet")
+    assert not [name for name in built.members if name.startswith("annotations/")]
+
+
+def test_a_nonsense_accession_is_refused_before_any_request():
+    from flexappeal import sources
+
+    with pytest.raises(sources.SourceError, match="not a PDB identifier"):
+        sources.fetch_uniprot_for_pdb("../../etc/passwd")
+    with pytest.raises(sources.SourceError, match="not a PDB identifier"):
+        sources.fetch_uniprot_for_pdb("3PTB/../x")

@@ -253,6 +253,23 @@ checkbox list in `README.md`.
   residues or none, and nothing about either file on its own would look wrong.
   Trypsin's radius of gyration comes out at 16.3 A, which is the published value
   and reads 1.6 if the unit conversion is missed.
+- **`annotations/`, behind `--annotate`.** A receptor's UniProt accession, entry
+  name and protein name, from the RCSB entry's first polymer entity. Off by
+  default because it is the only part of this format that needs the internet and a
+  packaging run should work on a train; a test asserts nothing reaches the network
+  without the flag. A failure is caught per receptor and costs that page its
+  accession rather than aborting the package. No consensus numbering:
+  `resid_to_generic` is a GPCR convention built from an alignment to a reference
+  receptor, and FlexAppeal has neither, so `n_generic_mapped: 0` says the mapping
+  found nothing rather than leaving the field out and implying it was never tried.
+- **`depictions/`: a 2D ligand diagram, shaded by per-atom mobility.** Blue to
+  orange, two hues rather than a rainbow: the quantity is one-dimensional and a
+  reader has to tell which end is which without a key, and a red-green ramp is the
+  one choice that fails for a common form of colour blindness. The RMSF travels as
+  an RDKit atom property so it survives `RemoveHs` attached to the atom it belongs
+  to; mapping by position afterwards would map onto a renumbered molecule.
+  `painted.json` lists only the diagrams that have the shading, because the
+  mobility legend is a claim about colours.
 
 ## 2026-07-27
 

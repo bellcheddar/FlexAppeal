@@ -4,7 +4,7 @@ Running log for the version 2 package writer, specified in `DEEPFLEX_FXA2_SPEC.m
 and driven by `FXA2_BUILD_PROMPT.md`. Rewritten at every step boundary, so an
 interrupted session can be resumed from this file alone.
 
-**Current step:** 10 of 10 (`annotations/` and `depictions/`, which are polish).
+**Current step:** done. All ten steps of section 12 are built.
 **Validator last reported:** accepted, with `--energies` supplied, and
 **"every sub-score populated: this file would produce a full report."**
 
@@ -340,6 +340,41 @@ spelling, and whatever the reader reads today.
    `payload` group tops out at 80%. The fix belongs on the DeepFlex side: the
    column should accept the multi-model `_scrub.pdb` that section 6.2 asks for,
    which is what the viewer itself already loads by name.
+
+### D17. Annotations are opt-in, and carry no consensus numbering
+
+`annotations/<receptor>.json` is the only part of this format that needs the
+internet, so it is behind `--annotate` and off by default: a packaging run should
+work on a train, and a test asserts nothing reaches the network without the flag.
+The accession comes from the RCSB entry's first polymer entity, and the entry name
+from UniProt; verified against the spec's own example, 3PTB resolves to P00760 /
+TRY1_BOVIN. A failure is caught per receptor and costs that page its accession
+rather than aborting the package.
+
+The first polymer entity only. An entry with two different chains has two
+accessions, and a package keys its annotations by receptor rather than by chain,
+so picking one and saying so in a note beats inventing a field for the rest.
+
+`resid_to_generic` is omitted and `n_generic_mapped` is `0`. Consensus numbering is
+a GPCR convention built from an alignment to a reference receptor, and FlexAppeal
+has neither the reference nor the alignment. The zero says the mapping was
+attempted and found nothing to map, which is true; leaving the field out would
+imply it was never attempted.
+
+### D18. The depiction is shaded only where there is something to shade
+
+Atoms are coloured by their RMSF over the scored window on a blue-to-orange ramp:
+two hues rather than a rainbow, because the quantity is one-dimensional and a
+reader has to tell which end is which without a key, and because a red-green ramp
+is the one choice that fails for a common form of colour blindness. The RMSF
+travels as an RDKit atom property so it survives `RemoveHs` attached to the atom
+it belongs to; mapping by position afterwards would map onto a renumbered
+molecule.
+
+`depictions/painted.json` lists only the diagrams that carry the shading, because
+the mobility legend is a claim about colours and would otherwise be drawn beside a
+plain diagram. A ligand whose chemistry could not be inferred gets no diagram at
+all rather than an unshaded one.
 
 ### D16. No tracked distance
 

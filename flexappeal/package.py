@@ -345,6 +345,44 @@ def _settings_disagreements(sources: list[Source]) -> list[str]:
     return out
 
 
+def annotate(package: fxa2.Package, *, progress=None) -> list[str]:
+    """Add `annotations/<receptor>.json` for every receptor, over the network.
+
+    The only part of this format that needs the internet, and the only reason to
+    make it opt-in: a packaging run should work on a train. A failure costs the
+    receptor page its accession and nothing else, so each one is caught
+    separately and reported rather than aborting the package.
+
+    No consensus numbering. `resid_to_generic` is a GPCR convention built from an
+    alignment to a reference receptor, and FlexAppeal has neither the reference
+    nor the alignment; `n_generic_mapped: 0` says so rather than leaving the
+    field out and implying the mapping was simply not attempted.
+    """
+    from . import sources as sources_mod  # noqa: PLC0415
+
+    warnings: list[str] = []
+    for receptor in sorted(package.receptors):
+        if progress is not None:
+            progress(f"resolving {receptor} against UniProt")
+        try:
+            uniprot = sources_mod.fetch_uniprot_for_pdb(receptor)
+        except sources_mod.SourceError as exc:
+            warnings.append(
+                f"{receptor}: no UniProt annotation ({exc}). The receptor page "
+                f"will show its identifier and no accession.")
+            continue
+        package.add_json(f"annotations/{receptor}.json", {
+            "label": receptor,
+            "uniprot": uniprot,
+            "n_generic_mapped": 0,
+            "notes": ["resolved from the RCSB entry's first polymer entity; no "
+                      "consensus numbering was computed"],
+        })
+        package.register_receptor(
+            receptor, protein_name=uniprot.get("protein_name"))
+    return warnings
+
+
 def assemble(sources: list[Source], *, package_name: str,
              energies: dict[str, dict[str, float]] | None = None,
              progress=None) -> tuple[fxa2.Package, list[str]]:
@@ -375,6 +413,7 @@ def assemble(sources: list[Source], *, package_name: str,
     with_energies: list[str] = []
     panel_lines: list[dict[str, Any]] = []
     conformer_lines: list[dict[str, Any]] = []
+    painted: list[str] = []
     for source in sources:
         warnings.extend(source.notes)
         receptor = source.receptor()
@@ -422,6 +461,8 @@ def assemble(sources: list[Source], *, package_name: str,
             measured.panels_summary = {**(measured.panels_summary or {}),
                                        "mmpbsa_terms": terms}
         _add(package, measured, panel_lines, conformer_lines)
+        if measured.depiction_painted:
+            painted.append(cid)
         package.register_receptor(
             receptor,
             protein_name=str(source.structure.get("filename") or "") or None,
@@ -443,6 +484,12 @@ def assemble(sources: list[Source], *, package_name: str,
     # also in `metrics/` where the spec puts them, so a future DeepFlex that
     # reads them there finds them; FXA2_PROGRESS.md lists this as a gap for the
     # other side rather than a decision taken here.
+    # Only the diagrams that actually carry mobility shading. The legend is a
+    # claim about colours, so listing a plain diagram here would draw a key for
+    # something that is not there.
+    if painted:
+        package.add_json("depictions/painted.json", painted)
+
     for name, lines in (("panels", panel_lines), ("conformer", conformer_lines)):
         if lines:
             package.add_text(
@@ -550,10 +597,13 @@ def _add(package: fxa2.Package, measured: measure.Measured,
     if measured.conformer_summary:
         conformer_lines.append({"complex_id": cid, "receptor": measured.receptor,
                                 **measured.conformer_summary})
+    if measured.depiction_svg:
+        package.add_text(f"depictions/{cid}.svg", measured.depiction_svg)
 
 
 def build(paths: list[Path], *, out: Path, package_name: str | None = None,
-          energies: Path | None = None, progress=None) -> tuple[Path, list[str]]:
+          energies: Path | None = None, annotations: bool = False,
+          progress=None) -> tuple[Path, list[str]]:
     """The whole command: discover, load, measure, write."""
     sources_paths = discover([Path(p) for p in paths])
     sources = [load(path) for path in sources_paths]
@@ -561,6 +611,8 @@ def build(paths: list[Path], *, out: Path, package_name: str | None = None,
     package, warnings = assemble(
         sources, package_name=package_name or Path(out).stem,
         energies=supplied, progress=progress)
+    if annotations:
+        warnings.extend(annotate(package, progress=progress))
     return package.write(out), warnings
 
 

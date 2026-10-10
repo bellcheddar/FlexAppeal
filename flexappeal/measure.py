@@ -140,6 +140,8 @@ class Measured:
     barcode: dict[str, np.ndarray] | None = None
     conformer: dict[str, np.ndarray] | None = None
     conformer_summary: dict[str, Any] | None = None
+    depiction_svg: str | None = None
+    depiction_painted: bool = False
     notes: list[str] = field(default_factory=list)
 
     @property
@@ -1091,7 +1093,7 @@ def assign_wells(angles: np.ndarray) -> np.ndarray:
     return wells
 
 
-def strain_records(traj, atoms: np.ndarray, start: int, time_ns: np.ndarray
+def strain_records(mol, traj, atoms: np.ndarray, start: int, time_ns: np.ndarray
                    ) -> tuple[dict[str, Any], dict[str, np.ndarray], list[str]]:
     """MMFF94 torsional strain in excess of frame 0, and the torsion series.
 
@@ -1116,7 +1118,6 @@ def strain_records(traj, atoms: np.ndarray, start: int, time_ns: np.ndarray
     from rdkit.Chem import AllChem, rdMolTransforms  # noqa: PLC0415
     from rdkit.Geometry import Point3D  # noqa: PLC0415
 
-    mol = ligand_mol(traj, atoms)
     if mol is None:
         return {}, {}, [
             "the ligand's bond orders could not be inferred from the "
@@ -1320,6 +1321,80 @@ def receptor_panels(traj, fitted, receptor_ca: np.ndarray, start: int,
             arrays["pc2_package"] = projection[:, 1].astype(np.float32)
 
     return arrays, summary
+
+
+# ===========================================================================
+#  The 2D depiction, section 6.7
+# ===========================================================================
+
+# Low to high mobility. Two hues rather than a rainbow, because the quantity is
+# one-dimensional and a reader has to be able to tell which end is which without
+# a key; and because a red-green ramp is the one choice that fails for a common
+# form of colour blindness.
+MOBILITY_LOW = (0.18, 0.44, 0.71)       # blue
+MOBILITY_HIGH = (0.84, 0.37, 0.09)      # orange
+DEPICTION_SIZE = (340, 260)
+
+
+def depiction(mol, atoms: np.ndarray, heavy: np.ndarray,
+              ligand_rmsf: np.ndarray) -> tuple[str | None, bool]:
+    """A 2D diagram of the ligand, shaded by per-atom mobility where possible.
+
+    Returns the SVG and whether it carries the shading. The second value matters:
+    the mobility legend is a claim about colours, and `depictions/painted.json`
+    lists only the diagrams that actually have them so the legend is not drawn
+    beside a plain diagram.
+    """
+    if mol is None:
+        return None, False
+
+    from rdkit import Chem  # noqa: PLC0415
+    from rdkit.Chem import AllChem  # noqa: PLC0415
+    from rdkit.Chem.Draw import rdMolDraw2D  # noqa: PLC0415
+
+    # The fluctuation is per heavy atom and the molecule carries its hydrogens,
+    # so it is attached as an atom property and travels through RemoveHs with
+    # the atom it belongs to. Mapping by position afterwards would be mapping
+    # onto a renumbered molecule.
+    position_of = {int(index): order for order, index in enumerate(atoms)}
+    painted = False
+    if len(ligand_rmsf) == len(heavy):
+        low, high = float(ligand_rmsf.min()), float(ligand_rmsf.max())
+        span = high - low
+        for value, index in zip(ligand_rmsf, heavy):
+            order = position_of.get(int(index))
+            if order is None or order >= mol.GetNumAtoms():
+                continue
+            scaled = 0.5 if span <= 0 else (float(value) - low) / span
+            mol.GetAtomWithIdx(order).SetDoubleProp("mobility", scaled)
+        painted = True
+
+    try:
+        flat = Chem.RemoveHs(Chem.Mol(mol))
+        AllChem.Compute2DCoords(flat)
+    except Exception:  # noqa: BLE001 - a diagram is polish, not a measurement
+        return None, False
+
+    highlights: list[int] = []
+    colours: dict[int, tuple[float, float, float]] = {}
+    for atom in flat.GetAtoms():
+        if not atom.HasProp("mobility"):
+            continue
+        scaled = atom.GetDoubleProp("mobility")
+        highlights.append(atom.GetIdx())
+        colours[atom.GetIdx()] = tuple(
+            low_channel + scaled * (high_channel - low_channel)
+            for low_channel, high_channel in zip(MOBILITY_LOW, MOBILITY_HIGH))
+    if not highlights:
+        painted = False
+
+    drawer = rdMolDraw2D.MolDraw2DSVG(*DEPICTION_SIZE)
+    drawer.drawOptions().addStereoAnnotation = False
+    rdMolDraw2D.PrepareAndDrawMolecule(
+        drawer, flat, highlightAtoms=highlights or None,
+        highlightAtomColors=colours or None)
+    drawer.FinishDrawing()
+    return drawer.GetDrawingText(), painted
 
 
 # ===========================================================================
@@ -1566,8 +1641,9 @@ def _measure(traj, cid: str, receptor: str, ligand: str, resnames: list[str],
         metrics["n_rmsf_residues"] = panels_summary["n_rmsf_residues"]
 
     # ---- ligand strain -----------------------------------------------------
+    mol = ligand_mol(traj, atoms)
     strain_metrics, conformer, strain_notes = strain_records(
-        traj, atoms, start, time_ns)
+        mol, traj, atoms, start, time_ns)
     metrics.update(strain_metrics)
     notes.extend(strain_notes)
     # The same four numbers again, under the spelling DeepFlex's layer manifest
@@ -1579,6 +1655,8 @@ def _measure(traj, cid: str, receptor: str, ligand: str, resnames: list[str],
         **{key: value for key, value in strain_metrics.items()
            if key != "n_rotatable_bonds"},
     } if strain_metrics else {}
+
+    svg, svg_painted = depiction(mol, atoms, heavy, ligand_rmsf)
 
     interactions, summary, barcode = interaction_records(
         traj, cid, heavy, pocket["indices_raw"], start, time_ns)
@@ -1615,5 +1693,6 @@ def _measure(traj, cid: str, receptor: str, ligand: str, resnames: list[str],
         series=series, interactions=interactions, summary=summary,
         barcode=barcode, conformer=conformer or None,
         conformer_summary=conformer_line or None,
-        panels=panels or None, panels_summary=panels_summary or None, notes=notes,
+        panels=panels or None, panels_summary=panels_summary or None,
+        depiction_svg=svg, depiction_painted=svg_painted, notes=notes,
     )

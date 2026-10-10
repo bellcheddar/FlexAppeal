@@ -11,6 +11,7 @@ message aimed at the person who typed the accession, not at a log file.
 from __future__ import annotations
 
 import gzip
+import json
 import urllib.error
 import urllib.request
 from dataclasses import dataclass
@@ -184,3 +185,51 @@ def fetch_ccd_ideal(residue_name: str) -> FetchResult:
     return FetchResult(data, f"{name}.sdf", "ccd",
                        f"https://www.rcsb.org/ligand/{name}",
                        citation=f"RCSB Chemical Component Dictionary {name}")
+
+
+def fetch_uniprot_for_pdb(pdb_id: str) -> dict[str, str]:
+    """A PDB entry's UniProt accession, entry name and protein name.
+
+    For `annotations/<receptor>.json` in an `.fxa` version 2 package, which is
+    what gives a receptor page an accession rather than only an identifier. The
+    spec calls it the only part of that format needing the internet, so every
+    caller has to treat a failure as ordinary.
+
+    The first polymer entity only. An entry with two different chains has two
+    accessions and a package keys its annotations by receptor rather than by
+    chain, so picking one and saying so beats inventing a field for the rest.
+
+    Raises SourceError, which the caller is expected to catch: a package without
+    annotations is complete, only less.
+    """
+    name = pdb_id.strip().upper()
+    if not name.isalnum() or not 4 <= len(name) <= 8:
+        raise SourceError(f"{pdb_id!r} is not a PDB identifier")
+
+    url = f"https://data.rcsb.org/rest/v1/core/polymer_entity/{name}/1"
+    document = json.loads(_get(url, what=f"RCSB annotation for {name}"))
+    identifiers = (document.get("rcsb_polymer_entity_container_identifiers")
+                   or {})
+    references = identifiers.get("reference_sequence_identifiers") or []
+    accession = next(
+        (r.get("database_accession") for r in references
+         if str(r.get("database_name", "")).upper() == "UNIPROT"), None)
+    if not accession:
+        raise SourceError(f"{name} has no UniProt cross-reference")
+
+    out = {"accession": accession}
+    description = (document.get("rcsb_polymer_entity") or {}).get("pdbx_description")
+    if description:
+        out["protein_name"] = str(description)
+
+    # The entry name is a second request and is cosmetic, so a failure here
+    # loses a label rather than the accession that matters.
+    try:
+        entry = json.loads(_get(
+            f"https://rest.uniprot.org/uniprotkb/{accession}.json?fields=id",
+            what=f"UniProt entry name for {accession}"))
+        if entry.get("uniProtkbId"):
+            out["entry_name"] = str(entry["uniProtkbId"])
+    except (SourceError, ValueError):
+        pass
+    return out

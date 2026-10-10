@@ -287,7 +287,7 @@ def cmd_package(args: argparse.Namespace) -> int:
         written, warnings = package_mod.build(
             [Path(p) for p in args.sources], out=out,
             package_name=args.name, energies=Path(args.energies) if args.energies else None,
-            progress=_step,
+            annotations=args.annotate, progress=_step,
         )
     except package_mod.PackageError as exc:
         _err(str(exc))
@@ -448,6 +448,11 @@ def _build_argparser() -> argparse.ArgumentParser:
                         "compound name. FlexAppeal cannot compute these; without "
                         "them the energy sub-score is left pending, which is "
                         "honest, rather than written as zero")
+    p.add_argument("--annotate", action="store_true",
+                   help="resolve each receptor's UniProt accession over the "
+                        "network. Off by default: it is the only part of the "
+                        "format that needs the internet, and without it the "
+                        "receptor page shows an identifier and no accession")
     p.set_defaults(func=cmd_package)
 
     p = sub.add_parser("docs", help="regenerate docs/options.md from the registry")
