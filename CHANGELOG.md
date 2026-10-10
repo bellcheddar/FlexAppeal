@@ -80,6 +80,54 @@ checkbox list in `README.md`.
   file and nobody can write it down in advance. An absolute MM/PBSA block is
   refused: the three absolute blocks are each around -100,000 kcal/mol and only
   their difference is a binding quantity.
+- **The scored window, and the two sub-scores that are half the grade.**
+  `equil_start_frame` is chosen by Chodera's rule, taking the truncation that
+  leaves the most effectively uncorrelated samples. That is the quantity pymbar's
+  `detect_equilibration` maximises, so this is the same method without the
+  dependency rather than a cheaper substitute for it. Evaluated at about fifty
+  candidate truncations because the curve is smooth and the search is otherwise
+  cubic in the frame count, which on a 2,000-frame run costs minutes to produce one
+  frame index.
+
+  Searched unconstrained and clamped to half the run afterwards, not searched
+  inside the cap: clamping a bounded search cannot tell a run that equilibrated
+  just under the cap from one that never equilibrated at all, and those two deserve
+  different words on the page. On synthetic series it finds a drift ending at frame
+  60 at 57, one ending at 20 at 18, noise at 0, and reports the ceiling for a ramp
+  that never settles.
+
+  Every scored scalar is then cut from that frame, which is tested by holding a
+  ligand in the pocket for the first half of a run and 25 A away for the second:
+  the occupancy has to come out at 0, because the window is the half where the
+  ligand is gone. Averaged over the whole run it would read 0.5, which is the
+  error that test exists to catch.
+- **Three superpositions, each against its own reference copy.** The pose RMSD fits
+  the pocket Calpha and measures the ligand, the in-place RMSD fits the ligand and
+  measures the ligand, and the receptor RMSD fits and measures the receptor
+  Calpha. The first two together are what separate the ligand moving from the
+  ligand changing shape.
+
+  Each takes a second copy as its reference rather than passing the trajectory as
+  its own. MDTraj's `superpose` rewrites coordinates in place, so a trajectory
+  fitted against itself moves frame 0 first and then fits every later frame against
+  the moved version: a rigid 2 A translation came out as 1.88 A that way. Wrong,
+  plausible, and one unit test away from shipping. The test asserts the exact
+  number on a jitter-free trajectory, where a unit or reference error has nowhere
+  to hide.
+- **Centroid drift is measured from the ligand's own frame-0 position.** Not from
+  the pocket centroid, which is the average of the residues lining the site and
+  sits several angstrom from the ligand centre even in a perfectly held pose:
+  measuring against it adds a constant offset, and the 5 A hard gate then fires on
+  ligands that have not moved. The offset is still reported, as a diagnostic.
+- **The periodic-boundary check is measured, not defaulted.** A ligand wrapped
+  across a boundary sits a box length from its receptor in the stored coordinates,
+  and then every distance spanning the two is wrong by that much.  `pbc_ok: false`
+  is not a failure, but it makes every distance in the file suspect and the report
+  says so, so it is a measurement: the largest ligand-centroid step between
+  consecutive frames, against a 10 A threshold. The contacts are computed before
+  any superposition for the same family of reason: `superpose` rotates coordinates
+  and leaves the unitcell vectors alone, so a periodic distance taken afterwards
+  applies stale box vectors to rotated coordinates.
 
 ## 2026-07-27
 

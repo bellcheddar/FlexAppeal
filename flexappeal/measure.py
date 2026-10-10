@@ -318,6 +318,177 @@ def scrub_pdb(traj, atoms: np.ndarray, resnames: list[str], *,
 
 
 # ===========================================================================
+#  The scored window, section 4.1
+# ===========================================================================
+
+
+def statistical_inefficiency(series: np.ndarray) -> float:
+    """The number of correlated samples per independent one.
+
+    The normalised autocorrelation summed until it first turns negative, which is
+    the standard truncation: past that point the estimate is noise about zero, so
+    continuing to sum it adds variance rather than information.
+    """
+    n = len(series)
+    if n < 3:
+        return 1.0
+    deviation = series - series.mean()
+    variance = float((deviation * deviation).mean())
+    if variance <= 0.0:
+        return 1.0
+
+    g = 1.0
+    for lag in range(1, n - 1):
+        correlation = float((deviation[: n - lag] * deviation[lag:]).mean()) / variance
+        if correlation <= 0.0 and lag > 1:
+            break
+        g += 2.0 * correlation * (1.0 - lag / n)
+    return max(1.0, g)
+
+
+def detect_equilibration(series: np.ndarray, *,
+                         candidates: int = 50) -> tuple[int, str]:
+    """The first frame to score from, and how it was chosen.
+
+    Chodera's rule: take the truncation that leaves the most *effectively
+    uncorrelated* samples, `(N - t) / g(t)`. Discarding more frames lowers the
+    sample count and also lowers the correlation, and this is where those two
+    trade off. It is pymbar's `detect_equilibration` without the dependency
+    rather than a cheaper substitute for it: the same quantity is maximised.
+
+    Evaluated at about fifty candidate truncations rather than at every frame.
+    The curve is smooth, and the search is otherwise cubic in the frame count,
+    which on a 2,000-frame run costs minutes to produce one frame index.
+
+    Capped at half the run. Over the cap the method is reported as `ceiling`,
+    which DeepFlex renders as `capped` on the page: honest rather than hidden.
+    """
+    n = len(series)
+    if n < 8:
+        # Too short to tell equilibrated from not. Score all of it and say so,
+        # rather than discard a fifth of eight frames on no evidence.
+        return 0, "all_frames"
+
+    # Searched unconstrained and clamped afterwards, rather than searched inside
+    # the cap. Clamping a search that was already bounded cannot tell a run that
+    # equilibrated just under the cap from one that never equilibrated at all,
+    # and those two deserve different words on the page.
+    step = max(1, (n - 8) // candidates)
+    best_start, best_effective = 0, -1.0
+    for start in range(0, n - 4, step):
+        tail = series[start:]
+        if len(tail) < 4:
+            break
+        effective = len(tail) / statistical_inefficiency(tail)
+        if effective > best_effective:
+            best_effective, best_start = effective, start
+
+    ceiling = max(1, int(n * EQUIL_CEILING_FRACTION))
+    if best_start > ceiling:
+        return ceiling, "detect_equilibration->ceiling"
+    return best_start, "detect_equilibration"
+
+
+# ===========================================================================
+#  Geometry
+# ===========================================================================
+
+
+def _copy(traj):
+    """An independent copy, because `superpose` rewrites coordinates in place.
+
+    Three different superpositions are taken below and each has to fit against
+    the original frame 0. Fitting one on top of another gives numbers that look
+    plausible and are not what their names say, and MDTraj's slicing does not
+    reliably hand back a copy.
+    """
+    import mdtraj as md  # noqa: PLC0415
+
+    return md.Trajectory(
+        xyz=traj.xyz.copy(), topology=traj.topology, time=traj.time,
+        unitcell_lengths=(None if traj.unitcell_lengths is None
+                          else traj.unitcell_lengths.copy()),
+        unitcell_angles=(None if traj.unitcell_angles is None
+                         else traj.unitcell_angles.copy()),
+    )
+
+
+def _fit(traj, fit_on: np.ndarray):
+    """A copy superposed on frame 0 over the given atoms.
+
+    The reference is a *second* copy, not the trajectory being fitted. MDTraj's
+    `superpose` rewrites coordinates in place, so passing a trajectory as its own
+    reference moves frame 0 first and then fits every later frame against the
+    moved version. A rigid 2 A translation came out as 1.88 A that way: wrong,
+    plausible, and a unit test away from shipping.
+    """
+    reference = _copy(traj)
+    fitted = _copy(traj)
+    fitted.superpose(reference, frame=0, atom_indices=fit_on)
+    return fitted
+
+
+def _drift_rmsd(fitted, measure_on: np.ndarray) -> np.ndarray:
+    """Per-frame RMSD of an atom set to its own frame-0 position, in angstrom.
+
+    Computed by hand rather than with `md.rmsd`, which superposes on exactly the
+    atoms it then measures. The whole point of the pose RMSD is that the fit and
+    the measurement are different sets: fit the pocket, measure the ligand, and
+    what comes out is the ligand moving inside a receptor held still.
+    """
+    coords = fitted.xyz[:, measure_on, :] * 10.0
+    return np.sqrt(((coords - coords[0]) ** 2).sum(axis=2).mean(axis=1))
+
+
+def _atoms_of(topology, residue_indices, *, name: str | None = None,
+              heavy: bool = False) -> np.ndarray:
+    """Atoms of the given protein residues, optionally one atom name or heavy only."""
+    out: list[int] = []
+    for index in residue_indices:
+        residue = topology.residue(int(index))
+        if not residue.is_protein:
+            continue
+        for atom in residue.atoms:
+            if name is not None and atom.name != name:
+                continue
+            if heavy and atom.element.symbol == "H":
+                continue
+            out.append(atom.index)
+    return np.array(sorted(out), dtype=int)
+
+
+def _slope_per_ns(values: np.ndarray, time_ns: np.ndarray) -> float | None:
+    """A least-squares slope, or None when there is nothing to fit."""
+    if len(values) < 3:
+        return None
+    good = np.isfinite(values) & np.isfinite(time_ns)
+    if good.sum() < 3 or np.ptp(time_ns[good]) <= 0:
+        return None
+    return float(np.polyfit(time_ns[good], values[good], 1)[0])
+
+
+def residue_contacts(traj, ligand_residue: int,
+                     residue_indices: list[int]) -> np.ndarray:
+    """Per-frame count of receptor residues in contact with the ligand.
+
+    Residues rather than atom pairs, which is what section 4 asks for
+    (`n_native_contacts`: "receptor residues within the contact cutoff of the
+    ligand"). Closest-heavy-atom distance per residue, under the minimum image
+    convention, so a residue counts once however many of its atoms are near.
+    """
+    import mdtraj as md  # noqa: PLC0415
+
+    pairs = np.array([[ligand_residue, int(index)] for index in residue_indices],
+                     dtype=int)
+    if not len(pairs):
+        raise MeasureError("no_pocket_residues")
+    distances, _ = md.compute_contacts(traj, contacts=pairs, scheme="closest-heavy",
+                                       periodic=traj.unitcell_vectors is not None,
+                                       ignore_nonprotein=False)
+    return (distances <= CONTACT_CUTOFF_A / 10.0).sum(axis=1).astype(np.int64)
+
+
+# ===========================================================================
 #  The whole measurement for one complex
 # ===========================================================================
 
@@ -341,11 +512,22 @@ def _measure(traj, cid: str, receptor: str, ligand: str,
     atoms, heavy, fragmented = ligand_atoms(traj.topology, resnames)
     pocket = pocket_residues(traj, heavy)
 
+    topology = traj.topology
+    ligand_residue = topology.atom(int(heavy[0])).residue.index
+
+    # The three atom sets the measurements fit on. The pocket Calpha set is the
+    # one that matters most: it is the superposition frame for the ligand RMSD,
+    # and it is the filtered pocket rather than the crop shell for that reason.
+    pocket_ca = _atoms_of(topology, pocket["indices_filtered"], name="CA")
+    pocket_heavy = _atoms_of(topology, pocket["indices_filtered"], heavy=True)
+    receptor_ca = topology.select("protein and name CA")
+    if len(pocket_ca) < 3:
+        raise MeasureError("pocket_ca_too_few")
+
     # The crop: the ligand plus every whole residue in the 10 A shell, with the
     # solvent removed. Selected by residue index rather than by residue number,
     # because residue numbers are not unique once insertion codes have been
     # dropped and selecting on one pulls in whichever other residue shares it.
-    topology = traj.topology
     crop = {int(i) for i in atoms}
     for index in pocket["indices_raw"]:
         crop.update(a.index for a in topology.residue(int(index)).atoms)
@@ -358,17 +540,124 @@ def _measure(traj, cid: str, receptor: str, ligand: str,
             "fragment was measured and the rest ignored"
         )
 
+    time_ns = np.asarray(traj.time, dtype=np.float64) / 1000.0
+
+    # ---- the periodic-boundary gate, before anything is superposed ----------
+    #
+    # A ligand wrapped across a boundary sits a box length from its receptor in
+    # the stored coordinates, and then every distance that spans the two is wrong
+    # by that much. `pbc_ok: false` is not a failure, but it makes every distance
+    # in the file suspect and the report says so, which is why it is measured
+    # rather than defaulted to true.
+    raw_com = traj.xyz[:, heavy, :].mean(axis=1) * 10.0
+    jumps = np.linalg.norm(np.diff(raw_com, axis=0), axis=1) if traj.n_frames > 1 \
+        else np.zeros(0)
+    n_jumps = int(np.count_nonzero(jumps > PBC_JUMP_A))
+    pbc_ok = n_jumps == 0
+    if not pbc_ok:
+        notes.append(
+            f"{n_jumps} ligand centroid jump(s) over {PBC_JUMP_A:.0f} A between "
+            f"consecutive frames (largest {jumps.max():.1f} A): the coordinates "
+            f"are wrapped across a periodic boundary, so every distance here is "
+            f"suspect"
+        )
+
+    # ---- contacts, also before any superposition ---------------------------
+    #
+    # This has to precede the fits. `superpose` rotates the coordinates and
+    # leaves the unitcell vectors untouched, so a periodic distance taken
+    # afterwards applies stale box vectors to rotated coordinates.
+    contacts = residue_contacts(traj, ligand_residue, pocket["indices_raw"])
+    n_native = int(contacts[0])
+    threshold = max(1, int(np.ceil(n_native * NATIVE_CONTACT_FRACTION)))
+    in_pocket = contacts >= threshold
+
+    # ---- the three superpositions ------------------------------------------
+    pose_fit = _fit(traj, pocket_ca)
+    pose_rmsd = _drift_rmsd(pose_fit, heavy)
+    inplace_rmsd = _drift_rmsd(_fit(traj, heavy), heavy)
+    receptor_rmsd = _drift_rmsd(_fit(traj, receptor_ca), receptor_ca) \
+        if len(receptor_ca) >= 3 else np.zeros(traj.n_frames)
+
+    # Centroid displacement, measured from the ligand's OWN frame-0 centroid and
+    # not from the pocket's. The pocket centroid is the average of the residues
+    # lining the site and sits several angstrom from the ligand centre even in a
+    # perfectly held pose, so measuring against it adds a constant offset and
+    # the 5 A hard gate then fires on ligands that have not moved. The offset is
+    # still reported, as a diagnostic rather than as a drift measure.
+    ligand_xyz = pose_fit.xyz[:, heavy, :] * 10.0
+    com = ligand_xyz.mean(axis=1)
+    com_drift = np.linalg.norm(com - com[0], axis=1)
+    pocket_centre = (pose_fit.xyz[0, pocket_heavy, :] * 10.0).mean(axis=0) \
+        if len(pocket_heavy) else com[0]
+    pocket_offset = np.linalg.norm(com - pocket_centre, axis=1)
+
+    # ---- the scored window -------------------------------------------------
+    start, method = detect_equilibration(pose_rmsd)
+    scored = slice(start, None)
+    window = pose_rmsd[scored]
+    window_time = time_ns[scored]
+
+    # Per-atom ligand fluctuation about its mean position over the window, after
+    # the pocket fit, which is the ligand flexing rather than the ligand moving.
+    mean_position = ligand_xyz[scored].mean(axis=0)
+    ligand_rmsf = np.sqrt(
+        ((ligand_xyz[scored] - mean_position) ** 2).sum(axis=2).mean(axis=0))
+
     metrics: dict[str, Any] = {
         "complex_id": cid,
         "receptor": receptor,
         "ligand_id": ligand,
         "status": "ok",
         "n_frames": int(traj.n_frames),
-        "extra_ligand_fragments": bool(fragmented),
         # DeepFlex's scorer reads this directly rather than with a default, and a
         # FlexAppeal study has no reference compound in it.
         "is_reference": False,
+
+        # The scored window. Every quantity below it is computed from this frame
+        # onward: a strain or an energy measured over a different window from the
+        # RMSD is not the quantity that belongs beside that grade.
+        "equil_start_frame": int(start),
+        "equil_method": method,
+
+        # S_pose
+        "ligand_rmsd_median": float(np.median(window)),
+        "ligand_rmsd_p90": float(np.percentile(window, 90)),
+        "ligand_rmsd_max": float(window.max()),
+        "inplace_rmsd_median": float(np.median(inplace_rmsd[scored])),
+
+        # S_occ
+        "n_native_contacts": n_native,
+        "in_pocket_fraction": float(in_pocket[scored].mean()),
+        # A transition from inside the pocket to outside it.
+        "n_exit_events": int(np.count_nonzero(
+            np.diff(in_pocket.astype(np.int8)) == -1)),
+        "com_drift_mean_a": float(com_drift[scored].mean()),
+        "com_drift_max_a": float(com_drift[scored].max()),
+        "pocket_offset_mean_a": float(pocket_offset[scored].mean()),
+
+        # Quality flags
+        "pbc_ok": bool(pbc_ok),
+        "extra_ligand_fragments": bool(fragmented),
+        "receptor_rmsd_mean": float(receptor_rmsd[scored].mean()),
+        "ligand_rmsf_mean": float(ligand_rmsf.mean()),
+        "ligand_rmsf_max": float(ligand_rmsf.max()),
     }
+
+    slope = _slope_per_ns(window, window_time)
+    if slope is not None:
+        metrics["ligand_rmsd_drift_slope"] = slope
+
+    if traj.unitcell_volumes is not None:
+        # nm^3 to A^3.
+        metrics["box_volume_a3"] = float(np.mean(traj.unitcell_volumes) * 1000.0)
+
+    if n_native < 4:
+        notes.append(
+            f"only {n_native} receptor residue(s) in contact with the ligand at "
+            f"frame 0, so the occupancy threshold is {threshold} residue(s) and "
+            f"in_pocket_fraction is a coarse measure here"
+        )
 
     pocket_record = dict(pocket["record"])
     pocket_record.update({

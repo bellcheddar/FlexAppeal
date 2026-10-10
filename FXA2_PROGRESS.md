@@ -4,13 +4,10 @@ Running log for the version 2 package writer, specified in `DEEPFLEX_FXA2_SPEC.m
 and driven by `FXA2_BUILD_PROMPT.md`. Rewritten at every step boundary, so an
 interrupted session can be resumed from this file alone.
 
-**Current step:** 3 of 10 (the scored window, `S_pose`, `S_occ`).
-**Validator last reported:** accepted. A real two-receptor package built by
-`flexappeal package` from the trypsin fixture ingests as a run with 2 complexes,
-2 receptors and 42 pocket residues. Every measurement group is at 0%, which is
-correct for step 2: nothing is measured yet. A hand-built package carrying the
-step 4 to 8 scalars reaches 100% on pose, occupancy, convergence and ranking, so
-the shapes those steps have to fill are settled.
+**Current step:** 4 of 10 (`series/` and `traj/<cid>_scrub.pdb`).
+**Validator last reported:** accepted. **pose 100%, occupancy 100%, ranking 100%,
+grade 50%.** Interactions, energy, convergence, conformation, receptor panels and
+payload are at 0%, which is steps 4 to 9.
 
 ---
 
@@ -114,6 +111,41 @@ and the number DeepFlex looks up to mark pocket residues on the RMSF plot.
 Duplicates are kept rather than merged: dropping one would silently shorten the
 pocket. Atom selection is always by residue *index*, never by number, so a shared
 number cannot pull in the wrong residue.
+
+### D7. `detect_equilibration` without pymbar
+
+Chodera's rule: take the truncation that leaves the most effectively uncorrelated
+samples, `(N - t) / g(t)`, where `g` is the statistical inefficiency. That is what
+`pymbar.timeseries.detect_equilibration` maximises, so this is the same quantity
+rather than a cheaper substitute, and pymbar is not in `pixi.toml`.
+
+Two things it does differently, both deliberate:
+
+- **About fifty candidate truncations, not every frame.** The curve is smooth and
+  the search is otherwise cubic in the frame count, which on a 2,000-frame run
+  costs minutes to produce one frame index.
+- **Searched unconstrained, then clamped to half the run.** Clamping a search that
+  was already bounded cannot tell a run that equilibrated just under the cap from
+  one that never equilibrated at all, and those two deserve different words on the
+  page. Over the cap the method reads `detect_equilibration->ceiling`, which
+  DeepFlex renders as `capped` (it looks for `ceiling` as a substring).
+
+Measured on synthetic series: a drift ending at frame 60 is detected at 57, one
+ending at frame 20 at 18, pure noise at 0, and a never-settling ramp reports the
+ceiling.
+
+### D8. `n_native_contacts` counts residues, as the spec says
+
+Section 4 defines it as "receptor residues within the contact cutoff of the ligand
+at frame 0", and that is what is written: a closest-heavy-atom distance per
+residue, under the minimum image convention, so a residue counts once however many
+of its atoms are near. DeepFlex's own binding layer counts atom *pairs* under the
+same column name, which is why its numbers run to the low hundreds where these run
+to the low tens. The sub-score is unaffected, because `in_pocket_fraction` is the
+fraction of frames retaining a quarter of whatever was counted at frame 0 and S_occ
+is a ramp on that fraction rather than a percentile against DeepFlex's cohort. The
+displayed count will differ from a `.dfx`-sourced run, and that is worth one line
+on the DeepFlex side deciding which definition the column means.
 
 ## Divergences between the spec and the reader that actually ingests these files
 

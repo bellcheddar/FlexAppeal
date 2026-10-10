@@ -465,3 +465,192 @@ def test_discovery_says_so_when_a_directory_holds_nothing(tmp_path):
 def test_discovery_refuses_a_path_that_is_not_there(tmp_path):
     with pytest.raises(PackageError, match="does not exist"):
         package.discover([tmp_path / "nowhere"])
+
+
+# ---------------------------------------------------------------------------
+#  The scored window, section 4.1
+# ---------------------------------------------------------------------------
+
+
+def test_equilibration_is_detected_where_it_actually_happens():
+    """A series that drifts and then settles should lose roughly the drift.
+
+    Chodera's rule maximises the effectively uncorrelated sample count, so the
+    truncation it picks is not exact. What it must not do is keep the drift or
+    throw away the plateau.
+    """
+    rng = np.random.default_rng(1)
+    drifting = np.linspace(0.0, 4.0, 60)
+    settled = 4.0 + rng.normal(0.0, 0.05, 140)
+    start, method = measure.detect_equilibration(np.concatenate([drifting, settled]))
+    assert 20 <= start <= 100, start
+    assert method == "detect_equilibration"
+
+
+def test_a_series_that_never_settles_reports_the_ceiling():
+    """Capped is honest; silently discarding most of a run is not."""
+    start, method = measure.detect_equilibration(np.linspace(0.0, 20.0, 200))
+    assert "ceiling" in method
+    assert start < 200
+
+
+def test_a_series_too_short_to_judge_is_scored_whole():
+    start, method = measure.detect_equilibration(np.arange(5.0))
+    assert (start, method) == (0, "all_frames")
+
+
+def test_the_scored_window_never_runs_past_the_end(written):
+    read_back = fxa2.read(written)
+    for cid in read_back.complexes:
+        metrics = read_back.metrics(cid)
+        assert 0 <= metrics["equil_start_frame"] < metrics["n_frames"]
+
+
+def test_the_statistical_inefficiency_of_noise_is_about_one():
+    rng = np.random.default_rng(2)
+    assert measure.statistical_inefficiency(rng.normal(size=500)) < 1.5
+
+
+def test_the_statistical_inefficiency_of_a_slow_drift_is_large():
+    assert measure.statistical_inefficiency(np.linspace(0, 1, 500)) > 10
+
+
+# ---------------------------------------------------------------------------
+#  S_pose and S_occ, in angstrom
+# ---------------------------------------------------------------------------
+
+
+def _translated(deposited, offsets_a, *, compound: str = "BEN"):
+    """The deposited frame repeated, with the ligand rigidly displaced.
+
+    No jitter at all, so every number out of it is exact and a unit error has
+    nowhere to hide: the pose RMSD of a rigid translation is the length of the
+    translation, in whatever unit the file claims to be using.
+    """
+    import mdtraj as md
+
+    frame = deposited[0][:]
+    ligand = frame.topology.select(f"resname {compound}")
+    frames = []
+    for offset in offsets_a:
+        xyz = frame.xyz[0].copy()
+        xyz[ligand] += np.asarray(offset, dtype=np.float32) / 10.0
+        frames.append(xyz)
+    return md.Trajectory(
+        xyz=np.stack(frames).astype(np.float32), topology=frame.topology,
+        time=np.arange(len(frames), dtype=np.float32) * 10.0,
+        unitcell_lengths=np.repeat(frame.unitcell_lengths, len(frames), axis=0),
+        unitcell_angles=np.repeat(frame.unitcell_angles, len(frames), axis=0),
+    )
+
+
+def _measured(traj, compound: str = "BEN"):
+    return measure.measure_complex(
+        traj, complex_id=fxa2.complex_id("0" * 16, "3PTB"), receptor="3PTB",
+        ligand_id="0" * 16, ligand_resnames=[compound])
+
+
+def test_a_two_angstrom_shift_is_reported_as_two_not_nought_point_two(deposited):
+    """The units test. MDTraj works in nanometres and version 1 reported them.
+
+    Get this wrong and every length in the report is out by a factor of ten,
+    which is invisible until somebody checks a number by hand.
+    """
+    traj = _translated(deposited, [[0, 0, 0]] * 4 + [[2.0, 0, 0]] * 16)
+    metrics = _measured(traj).metrics
+    assert metrics["ligand_rmsd_median"] == pytest.approx(2.0, abs=0.01)
+    assert metrics["ligand_rmsd_max"] == pytest.approx(2.0, abs=0.01)
+    # The maximum rather than the mean: the mean depends on how many of the four
+    # frames at the origin the scored window happens to keep, and this test is
+    # about the unit rather than about the window.
+    assert metrics["com_drift_max_a"] == pytest.approx(2.0, abs=0.01)
+
+
+def test_a_rigid_shift_moves_the_pose_and_not_the_shape(deposited):
+    """The two RMSDs separate the ligand moving from the ligand changing shape.
+
+    A rigid translation is all pose and no conformation, so the in-place RMSD,
+    which superposes on the ligand itself, has to stay at zero.
+    """
+    traj = _translated(deposited, [[0, 0, 0]] + [[3.0, 0, 0]] * 19)
+    metrics = _measured(traj).metrics
+    assert metrics["ligand_rmsd_median"] == pytest.approx(3.0, abs=0.01)
+    assert metrics["inplace_rmsd_median"] == pytest.approx(0.0, abs=0.01)
+
+
+def test_the_centroid_drift_is_measured_from_the_ligand_not_the_pocket(deposited):
+    """The pocket centroid sits several angstrom from the ligand centre even in a
+    perfectly held pose, so measuring drift against it adds a constant offset and
+    the 5 A hard gate then fires on ligands that have not moved."""
+    traj = _translated(deposited, [[0, 0, 0]] * 20)
+    metrics = _measured(traj).metrics
+    assert metrics["com_drift_mean_a"] == pytest.approx(0.0, abs=1e-4)
+    assert metrics["com_drift_max_a"] == pytest.approx(0.0, abs=1e-4)
+    # The offset is still reported, as a diagnostic, and it is not zero.
+    assert metrics["pocket_offset_mean_a"] > 0.5
+
+
+def test_a_ligand_that_leaves_is_counted_out_and_counted_once(deposited):
+    """`in_pocket_fraction` is the scored fraction retaining a quarter of the
+    frame-0 contacts, and an exit event is a transition from in to out."""
+    traj = _translated(deposited, [[0, 0, 0]] * 10 + [[25.0, 0, 0]] * 10)
+    metrics = _measured(traj).metrics
+    assert metrics["n_native_contacts"] > 4
+    assert metrics["n_exit_events"] == 1
+    assert 0.0 < metrics["in_pocket_fraction"] < 1.0
+
+
+def test_a_ligand_that_stays_scores_full_occupancy(deposited):
+    traj = _translated(deposited, [[0, 0, 0]] * 20)
+    metrics = _measured(traj).metrics
+    assert metrics["in_pocket_fraction"] == 1.0
+    assert metrics["n_exit_events"] == 0
+
+
+def test_a_periodic_jump_is_reported_rather_than_defaulted_true(deposited):
+    """`pbc_ok: false` is not a failure, but it makes every distance suspect."""
+    traj = _translated(deposited, [[0, 0, 0]] * 5 + [[60.0, 0, 0]] * 5
+                       + [[0, 0, 0]] * 5)
+    measured = _measured(traj)
+    assert measured.metrics["pbc_ok"] is False
+    assert any("periodic boundary" in note for note in measured.notes)
+
+
+def test_a_held_ligand_reports_pbc_ok(deposited):
+    traj = _translated(deposited, [[0, 0, 0]] * 20)
+    assert _measured(traj).metrics["pbc_ok"] is True
+
+
+def test_the_box_volume_is_cubic_angstrom(deposited):
+    """A 64 A dodecahedral cell is about 190,000 cubic angstrom, not 190."""
+    traj = _translated(deposited, [[0, 0, 0]] * 4)
+    assert _measured(traj).metrics["box_volume_a3"] > 100_000
+
+
+def test_the_drift_slope_is_per_nanosecond(deposited):
+    """A 1 A rise over the scored window, with the window in nanoseconds.
+
+    The frames are 10 ps apart, so twenty of them span 0.19 ns and a 1 A rise is
+    a slope of about 5 A/ns. In picoseconds it would read 0.005, which is the
+    error this catches.
+    """
+    traj = _translated(deposited, [[x, 0, 0] for x in np.linspace(0.0, 1.0, 20)])
+    slope = _measured(traj).metrics["ligand_rmsd_drift_slope"]
+    assert 2.0 < slope < 12.0, slope
+
+
+def test_every_scored_quantity_uses_the_window_and_not_the_whole_run(deposited):
+    """The discarded head must not reach a scored number.
+
+    The ligand sits in the pocket for the first half and 25 A away for the
+    second. Equilibration is therefore detected at the move, so the scored window
+    is the half where the ligand is gone and `in_pocket_fraction` is 0. Computed
+    over the whole run it would be 0.5, and that is the error this catches: a
+    number averaged over frames the file says were discarded.
+    """
+    traj = _translated(deposited, [[0, 0, 0]] * 10 + [[25.0, 0, 0]] * 10)
+    metrics = _measured(traj).metrics
+    assert metrics["equil_start_frame"] >= 8, metrics["equil_start_frame"]
+    assert metrics["in_pocket_fraction"] == pytest.approx(0.0, abs=0.15)
+    # And the window is reported, so a reader can see what was thrown away.
+    assert "ceiling" in metrics["equil_method"] or metrics["equil_start_frame"] < 10
