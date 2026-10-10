@@ -327,6 +327,30 @@ cause on the strength of it. The lesson is narrow and worth keeping: a
 difference between two runs is only evidence about the variable that actually
 differed.
 
+**Membrane quality measured across the periodic boundary.** The bilayer QC
+worked on the built system and was wrong on the trajectory, which is the worst
+place for a difference like that to live, because the built system is the one
+you check by hand. A trajectory stores wrapped coordinates and under a membrane
+barostat the bilayer drifts until it straddles the box edge. The phosphorus z
+values are then bimodal at *both* ends of the box with nothing in between, so
+the median used to split the leaflets lands in the empty middle:
+
+| | measured | actually |
+|---|---|---|
+| P–P thickness | 78.01 Å | 37.55 Å |
+| waters in the hydrophobic core | 8,622 | 4 |
+
+The 78 Å is the long way round the box between two leaflets 37.6 Å apart, and
+the water count is bulk water measured against a midplane that is not where the
+midplane is. Both numbers are the kind that would have gone into the deliverable
+unchallenged: 78 Å is wrong but not absurd for a membrane, and a four-figure
+core water count reads as a leaky bilayer rather than as an artefact.
+
+Fixed by centring the bilayer on a circular mean before anything is measured,
+and by taking both the thickness and the water separation as periodic distances.
+The arithmetic mean is what caused it: the mean of two clusters at opposite ends
+of a periodic axis is the empty middle.
+
 **`addMembrane` believed a placeholder unit cell.** gemmi writes a `CRYST1` of
 1 1 1 for a `P 1` structure with no cell. `addMembrane` takes the box height as
 the larger of the lipid patch and the existing cell plus padding, so with a cell

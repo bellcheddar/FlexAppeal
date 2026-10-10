@@ -113,6 +113,38 @@ def phosphorus_indices(topology) -> list[int]:
     return found
 
 
+def centre_bilayer(z_values, box_z: float):
+    """Shift z so the bilayer sits in the middle of the box, not across its edge.
+
+    A trajectory stores wrapped coordinates, and under a membrane barostat the
+    bilayer drifts until it straddles the periodic boundary. When it does, the
+    phosphorus z distribution is bimodal at *both* ends of the box with nothing
+    in the middle, and every measurement taken from it is wrong in a way that
+    looks plausible:
+
+        measured      thickness 78.0 A, 8,622 waters in the hydrophobic core
+        actually      37.6 A, which is inside the expected window, and none
+
+    The 78 A is the long way round the box between two leaflets that are 37.6 A
+    apart, and the core water count is bulk water sitting at a midplane that is
+    not where the midplane is.
+
+    The centre is a circular mean rather than an arithmetic one, because the
+    arithmetic mean of two clusters at opposite ends of a periodic axis lands in
+    the empty middle, which is exactly the value that caused the problem.
+
+    Returns the shifted z values and the shift applied, so a caller can put
+    other atoms into the same frame.
+    """
+    import numpy as np
+
+    angles = 2.0 * np.pi * np.asarray(z_values, dtype=float) / box_z
+    centre = box_z * np.arctan2(np.sin(angles).mean(),
+                                np.cos(angles).mean()) / (2.0 * np.pi)
+    shift = box_z / 2.0 - centre
+    return np.mod(np.asarray(z_values, dtype=float) + shift, box_z), float(shift)
+
+
 def split_leaflets(z_values) -> tuple[list[int], list[int]]:
     """Which phosphorus sits in which leaflet, split at their own midplane.
 
@@ -170,8 +202,17 @@ def analyse_chunk(traj, *, start_ns: float, end_ns: float,
         chunk.notes.append("trajectory carries no box; area per lipid needs one")
         return chunk
 
-    phos_z = traj.xyz[:, phosphorus, 2] * 10.0          # nm to angstrom
+    raw_phos_z = traj.xyz[:, phosphorus, 2] * 10.0       # nm to angstrom
     box = traj.unitcell_lengths * 10.0
+
+    # Centred per frame before anything is measured. Without this a bilayer that
+    # has drifted across the periodic boundary reports a thickness that is the
+    # long way round the box.
+    phos_z = np.empty_like(raw_phos_z)
+    shifts = np.empty(traj.n_frames)
+    for frame in range(traj.n_frames):
+        phos_z[frame], shifts[frame] = centre_bilayer(
+            raw_phos_z[frame], float(box[frame, 2]))
 
     # Per frame, because the leaflet split and the box both move during a chunk.
     apl, thickness = [], []
@@ -187,8 +228,10 @@ def analyse_chunk(traj, *, start_ns: float, end_ns: float,
         # so an uneven split does not bias the number towards whichever leaflet
         # happened to be chosen.
         apl.append(area / (0.5 * (len(upper) + len(lower))))
-        thickness.append(float(np.mean(phos_z[frame][upper])
-                               - np.mean(phos_z[frame][lower])))
+        gap = float(np.mean(phos_z[frame][upper])
+                    - np.mean(phos_z[frame][lower]))
+        height = float(box[frame, 2])
+        thickness.append(min(abs(gap), height - abs(gap)))
 
     if apl:
         chunk.apl_a2 = float(np.mean(apl))
@@ -205,10 +248,17 @@ def analyse_chunk(traj, *, start_ns: float, end_ns: float,
 
     water_o = traj.topology.select("water and name O")
     if len(water_o):
-        midplane = np.median(phos_z, axis=1)
+        # The same shift the bilayer got, so the water is in the frame the
+        # midplane is measured in. Counting it against an uncentred midplane
+        # reported 8,622 waters in a core that had none.
         water_z = traj.xyz[:, water_o, 2] * 10.0
-        inside = np.abs(water_z - midplane[:, None]) < CORE_HALF_WIDTH_A
-        chunk.core_waters = float(inside.sum(axis=1).mean())
+        shifted = np.mod(water_z + shifts[:, None], box[:, 2][:, None])
+        midplane = np.median(phos_z, axis=1)
+        separation = np.abs(shifted - midplane[:, None])
+        # Periodic in z: a water just past the far edge is near the midplane
+        # the short way round.
+        separation = np.minimum(separation, box[:, 2][:, None] - separation)
+        chunk.core_waters = float((separation < CORE_HALF_WIDTH_A).sum(axis=1).mean())
 
     if tm_ca_indices:
         tilts = [receptor_tilt(traj.xyz[frame, tm_ca_indices, :] * 10.0)

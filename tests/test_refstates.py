@@ -504,3 +504,41 @@ def test_the_viewer_panel_is_hidden_without_its_files(tmp_path: Path):
     assert "molstar-viewer" not in page
     # The rest of the page still renders.
     assert "xDFG" in page
+
+
+def test_a_bilayer_across_the_periodic_boundary_measures_correctly():
+    """The case that made thickness read 78 A when it was 37.6 A.
+
+    A trajectory stores wrapped coordinates, and under a membrane barostat the
+    bilayer drifts until it straddles the box edge. The phosphorus z values are
+    then bimodal at both ends with nothing in the middle, so an arithmetic
+    centre lands in the empty gap and the two leaflets look a box-width apart.
+    """
+    box_z = 115.6
+    # Two leaflets 37.6 A apart, placed so they wrap: one at z ~ 15, the other
+    # at z ~ 95, which is the real distribution the b2ar run produced.
+    lower = [15.0 + 0.5 * i for i in range(-4, 5)]
+    upper = [95.0 + 0.5 * i for i in range(-4, 5)]
+    z = lower + upper
+
+    centred, shift = membrane.centre_bilayer(z, box_z)
+    halves = membrane.split_leaflets(centred)
+    assert len(halves[0]) == len(halves[1]) == 9
+
+    import numpy as np
+
+    gap = abs(float(np.mean(centred[halves[0]])) - float(np.mean(centred[halves[1]])))
+    separation = min(gap, box_z - gap)
+    # 15 to 95 the short way round the box is 115.6 - 80 = 35.6.
+    assert separation == pytest.approx(35.6, abs=0.5)
+
+
+def test_centring_is_a_no_op_for_a_bilayer_already_in_the_middle():
+    """The fix must not move a bilayer that does not need moving."""
+    import numpy as np
+
+    box_z = 120.0
+    z = [40.0, 41.0, 42.0, 78.0, 79.0, 80.0]
+    centred, shift = membrane.centre_bilayer(z, box_z)
+    assert abs(shift) < 1.0
+    assert np.allclose(sorted(centred), sorted(z), atol=1.0)
