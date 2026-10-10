@@ -205,3 +205,51 @@ def references(system_id: str):
         "refstates_references.html", references=rows, system_id=system_id,
         n_agree=len(agree), n_comparable=len(comparable),
         n_unlabelled=len(unlabelled), active="refstates")
+
+@refstates_bp.get("/map/<system_id>.json")
+def state_map(system_id: str):
+    """Section 5.6's 2D state map: the reference cloud, by the catalogue's label.
+
+    For the kinase this is the Dunbrack plane, the DFG-Phe ring measured against
+    its two anchors, which is the plot the published criterion is drawn on and
+    the one where D010's threshold failure is visible: the two clusters sit 8.5 A
+    apart on the difference and the published 11.0 A line cuts through the
+    corner of one of them.
+
+    For the receptor the x axis is the TM3-TM6 cleft distance, which is the axis
+    the Dror 2011 state maps use.
+
+    The reference coordinates come from the phase 1 manifest, where they were
+    measured once, rather than being recomputed per request: they are properties
+    of the structures and do not change between page loads.
+    """
+    rows = _rows("SELECT pdb, source_state, our_state, metrics_json FROM "
+                 "reference_structures WHERE system_id = ? ORDER BY pdb",
+                 (system_id,))
+    if not rows:
+        abort(404)
+
+    points = []
+    for row in rows:
+        try:
+            metrics = json.loads(row.get("metrics_json") or "{}")
+        except json.JSONDecodeError:
+            continue
+        if system_id == "abl1":
+            x, y = metrics.get("dfg_d_alphac"), metrics.get("dfg_d_lys")
+            axes = ("DFG-Phe to alphaC-Glu+4 Calpha (A)",
+                    "DFG-Phe to catalytic Lys Calpha (A)")
+        else:
+            x, y = metrics.get("tm3_tm6"), None
+            axes = ("TM3-TM6 Calpha distance 3.50 to 6.34 (A)", "")
+        if x is None:
+            continue
+        points.append({"pdb": row["pdb"], "x": x, "y": y,
+                       "state": row.get("source_state") or row.get("our_state")})
+
+    if not points:
+        abort(404)
+    return jsonify({"system_id": system_id, "axes": axes, "points": points,
+                    # D010's line, drawn so a reader can see where it falls
+                    # rather than being told about it.
+                    "published_threshold": 11.0 if system_id == "abl1" else None})

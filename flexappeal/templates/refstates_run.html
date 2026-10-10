@@ -95,6 +95,29 @@
   </details>
 </section>
 
+<section class="md-card md-panel is-wide">
+  <h3>Reference state map</h3>
+  <div id="state-map" class="md-plot" style="min-height:380px"></div>
+  <details class="md-readmore">
+    <summary>What this plane is</summary>
+    <p>
+      Every reference structure plotted by the geometry its state is read from,
+      coloured and shaped by the catalogue's own label. For a kinase this is the
+      Dunbrack plane: the DFG phenylalanine ring measured against the
+      &alpha;C-Glu+4 C&alpha; and against the catalytic lysine C&alpha;.
+    </p>
+    <p>
+      The dashed line is the published 11.0 &#8491; threshold. It is drawn
+      because of where it falls: the two classes separate by 8.5 &#8491; on the
+      difference between the two distances, and the line passes through the
+      corner of the DFG-out cluster, which is why six of ABL1's own DFG-out
+      references were being called neither state. Reading the state from which
+      anchor the ring is nearer needs no threshold where the data is dense, and
+      takes agreement with KLIFS from 11 of 17 to 17 of 17.
+    </p>
+  </details>
+</section>
+
 {% if membrane %}
   <section class="md-card md-panel is-wide">
     <h3>Membrane health</h3>
@@ -190,6 +213,56 @@
     ],
     legend: {orientation: "h", y: -0.22},
   }, {displayModeBar: false, responsive: true});
+})();
+
+// The reference cloud, with the published threshold drawn rather than described.
+(async function () {
+  const target = document.getElementById("state-map");
+  if (!target || typeof Plotly === "undefined") return;
+  const system = {{ run.system_id | tojson }};
+  let payload;
+  try {
+    const response = await fetch(`/refstates/map/${system}.json`);
+    if (!response.ok) throw new Error(response.status);
+    payload = await response.json();
+  } catch (err) {
+    target.textContent = "No reference map for this system.";
+    return;
+  }
+  // Shape as well as colour: section 6.1 asks that no state be readable by
+  // colour alone.
+  const marks = {in: "circle", active: "circle", out: "square",
+                 inactive: "square", other: "diamond"};
+  const groups = {};
+  payload.points.forEach(p => {
+    (groups[p.state || "no call"] = groups[p.state || "no call"] || []).push(p);
+  });
+  const traces = Object.entries(groups).map(([state, pts]) => ({
+    x: pts.map(p => p.x), y: pts.map(p => p.y), text: pts.map(p => p.pdb),
+    mode: "markers", type: "scatter", name: state,
+    marker: {size: 11, symbol: marks[state] || "cross",
+             line: {width: 1, color: "rgba(0,0,0,0.45)"}},
+    hovertemplate: "%{text}<br>%{x:.2f}, %{y:.2f}<extra>" + state + "</extra>",
+  }));
+  const layout = {
+    margin: {l: 64, r: 16, t: 8, b: 52},
+    xaxis: {title: payload.axes[0]},
+    yaxis: {title: payload.axes[1]},
+    legend: {orientation: "h", y: -0.2},
+    shapes: [],
+  };
+  if (payload.published_threshold) {
+    const v = payload.published_threshold;
+    layout.shapes.push(
+      {type: "line", xref: "paper", x0: 0, x1: 1, yref: "y", y0: v, y1: v,
+       line: {dash: "dash", width: 1.5, color: "rgba(170,70,70,0.9)"}},
+      {type: "line", xref: "x", x0: v, x1: v, yref: "paper", y0: 0, y1: 1,
+       line: {dash: "dash", width: 1.5, color: "rgba(170,70,70,0.9)"}});
+    layout.annotations = [{x: v, y: 1, xref: "x", yref: "paper",
+                           text: `published ${v} A`, showarrow: false,
+                           font: {size: 11}, xanchor: "left"}];
+  }
+  Plotly.newPlot(target, traces, layout, {displayModeBar: false, responsive: true});
 })();
 </script>
 {% endblock %}
