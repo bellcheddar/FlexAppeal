@@ -4,11 +4,13 @@ Running log for the version 2 package writer, specified in `DEEPFLEX_FXA2_SPEC.m
 and driven by `FXA2_BUILD_PROMPT.md`. Rewritten at every step boundary, so an
 interrupted session can be resumed from this file alone.
 
-**Current step:** 2 of 10 (`metrics/`, `pocket/`, one pocket PDB, one complex).
-**Validator last reported:** accepted, on a synthetic package from the step 1
-format module alone. pose, occupancy, convergence and ranking 100%; grade 62.5%
-(`s_int`, `s_e`, `s_conf` pending); interactions, energy, conformation, receptor
-panels and payload 0%, which is what steps 5 to 9 fill.
+**Current step:** 3 of 10 (the scored window, `S_pose`, `S_occ`).
+**Validator last reported:** accepted. A real two-receptor package built by
+`flexappeal package` from the trypsin fixture ingests as a run with 2 complexes,
+2 receptors and 42 pocket residues. Every measurement group is at 0%, which is
+correct for step 2: nothing is measured yet. A hand-built package carrying the
+step 4 to 8 scalars reaches 100% on pose, occupancy, convergence and ranking, so
+the shapes those steps have to fill are settled.
 
 ---
 
@@ -34,7 +36,7 @@ a bigger version of the same one.
 Section 12 of the spec, which is also the commit boundaries.
 
 - [x] 1. Writer skeleton: manifest, member layout, the zip, the limits, round trip.
-- [ ] 2. `metrics/`, `pocket/`, one pocket PDB, one complex. **Validate here.**
+- [x] 2. `metrics/`, `pocket/`, one pocket PDB, one complex. **Validated.**
 - [ ] 3. The scored window, `S_pose`, `S_occ`.
 - [ ] 4. `series/` and `traj/<cid>_scrub.pdb`.
 - [ ] 5. `S_int`, `summary/`, `barcode/`.
@@ -71,6 +73,47 @@ landing on the same token is an error rather than a silent merge.
 recorded in it. The compound name is the PDB chemical component code the job kept
 (`config.keep_heteroatoms`), which is the only compound identity a FlexAppeal job
 has. It travels in clear in `manifest.ligand_names`, as section 2 allows.
+
+### D4. The pocket, raw and filtered
+
+Section 6.5 asks for both and does not say how to derive either, and the filtered
+set is load-bearing: it is the superposition frame for the ligand RMSD, so a
+selection that includes a flexible loop or a terminus makes the fit wander and
+every ligand RMSD measured against it is wrong in a way that looks exactly like the
+ligand moving.
+
+- `pocket_residues_raw` is section 6.1's crop shell: every whole residue with any
+  atom within **10 A** of the ligand at frame 0. This is what the pocket PDB holds.
+- `pocket_residues_filtered` is residues with a heavy atom within **6 A**, less the
+  first and last **5** residues of every chain. Under **12** survivors the shell is
+  widened to **8 A** and `used_fallback` records it.
+
+Those four numbers are DeepFlex's own, taken from its pocket layer rather than
+chosen here. A pocket defined differently from the cohort it is ranked against is
+not comparable to it, and the same goes for the 5 A contact cutoff, the quarter of
+native contacts for occupancy and the 2 A pose-cluster linkage cutoff used later.
+
+`added_vs_raw` is therefore always empty for a FlexAppeal package: the filter is a
+subset of the shell, so it can only drop. The key is still written, because an
+empty list is a measurement and an absent key is not.
+
+### D5. `kind` is decided from what was measured, not from what was intended
+
+Section 9 refuses a `graded` file with required inputs missing, and says
+`flexibility` always works and is never wrong, only less. So the writer checks every
+analysable complex against section 4's required list after measuring, and downgrades
+the whole file if any is short, naming what was missing. A run that loses a
+measurement downgrades itself rather than claiming a grade it cannot support.
+
+### D6. Residue numbers are not unique, and are kept that way
+
+3PTB uses chymotrypsin numbering with insertion codes, which MDTraj drops, so
+residue 184 is both a GLY and a TYR in the trypsin fixture. Pocket lists and
+`rmsf_resid` report `resSeq` because that is the number a reader sees in a viewer
+and the number DeepFlex looks up to mark pocket residues on the RMSF plot.
+Duplicates are kept rather than merged: dropping one would silently shorten the
+pocket. Atom selection is always by residue *index*, never by number, so a shared
+number cannot pull in the wrong residue.
 
 ## Divergences between the spec and the reader that actually ingests these files
 

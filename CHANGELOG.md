@@ -34,6 +34,52 @@ checkbox list in `README.md`.
   naming a residue no `ATOM` record names.
 - **`FXA2_PROGRESS.md`**, the running log: current step, what the validator last
   reported, and every decision taken with its reason.
+- **`flexappeal package`: a study, assembled from finished runs.**
+
+      flexappeal package -o study.fxa run-dir-1 run-dir-2 ...
+
+  A version 2 file needs many complexes and FlexAppeal runs one system per job, so
+  packaging is a separate, deliberate act rather than something a job does. The job
+  model is untouched, no version 1 file is altered, and a study can be assembled
+  from runs done weeks apart. It takes either a finished run directory or a version
+  1 `.fxa`, detected per argument, and expands a directory of either.
+
+  The run directory is the better source: it carries the complete trajectory rather
+  than a decimated payload, and it is the only one from which the ligand strain can
+  be measured. The command says which it was handed and what that costs.
+- **`flexappeal/measure.py`: the pocket, and the crop.** The binding site is
+  reported twice, because the two are used for different things and conflating them
+  is how a headline metric goes quietly wrong. Raw is the 10 A crop shell, which is
+  what the viewer loads; filtered is the 6 A selection with the chain termini
+  dropped, which is what the ligand RMSD is superposed on. A superposition frame
+  containing a terminus wanders, and then every ligand RMSD measured against it is
+  wrong in a way that looks exactly like the ligand moving.
+
+  Checked against the chemistry rather than only the shape: the test asserts that
+  ASP189, SER190, TRP215 and GLY216 are in trypsin's filtered pocket, which is the
+  S1 site benzamidine actually binds. If the selection ever drifts, those are the
+  residues that stop appearing.
+- **The ligand is renamed to `LIG` on every record that names it**, including the
+  `TER`. A `TER` carries the residue name in columns 18 to 20, the same columns as
+  an `ATOM` record, so a rename that walks only the atom lines leaves the real het
+  code sitting in the file under a hashed filename. Matching on the residue-name
+  columns regardless of record type is what makes that impossible rather than
+  merely unlikely.
+- **`kind` is decided from what was measured.** Section 9 of the spec refuses a
+  `graded` file with required inputs missing, so the writer checks every analysable
+  complex against the required list after measuring and downgrades the file to
+  `flexibility` if any is short, naming what was missing. A run that loses a
+  measurement downgrades itself rather than claiming a grade it cannot support.
+- **`--energies`, for the one thing FlexAppeal cannot compute.** `mmpbsa_gb_dg` and
+  the interaction-energy terms need an MM/GBSA or LIE rescoring of every frame,
+  which means rebuilding the parameterised system in implicit solvent, and nothing
+  in the pipeline produces it. The keys are omitted rather than written as zero,
+  which leaves the energy sub-score pending and DeepFlex says so on the page. Where
+  a study has the numbers from elsewhere this carries them in, keyed on the compound
+  name rather than the complex id, because the id is a salted hash that is fresh per
+  file and nobody can write it down in advance. An absolute MM/PBSA block is
+  refused: the three absolute blocks are each around -100,000 kcal/mol and only
+  their difference is a binding quantity.
 
 ## 2026-07-27
 

@@ -5,6 +5,8 @@
     ./FlexAppeal.py inspect 1aki.pdb          report what is in a structure
     ./FlexAppeal.py fetch 1AKI -o 1aki.pdb    retrieve a structure
     ./FlexAppeal.py validate config.json      check a configuration
+    ./FlexAppeal.py package -o study.fxa run1 run2
+                                              collect finished runs into one package
     ./FlexAppeal.py docs                      regenerate docs/options.md
     ./FlexAppeal.py sweep                     remove expired scratch sessions
 
@@ -270,6 +272,47 @@ def cmd_reanalyse(args: argparse.Namespace) -> int:
         Path(args.fxa), Path(args.request), Path(args.output))
 
 
+def cmd_package(args: argparse.Namespace) -> int:
+    """Collect finished runs into one .fxa version 2 package.
+
+    A version 2 file is a package of receptor-ligand complexes rather than one
+    system, because the league table, both rank columns and the energy sub-score
+    are percentiles within a receptor's own cohort. FlexAppeal runs one system per
+    job, so packaging is a separate act rather than something a job does.
+    """
+    from flexappeal import package as package_mod
+
+    out = Path(args.out)
+    try:
+        written, warnings = package_mod.build(
+            [Path(p) for p in args.sources], out=out,
+            package_name=args.name, energies=Path(args.energies) if args.energies else None,
+            progress=_step,
+        )
+    except package_mod.PackageError as exc:
+        _err(str(exc))
+        return 1
+
+    for warning in warnings:
+        _warn(warning)
+
+    from flexappeal import fxa2
+
+    read_back = fxa2.read(written)
+    problems = fxa2.conformance(read_back)
+    for problem in problems:
+        _err(problem)
+
+    _ok(f"wrote {written} ({written.stat().st_size / 1e6:.1f} MB, "
+        f"{len(read_back.complexes)} complexes, "
+        f"{len(read_back.manifest.get('receptors') or {})} receptors)")
+    if problems:
+        _err(f"{len(problems)} conformance problem(s): this file would not produce "
+             f"a full report. See DEEPFLEX_FXA2_SPEC.md section 10.")
+        return 1
+    return 0
+
+
 def cmd_docs(args: argparse.Namespace) -> int:
     """Generate docs/options.md from the registry, so it cannot go stale."""
     lines = [
@@ -394,6 +437,18 @@ def _build_argparser() -> argparse.ArgumentParser:
     p.add_argument("request", help="a JSON file describing what to compute")
     p.add_argument("output", help="where to write the result")
     p.set_defaults(func=cmd_reanalyse)
+
+    p = sub.add_parser("package", help="collect finished runs into one .fxa version 2")
+    p.add_argument("sources", nargs="+",
+                   help="run directories, version 1 .fxa files, or a directory of either")
+    p.add_argument("-o", "--out", required=True, help="the .fxa to write")
+    p.add_argument("-n", "--name", help="the package name shown in the report")
+    p.add_argument("--energies",
+                   help="a JSON file of MM/GBSA and interaction energies keyed by "
+                        "compound name. FlexAppeal cannot compute these; without "
+                        "them the energy sub-score is left pending, which is "
+                        "honest, rather than written as zero")
+    p.set_defaults(func=cmd_package)
 
     p = sub.add_parser("docs", help="regenerate docs/options.md from the registry")
     p.set_defaults(func=cmd_docs)
