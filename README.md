@@ -38,7 +38,7 @@ The hosted application never simulates. That is a design decision, not a limitat
 | **Analysis without scripting** | RMSD, RMSF, radius of gyration, SASA, DSSP, hydrogen bonds, contacts, PCA, clustering, and ligand or membrane panels |
 | **Graded study packages** | `flexappeal package` collects finished runs into one file that DeepFlex renders as a graded report: pose, occupancy, interactions, energy, convergence and conformation, ranked within each receptor |
 | **Interactive** | Plotly plots and a Mol\* viewer, both vendored: the page needs no third-party network access |
-| **A trajectory beside the controls** | Every tab opens with its panel at 75% and the lysozyme run playing at 25%: 396 KB of H.264, fetched after the page has loaded and skipped entirely for reduced motion |
+| **A trajectory beside the controls** | Every tab opens with its panel at 75% and the lysozyme-benzene run playing at 25%: 446 KB of H.264, fetched after the page has loaded and skipped entirely for reduced motion |
 
 ## 🏗️ How it works
 

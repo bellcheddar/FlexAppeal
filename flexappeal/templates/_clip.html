@@ -4,7 +4,7 @@
   and skipped entirely for anyone who has asked for less motion.
 
   No <source> element on purpose. The poster paints on first render and clip.js
-  sets .src after window.load, so the 399 KB never competes with the page's own
+  sets .src after window.load, so the 446 KB never competes with the page's own
   assets and a reduced-motion visitor never downloads it at all. With
   JavaScript off the poster simply stays, which is the same still image.
 #}
@@ -14,16 +14,16 @@
          width="480" height="552"
          poster="{{ asset('lysozyme-poster.webp') }}"
          data-src="{{ asset('lysozyme.mp4') }}"
-         aria-label="Hen egg-white lysozyme moving through a molecular dynamics trajectory, drawn as a cartoon ribbon"></video>
+         aria-label="T4 lysozyme moving through a molecular dynamics trajectory, drawn as a cartoon ribbon, with benzene shown as spheres in its buried cavity"></video>
   {# Half the run, not all of it: the clip is the first 25 s of a 50 s playback,
      trimmed rather than sped up because doubling the speed costs 58% more bytes
      for motion nobody is reading frame by frame. Said plainly here because this
      is the one page element that is decorative, and the rest of the site's
      numbers are not. #}
-  {# Rendered from a 10 ns apo hen egg-white lysozyme run, which is no longer the
-     run the Example tab shows. It is decorative and it is still a lysozyme
-     trajectory, so the caption says what it is rather than claiming to be this
-     page's own data: an ornament that misdescribes itself is worse than one that
-     is plainly an ornament. Re-render it from the committed run to say otherwise. #}
-  <p class="md-clip-cap">A 10&nbsp;ns lysozyme trajectory, played back. Cartoon ribbon, secondary structure coloured. Illustrative, not this page's run.</p>
+  {# Rendered from the committed run this time, so the caption can name it again.
+     The ribbon carries a little transparency, which the version before this one
+     did not: benzene sits in a buried cavity and an opaque cartoon hides it
+     completely, which would defeat the point of showing it. The cost is PyMOL's
+     black outlines, which it does not draw over transparent geometry. #}
+  <p class="md-clip-cap">The first half of the Example tab's 100&nbsp;ns run, played back. Cartoon ribbon, secondary structure coloured, with benzene in the cavity.</p>
 </aside>

@@ -7,6 +7,22 @@ checkbox list in `README.md`.
 
 ### Changed
 
+- **The trajectory clip is the committed run again, with benzene in it.** It had
+  been rendered from the old 10 ns apo run, so its caption had been reduced to
+  calling itself illustrative. Re-rendered in PyMOL from the 100 ns benzene
+  trajectory: same 480 by 552, same 25 seconds, same first half of the run, same
+  palette of magenta helices, gold sheets and dark green loops.
+
+  One difference, and it is a trade. The ribbon carries 28% transparency because
+  benzene sits in a buried cavity and an opaque cartoon hides it completely --
+  which was measured, not assumed: the opaque render shows a single teal sliver.
+  The cost is PyMOL's black outlines, which it will not draw over transparent
+  geometry. Showing the ligand is the point of the remake, so the outlines went.
+
+  The ligand is drawn as heavy-atom spheres, the same choice the 3D viewer and
+  the 2D diagram make, and for the same reason: benzene is flat, and edge-on as
+  sticks it disappears to a line for half of every tumble.
+
 - **Mol*'s own viewport chrome, restyled onto the dark stage.** Its stock
   controls are a light-grey strip with dark-grey icons, which on a near-black
   canvas reads as a rendering fault and leaves the buttons nearly invisible
