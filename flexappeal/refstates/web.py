@@ -215,15 +215,34 @@ def frames(run_id: str):
         "FROM motif_frames WHERE run_id = ? ORDER BY frame", (run_id,))
     if not rows:
         abort(404)
-    series: dict[str, dict[str, list]] = {}
+    # Keyed on the frame, not on one metric's name. Keying on `d_act_a` meant a
+    # motif that resolved only its inactive distance came back with eight
+    # metric rows and no points at all: a 200, a trace with empty x and y, and
+    # an invisible line on the timeline. The rule that an unmeasured key is
+    # omitted rather than zeroed makes that a legal row, so the reader has to
+    # cope with it.
+    by_motif: dict[str, dict[int, dict]] = {}
     for row in rows:
-        motif = series.setdefault(row["motif_id"], {
-            "time_ns": [], "s": [], "label": [], "metrics": {}})
-        if row["metric"] == "d_act_a":
-            motif["time_ns"].append(row["time_ns"])
-            motif["s"].append(row["s_score"])
-            motif["label"].append(row["label"])
-        motif["metrics"].setdefault(row["metric"], []).append(row["value"])
+        frame = by_motif.setdefault(row["motif_id"], {}).setdefault(
+            row["frame"], {"time_ns": row["time_ns"], "s": row["s_score"],
+                           "label": row["label"], "metrics": {}})
+        frame["metrics"][row["metric"]] = row["value"]
+
+    series: dict[str, dict[str, list]] = {}
+    for motif_id, frames_by_index in by_motif.items():
+        order = sorted(frames_by_index)
+        metrics_seen = sorted({m for f in frames_by_index.values()
+                               for m in f["metrics"]})
+        series[motif_id] = {
+            "time_ns": [frames_by_index[i]["time_ns"] for i in order],
+            "s": [frames_by_index[i]["s"] for i in order],
+            "label": [frames_by_index[i]["label"] for i in order],
+            # None where a frame did not resolve that metric, so the arrays
+            # stay the same length as the time axis and a gap stays a gap.
+            "metrics": {name: [frames_by_index[i]["metrics"].get(name)
+                               for i in order]
+                        for name in metrics_seen},
+        }
     return jsonify({"run_id": run_id, "motifs": series})
 
 

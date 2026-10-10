@@ -953,3 +953,94 @@ def test_rmsd_to_nearest_never_compares_a_reference_with_itself():
     assert found["INA1"] == pytest.approx(0.4, abs=1e-6)
     # And an active one is genuinely far.
     assert found["ACT0"] == pytest.approx(6.0, abs=1e-6)
+
+
+# ===========================================================================
+#  The invariant behind three separate bugs
+# ===========================================================================
+#
+# Three defects in this build were the same shape: an endpoint returned 200 with
+# data nothing could draw. An empty panel whose fetch 404'd, a state map with
+# every y null, and a motif series with eight metric rows and no points. None
+# shows up in a status code and none raises.
+#
+# So the invariant is asserted directly: a 200 from any of these endpoints must
+# carry arrays that are non-empty and the same length as each other. A panel is
+# allowed to be absent; it is not allowed to be present and blank.
+
+
+def _lopsided_payload() -> dict:
+    """A run where one motif resolved only its inactive distance.
+
+    Legal, because the rule is that an unmeasured key is omitted rather than
+    written as zero, so every reader has to cope with it.
+    """
+    return {
+        "name": "lopsided", "kind": "kinase", "core": {},
+        "motif_residues": {"one_sided": [1, 2, 3], "complete": [4, 5]},
+        "ensembles": {"active": {"codes": ["2F4J"]},
+                      "inactive": {"codes": ["3PYY"]}},
+        "frames": [{"time_ns": t / 10.0, "n_conflicts": 0, "motifs": [
+            {"motif": "one_sided", "d_inact_a": 5.0 + t * 0.1},
+            {"motif": "complete", "d_act_a": 1.0, "d_inact_a": 4.0,
+             "s": 0.6, "label": "active"}]} for t in range(8)],
+        "notes": [],
+    }
+
+
+def test_a_two_hundred_never_carries_arrays_nothing_can_draw(tmp_path: Path):
+    """Every series an endpoint returns must be plottable or absent."""
+    from flexappeal.webapp import create_app
+
+    path = tmp_path / "t.db"
+    store.ingest_analysis(path, _lopsided_payload(), system_id="s", run_id="r",
+                          family="kinase", environment="water")
+    app = create_app()
+    app.config["REFSTATES_DB"] = str(path)
+    client = app.test_client()
+
+    payload = client.get("/refstates/run/r/frames.json").get_json()
+    assert payload["motifs"], "a 200 with no motifs at all"
+    for motif_id, series in payload["motifs"].items():
+        length = len(series["time_ns"])
+        assert length > 0, f"{motif_id} has metric rows but no time axis"
+        assert len(series["s"]) == length, f"{motif_id} s is a different length"
+        assert len(series["label"]) == length, f"{motif_id} label length"
+        for name, values in series["metrics"].items():
+            assert len(values) == length, (
+                f"{motif_id} metric {name} is {len(values)} against a "
+                f"{length}-point time axis")
+
+
+def test_a_motif_that_resolved_one_side_still_has_a_time_axis(tmp_path: Path):
+    """The specific case: eight metric rows, and before the fix, no points."""
+    from flexappeal.webapp import create_app
+
+    path = tmp_path / "t.db"
+    store.ingest_analysis(path, _lopsided_payload(), system_id="s", run_id="r",
+                          family="kinase", environment="water")
+    app = create_app()
+    app.config["REFSTATES_DB"] = str(path)
+    series = client_series = app.test_client().get(
+        "/refstates/run/r/frames.json").get_json()["motifs"]["s:one_sided"]
+    assert len(series["time_ns"]) == 8
+    assert series["metrics"]["d_inact_a"][0] == pytest.approx(5.0)
+    # It has no s score, and that is reported as a gap rather than as a zero.
+    assert all(v is None for v in series["s"])
+
+
+def test_an_endpoint_with_nothing_to_show_returns_404_not_an_empty_body(tmp_path: Path):
+    """A panel may be absent. It may not be present and blank."""
+    from flexappeal.webapp import create_app
+
+    path = tmp_path / "t.db"
+    store.create(path)
+    app = create_app()
+    app.config["REFSTATES_DB"] = str(path)
+    client = app.test_client()
+    for url in ("/refstates/run/nothing/frames.json",
+                "/refstates/run/nothing/dssp.json",
+                "/refstates/map/nothing.json",
+                "/refstates/references/nothing",
+                "/refstates/run/nothing/viewer.pdb"):
+        assert client.get(url).status_code == 404, url

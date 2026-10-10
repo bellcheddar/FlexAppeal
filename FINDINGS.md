@@ -482,6 +482,32 @@ Both axes separate the states cleanly:
 A point missing either axis is left out rather than sent as null, and a map with
 nothing left returns 404 so the panel is hidden rather than blank.
 
+### 2.8 One failure shape, three times
+
+Three defects in this build were the same thing wearing different clothes: an
+endpoint returned 200 with data nothing could draw.
+
+| Where | What was returned | What was drawn |
+|---|---|---|
+| state map panel | a 404 the page had already rendered a panel for | an empty box, plus a console error |
+| state map data | 100 points with every `y` null | nothing, on a 200 |
+| motif series | 8 metric rows and no time axis | an invisible line, on a 200 |
+
+None of them shows in a status code, none raises, and none is visible from the
+server side without asking what the numbers mean. The third was found by
+constructing the case rather than by waiting for it: a motif that resolves its
+inactive distance and not its active one is **legal**, because the rule
+throughout this build is that an unmeasured key is omitted rather than written
+as zero, so every reader has to cope with it. The series was keyed on the
+`d_act_a` row's arrival, so when that row never came the time axis was empty
+while the metrics were full.
+
+The invariant is now asserted directly rather than instance by instance: a 200
+from any of these endpoints must carry arrays that are non-empty and the same
+length as each other, and an endpoint with nothing to show must 404 so the panel
+is hidden. A panel is allowed to be absent. It is not allowed to be present and
+blank.
+
 ## 5. Production runs
 
 Tier 2 started at 17:04 on 10 October, in section 5.3's priority order: β2AR
