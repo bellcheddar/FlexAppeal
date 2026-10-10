@@ -234,6 +234,27 @@ wrong: the construct spans 266 residues and contains 262, so trajectory residue
 every position and refuses rather than returning a map that is wrong in the
 middle.
 
+**A restraint measured a wrapped coordinate.** Section 5.2 asks for lipid
+phosphorus to be held in z while the bilayer relaxes, written as
+`k*(z - z0)^2`. OpenMM wraps coordinates into the periodic box; the lower
+leaflet sits at negative z and wraps by one box vector, so the restraint saw an
+11.77 nm deviation on 238 atoms that had not moved. At 4184 kJ/mol/nm² that is
+about 138,000,000 kJ/mol. Written as `periodicdistance(0, 0, z, 0, 0, z0)²` the
+same system reads −2,213,385 with both restraints at exactly zero. The protein
+restraint needs the same treatment for the same reason: written as a plain
+harmonic it reported 5,045,427,552 kJ/mol on atoms sitting exactly on their
+reference positions.
+
+**And a bad comparison read as a result.** That +136,000,000 was attributed to
+single precision for several hours, on the strength of a CPU run reading
+−2,060,000 for what was described as the same system. The two runs did not
+differ in precision: one had no restraints and the other had both. Nothing
+measured in this build ever showed the two platforms disagreeing, and once the
+real cause was fixed they agreed exactly. Four diagnostics went after the wrong
+cause on the strength of it. The lesson is narrow and worth keeping: a
+difference between two runs is only evidence about the variable that actually
+differed.
+
 **`addMembrane` believed a placeholder unit cell.** gemmi writes a `CRYST1` of
 1 1 1 for a `P 1` structure with no cell. `addMembrane` takes the box height as
 the larger of the lipid patch and the existing cell plus padding, so with a cell
