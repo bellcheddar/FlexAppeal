@@ -3,6 +3,38 @@
 Dated history. Goals and non-goals live in `PROJECT_PLAN.md`; the roadmap is the
 checkbox list in `README.md`.
 
+## 2026-10-09
+
+### Added
+
+- **`flexappeal/fxa2.py`: the `.fxa` version 2 format.** Version 1 is one system
+  and one replicate and DeepFlex renders it as a flexibility run with no grade;
+  version 2 carries a package of receptor-ligand complexes with the six sub-score
+  inputs and is rendered as a fully graded report. It is a separate module rather
+  than a branch in `fxa.py` because it is a different kind of file, not a bigger
+  version of the same one, and version 1 has to keep working untouched.
+  Specified in `DEEPFLEX_FXA2_SPEC.md`, which is the contract.
+
+  This commit is the format alone: the salted identifiers, the member layout, the
+  archive limits, the chemistry bans, and a reader that reads back everything the
+  writer wrote. Nothing measures anything yet.
+- **A writer that refuses what DeepFlex would discard.** Section 8 of the spec
+  bans structure strings and chemistry members outright, and DeepFlex drops them
+  on ingest and tells the uploader it did. Refusing them here instead means the
+  mistake is caught by this repository's own test suite rather than by somebody's
+  upload: `.sdf`, `.mol2`, `.prmtop`, `.xtc` and the rest are refused by suffix,
+  and any manifest field whose name contains `smiles`, `inchi`, `molblock`,
+  `molfile`, `tripos` or `sdf` is refused at any depth. Compound names travel in
+  clear, which is the line: a name says *which* compound, not what it is.
+- **The conformance checklist from section 10 of the spec, as a test.** All
+  fourteen checks, including the one that catches a het code left behind on a
+  `TER` record. A `TER` carries the residue name in the same columns as an `ATOM`
+  record, so renaming only the atom lines leaves the real code in the file; that
+  exact bug shipped once on the DeepFlex side, so the check looks for a `TER`
+  naming a residue no `ATOM` record names.
+- **`FXA2_PROGRESS.md`**, the running log: current step, what the validator last
+  reported, and every decision taken with its reason.
+
 ## 2026-07-27
 
 ### Added
