@@ -70,16 +70,13 @@ decide with it:
 **What happens next either way.** Nothing blocks. The pages are tested locally
 at every route.
 
-**One QC item is outstanding and needs a small decision with this gate.**
-Section 10 asks for Playwright at 1440×900 and 390×844 and axe-core with no
-serious violations. Neither can run here: `playwright` is not in the
-environment, there is no preinstalled Chromium, and section 10 says never to run
-`playwright install`. What ran instead is server-side: every `/static/` asset
-referenced by any of these pages is fetched and has to return 200, and the
-subset of axe-core's serious rules that live in the markup rather than in the
-rendered page. That misses anything only visible at runtime, a JavaScript
-exception, contrast, focus order. Unblocking it needs either a Chromium already
-on the machine or approval to download one.
+**The QC that was outstanding is now done.** Marc approved installing
+Playwright, so section 10's checks ran properly rather than being approximated.
+Eight pages at both viewports with no console errors, eight through axe-core
+with zero serious or critical violations, 25 tests. It found eleven real
+problems, one critical, including four contrast failures that all came from the
+same mistake: `opacity` on small text, which makes the rendered colour something
+no token states. All fixed. FINDINGS section 4b has the detail.
 
 ---
 

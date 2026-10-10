@@ -372,33 +372,64 @@ itself. The error named a NaN coordinate and nothing about a box.
 
 ---
 
-## 4b. QC that could not be run here
+## 4b. Page QC, and the eleven failures it found
 
-Section 10 asks for Playwright screenshots at 1440x900 and 390x844 with no
-console errors, and axe-core with no serious or critical violations. Neither
-ran: `playwright` is not in this environment and there is no preinstalled
-Chromium, and section 10 says never to run `playwright install`. So the
-instruction and the capability conflict, and the honest outcome is that this
-item is outstanding rather than quietly passed.
+Section 10's Playwright and axe-core checks were initially skipped: the
+environment had no `playwright` and the spec said never to run
+`playwright install`. Marc pointed out that the constraint was not his, so both
+were installed and the checks run properly. They were worth running.
 
-What was done instead, server-side, is the part that catches most of what those
-tools would:
+**Final state: 25 tests pass.** Eight pages at 1440x900 and 390x844 with no
+console errors, eight pages through axe-core with **zero serious or critical
+violations**, and one test asserting the three Plotly panels actually draw
+rather than leaving an empty div behind.
 
-- Every `/static/` asset referenced by any reference-states page is fetched and
-  has to return 200. A missing script or stylesheet is the usual cause of a
-  console error, and this is the whole of that class that a server can see.
-- The subset of axe-core's serious rules that are properties of the markup
-  rather than of the rendered page: a language on `<html>`, alt text on every
-  image, a scope on every table header, and no table without either a header
-  row or row headers.
+**Eleven findings, every one pre-existing or mine, none visible from the server
+side.**
 
-This is not a substitute for either tool. What it cannot see is anything that
-only exists once the page is running: a JavaScript exception, contrast ratios,
-focus order, or an ARIA relationship that resolves at runtime. Running the real
-checks needs either a Chromium already on the machine or approval to download
-one.
+| Finding | Impact | Where |
+|---|---|---|
+| `aria-required-children` | critical | `role="tablist"` on a radio group |
+| `color-contrast` x4 | serious | navigation hints, footer, grade meter, terminal clips |
+| `definition-list` / `dlitem` | serious | `dt`/`dd` outside a `dl`, then a `p` inside one |
+| `link-name` | serious | Mol*'s own logo link |
 
-## 5. Production runs
+### The pattern worth keeping
+
+Four of the contrast failures were the same mistake in four places: `opacity` on
+small text. `--md-text-muted` was already 4.26 against white, under the 4.5 AA
+asks for, and fading it made it worse:
+
+| element | opacity | computed | ratio |
+|---|---|---|---|
+| `.md-tab-hint` | 0.8 | `#8996a9` | 3.00 |
+| `.md-footer-meta` | 0.8 | `#798799` | 3.41 |
+| `.md-grade-score em` | 0.65 | `#909cab` | 2.59 |
+
+Each was fixed by deleting the opacity and letting the colour token say what it
+means, and the token itself was darkened to `#5a6b80`, which is 5.46 on white
+and 5.08 on the alt background. **Opacity on text is the finding**: it makes the
+rendered colour something no token states, so no amount of reading the
+stylesheet reveals it.
+
+### A fix that was the wrong shape
+
+The first pass at the terminal clips patched the two colours axe had named. That
+was wrong, and for an instructive reason: axe samples nodes, so its report is
+evidence that a colour fails and not evidence that the others pass. Three more
+failing colours were still there afterwards, including `#800080` at **1.91**.
+`tools/fix_clip_contrast.py` now audits every colour in every clip against the
+threshold and exits non-zero if one is missed. Only colour changes; the recorded
+text is untouched.
+
+### What the browser caught that a server could not
+
+The `link-name` violation on Mol*'s logo was fixed, then came back: the library
+builds its viewport controls after the structure-loading promise resolves, so
+labelling it once found no logo. Only a real browser shows that, and only after
+the page has settled. The retry is bounded rather than an observer left running.
+
+## 5. Production runs## 5. Production runs
 
 Pending. This section will carry the per-row speed, the energy drift, the
 membrane quality checks against section 5.8's windows, and the state traces.

@@ -170,6 +170,17 @@ def run(run_id: str):
     from . import store
 
     summary = store.summarise(_database(), run_id) if _database() else {}
+
+    # Is there a reference map to draw? Asked here rather than letting the
+    # panel render and the fetch 404: the browser logs a failed request as a
+    # console error, so an empty panel costs a real error on a real page.
+    has_map = any(
+        json.loads(row.get("metrics_json") or "{}").get(
+            "dfg_d_alphac" if detail["system_id"] == "abl1" else "tm3_tm6")
+        is not None
+        for row in _rows("SELECT metrics_json FROM reference_structures "
+                         "WHERE system_id = ?", (detail["system_id"],)))
+
     viewer: dict[str, Any] = {}
     analysis = analysis_file(run_id)
     if analysis.is_file():
@@ -185,7 +196,7 @@ def run(run_id: str):
         viewer = {}
     return render_template(
         "refstates_run.html", run=detail, system=system, motifs=motifs,
-        viewer=viewer,
+        viewer=viewer, has_map=has_map,
         membrane=membrane, summary=summary, finding=finding(run_id),
         shapes=STATE_SHAPES, active="refstates",
         core=json.loads(system.get("notes") or "{}").get("core", {}))

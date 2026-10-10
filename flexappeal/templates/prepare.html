@@ -115,7 +115,14 @@
 
     <form method="post" action="{{ url_for('prepare.load_structure') }}"
           enctype="multipart/form-data" class="md-source-form">
-      <div class="md-source-tabs" role="tablist">
+      {# role="radiogroup", not "tablist". These are native radio inputs with a
+         shared name, so they are a radio group and never were tabs; axe-core
+         reported the tablist as a critical aria-required-children violation
+         because a tablist must contain role="tab" children and a label is not
+         one. The native inputs already carry the implicit radio role, so the
+         group only needs naming. #}
+      <div class="md-source-tabs" role="radiogroup"
+           aria-label="Where the structure comes from">
         {% for c in by_group['input'][0].choices %}
           <label class="md-source-tab">
             <input type="radio" name="input_source" value="{{ c.value }}"

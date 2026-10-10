@@ -89,7 +89,20 @@ psutil = "*"
 # --- Development ---
 pytest = ">=8.0"
 
+[pypi-dependencies]
+# Section 10's page QC. conda-forge's `playwright` package is the Node CLI
+# only, with no Python bindings, so the bindings come from PyPI. Both use the
+# same browser cache under ~/Library/Caches/ms-playwright, so whichever side
+# fetched Chromium, the other finds it.
+playwright = "*"
+# axe-core is a JavaScript library and is injected into the page from the
+# bundled copy rather than fetched at test time: a test that needs the network
+# fails when the network does.
+axe-playwright-python = "*"
+
 [tasks]
+playwright-browser = "playwright install chromium"
+test-pages = "python -m pytest tests/test_pages.py -q"
 test = "python -m pytest tests/ -q"
 serve = "python FlexAppeal.py serve"
 docs = "python FlexAppeal.py docs"

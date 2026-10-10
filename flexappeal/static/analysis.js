@@ -377,6 +377,32 @@
     }
   }
 
+  /* Mol* injects its own logo as a link with no text and no label, which
+   * axe-core reports as a serious link-name violation. It is the library's
+   * markup rather than ours, so it is labelled after the viewer builds rather
+   * than fixed at the source. Named rather than hidden: it is a real link to
+   * the project and crediting it is the point of it being there. */
+  function nameTheMolstarLogo(host) {
+    /* Retried, because Mol* builds its viewport controls after the promise
+     * that loads the structure resolves: labelling it once on that resolution
+     * found no logo and left the violation in place. Bounded rather than a
+     * MutationObserver left running for the life of the page. */
+    let attempts = 0;
+    (function attempt() {
+      const logo = host.querySelector('.msp-logo');
+      if (logo) {
+        if (!logo.getAttribute('aria-label')) {
+          logo.setAttribute('aria-label', 'Mol* molecular viewer, opens molstar.org');
+        }
+        if (!logo.getAttribute('title')) {
+          logo.setAttribute('title', 'Mol* molecular viewer');
+        }
+        return;
+      }
+      if (++attempts < 40) setTimeout(attempt, 100);
+    })();
+  }
+
   function initViewer() {
     const host = document.getElementById('molstar-viewer');
     const status = document.getElementById('viewer-status');
@@ -425,6 +451,7 @@
          *
          * Mol*'s animation stays as the fallback for a page without the slider,
          * which is any single-frame structure. */
+        nameTheMolstarLogo(host);
         applyNeon(viewer);
         const scrubbing = wireSlider(viewer, frames, duration);
         const playing = scrubbing || (frames > 1 && autoplay(viewer));

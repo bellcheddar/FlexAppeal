@@ -160,6 +160,7 @@
   </details>
 </section>
 
+{% if has_map %}
 <section class="md-card md-panel is-wide">
   <h3>Reference state map</h3>
   <div id="state-map" class="md-plot" style="min-height:380px"></div>
@@ -182,6 +183,7 @@
     </p>
   </details>
 </section>
+{% endif %}
 
 {% if membrane %}
   <section class="md-card md-panel is-wide">

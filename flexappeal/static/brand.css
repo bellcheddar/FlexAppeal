@@ -16,7 +16,11 @@
   --md-border:         #dde4ed;
 
   --md-text:           #1a1a2e;
-  --md-text-muted:     #6b7c93;
+  /* Darkened from #6b7c93, which is 4.26 against white and so fails WCAG AA
+     for normal text before anything else is done to it. axe-core flagged it on
+     every page through the navigation tabs. #5a6b80 is 5.46 and keeps the
+     muted grey-blue the design intends. */
+  --md-text-muted:     #5a6b80;
   --md-text-light:     #ffffff;
 
   --md-accent-green:   #00d084;
@@ -106,7 +110,10 @@ a { color: var(--md-primary); }
   font-size: 11px; font-weight: 700;
 }
 .md-tab.is-active .md-tab-num { background: var(--md-primary); color: #fff; }
-.md-tab-hint { font-weight: 400; font-size: 12px; opacity: 0.8; }
+/* No opacity. Fading 12px text to 0.8 took the muted colour from 4.26 to 3.00
+   against white, which is the contrast failure axe reported, and the lighter
+   look it was buying is what --md-text-muted already provides. */
+.md-tab-hint { font-weight: 400; font-size: 12px; }
 
 /* ------------------------------------------------------------------ main */
 
@@ -338,7 +345,10 @@ a { color: var(--md-primary); }
 
 .md-footer { text-align: center; padding: 30px 20px; color: var(--md-text-muted); font-size: 13px; }
 .md-footer p { margin: 4px 0; }
-.md-footer-meta { font-size: 12px; opacity: 0.8; }
+/* Same opacity trap as .md-tab-hint had: --md-text-muted faded to 0.8 over the
+   alt background computes to #798799, which axe measured at 3.4. Without the
+   opacity it is the token's own 4.93 against #f4f7fb. */
+.md-footer-meta { font-size: 12px; }
 
 /* ------------------------------------------------------------------ clip */
 
@@ -488,7 +498,10 @@ a { color: var(--md-primary); }
 }
 .md-grade-letter { font-size: 34px; font-weight: 700; line-height: 1; }
 .md-grade-score { font-size: 12px; color: var(--md-text-muted); margin-top: 4px; }
-.md-grade-score em { font-style: normal; opacity: 0.65; }
+/* The third place opacity on small text broke the contrast: --md-text-muted at
+   0.65 over the alt background computes to #909cab, which axe measured at 2.59.
+   An explicit colour instead, so what is rendered is what the token says. */
+.md-grade-score em { font-style: normal; color: var(--md-text-muted); }
 /* Band colour on the ring and the letter, and on each sub-score bar below. A
    sub-score is not itself graded, but it is a 0-100 reading on the same scale,
    so the composite's own thresholds carry over and a reader can see at a glance

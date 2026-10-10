@@ -100,15 +100,23 @@
   </section>
 
   {% if tiles %}
-    <div class="md-tiles">
+    {# A <dl>, not a <div>: these are dt/dd pairs, and axe reported them as a
+       serious dlitem violation because a description list item needs a <dl>
+       ancestor. run_detail.html already had this right. #}
+    <dl class="md-tiles">
       {% for t in tiles %}
         <div class="md-tile">
           <dt>{{ t.label }}</dt>
-          <dd>{{ t.value }}{% if t.unit %}<span class="md-tile-unit">{{ t.unit }}</span>{% endif %}</dd>
-          {% if t.note %}<p>{{ t.note }}</p>{% endif %}
+          {# The note goes inside the <dd>, not beside it. A <div> inside a <dl>
+             may contain only dt and dd, so a sibling <p> made the list invalid
+             and axe reported it as a serious definition-list violation. The
+             note elaborates the value, so the dd is where it belongs anyway. #}
+          <dd>{{ t.value }}{% if t.unit %}<span class="md-tile-unit">{{ t.unit }}</span>{% endif %}
+            {% if t.note %}<p class="md-tile-note">{{ t.note }}</p>{% endif %}
+          </dd>
         </div>
       {% endfor %}
-    </div>
+    </dl>
   {% endif %}
 
   {% if has_viewer %}
