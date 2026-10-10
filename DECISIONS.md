@@ -369,3 +369,54 @@ own `compare-sse` and will mislabel the same six structures. Wrapped here in
 
 *Reverse:* call `sse_comparison.metrics.classify_dfg_state` directly; P1 returns
 to 64.7% and fails.
+
+---
+
+## D011 - The β2AR starts, and the transplant D007 planned for is not needed
+
+**2026-10-10, phase 2.** The fallback ladder in section 4.3 was walked rather
+than assumed, and it stopped on the top rung for both states.
+
+| Run | Entry | Resolution | Refined model | Ligand |
+|---|---|---|---|---|
+| apo, active | **4LDE** | 2.79 Å | yes | agonist stripped |
+| ligand, inactive | **5D5A** | 2.48 Å | yes | **(S)-carazolol, in place** |
+
+**2RH1 has no refined model**, which the spec predicted and this build confirmed
+by asking. Probing the best entries of each state by resolution found refined
+models for 4LDE and 6MXT among the active, and 6PS2, 5D5A and 6PS3 among the
+inactive. The URL pattern is `/structure/refined/<PDB>_full/download_pdb`, it
+returns a zip rather than a PDB, and a `_noloops` variant sits beside it that
+drops ICL3 entirely.
+
+**D007's complication does not exist.** It recorded that a refined model carries
+no ligand and that carazolol would have to be transplanted from 2RH1 by
+superposition, with a clash check and a documented fallback. Refined models do
+carry their ligands, and 5D5A's is the exact inverse agonist that was wanted.
+So there is no transplant, no clash risk and no fallback rung: the ligand is
+where the crystallographers put it. 6PS2 at 2.40 Å is marginally better resolved
+but carries an antagonist rather than an inverse agonist, and the inverse agonist
+is the stronger stabiliser of the state the run is meant to hold.
+
+**ICL3 is fully modelled, 24 of 24 residues, in both.** Section 4.3 says over 20
+means keep them, flag the loop as "modelled, flexible" and exclude it from every
+RMSD. Recorded in each start's sidecar as `icl3_excluded_from_rmsd`.
+
+**Orientation.** Neither refined model arrives in the membrane frame: they were
+50 Å apart in z and tilted differently from each other, and `addMembrane` needs
+the bilayer normal along z with the centre at z = 0. OPM has no entry for 4LDE or
+5D5A, so the frame is borrowed from the receptor rather than the entry, which
+section 5.1 allows: the bilayer frame belongs to the fold. Superposed on 225 TM
+Cα onto OPM's 2RH1, whose dummy atoms put the headgroup planes at z = ±15.9 Å.
+Loops are excluded from the fit because ICL3 is fully modelled here and is the
+most mobile part of the receptor, so fitting on it would tilt the helices to
+satisfy a loop.
+
+Both pass section 5.1's validation: aromatic belt |z| median 12.0 and 12.6 Å
+against a 10 to 17 window, intracellular basics at -37.5 and -27.9 Å against a
+-13 ceiling.
+
+The fit RMSDs are themselves a check worth keeping: the inactive model lands on
+the inactive OPM reference at **0.20 Å** and the active at **2.51 Å**. That 2.3 Å
+gap is the activation difference this build exists to measure, showing up before
+any simulation has run.

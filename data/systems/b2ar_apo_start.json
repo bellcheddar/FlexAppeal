@@ -1,0 +1,17 @@
+{
+  "which": "apo",
+  "pdb": "4LDE",
+  "state": "active",
+  "source": "GPCRdb refined model (ladder rung 1)",
+  "url": "https://gpcrdb.org/structure/refined/4LDE_full/download_pdb",
+  "ligand": null,
+  "span": [
+    23,
+    344
+  ],
+  "n_residues": 322,
+  "n_ligand": 0,
+  "icl3_modelled": 24,
+  "icl3_flag": "modelled, flexible",
+  "icl3_excluded_from_rmsd": true
+}

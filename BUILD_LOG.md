@@ -85,3 +85,12 @@ Timestamped, one line per meaningful event, for the reference-state build
   between the wrong two residues is a number that looks fine.
 - `15:3x` **Phase 1 acceptance met**: P1 17/17, P2 17/17, P3 100/100, and both
   ensembles above the spec's minimums.
+- `15:4x` ABL1 apo production started: 50 ns, 12.5 M steps, OpenCL single.
+- `15:5x` b2AR start models resolved on the top rung of the ladder. 2RH1 has no
+  refined model, as the spec predicted; 4LDE (active, 2.79 A) and 5D5A
+  (inactive, 2.48 A) do, and 5D5A carries (S)-carazolol already in place, so
+  D007's planned transplant is unnecessary. URL pattern logged in D011.
+- `15:5x` Both starts oriented onto OPM 2RH1 (bilayer at z = +/-15.9 A) and both
+  pass section 5.1's validation. Fit RMSD 0.20 A for the inactive model and
+  2.51 A for the active, which is the activation difference showing up before
+  any simulation runs.

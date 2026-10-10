@@ -1,0 +1,13 @@
+{
+  "which": "imatinib",
+  "pdb": "2HYY",
+  "chain": "C",
+  "ligand": "STI",
+  "expected_state": "DFG-out",
+  "span": [
+    233,
+    498
+  ],
+  "n_residues": 262,
+  "shared_construct": true
+}
