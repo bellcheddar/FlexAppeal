@@ -30,7 +30,7 @@ from typing import Any
 
 from flask import (
     Blueprint, Flask, abort, current_app, jsonify, redirect,
-    render_template, request, send_file, url_for,
+    render_template, request, send_file, send_from_directory, url_for,
 )
 
 from . import options as opts
@@ -877,6 +877,17 @@ def create_app() -> Flask:
                 version = 0
             return url_for("static", filename=filename, v=version)
         return {"asset": asset}
+
+    @app.get("/favicon.ico")
+    def favicon():
+        """Served at the root as well as from /static.
+
+        Browsers request /favicon.ico whatever the link tags say, and a 404 per
+        page view is noise in the access log that looks like a fault.
+        """
+        return send_from_directory(
+            Path(app.root_path) / "static" / "icons", "favicon.ico",
+            mimetype="image/vnd.microsoft.icon")
 
     app.register_blueprint(prepare_bp)
     app.register_blueprint(api_bp)

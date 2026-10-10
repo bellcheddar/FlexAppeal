@@ -798,3 +798,26 @@ def test_the_pages_meet_the_markup_rules_axe_would_check(tmp_path: Path):
         if "<table" in html and "<thead" not in html and "scope=\"row\"" not in html:
             problems.append(f"{url}: a table has neither a thead nor row headers")
     assert not problems, problems
+
+
+def test_the_site_has_an_icon_at_every_place_a_browser_looks():
+    """The site had none, so every tab showed the default document glyph.
+
+    Both paths are asserted: a browser requests /favicon.ico whatever the link
+    tags say, and a 404 per page view is noise in the access log that reads as
+    a fault.
+    """
+    from flexappeal.webapp import create_app
+
+    client = create_app().test_client()
+    assert client.get("/favicon.ico").status_code == 200
+    for name in ("favicon.ico", "favicon-16x16.png", "favicon-32x32.png",
+                 "apple-touch-icon.png", "android-chrome-192x192.png",
+                 "android-chrome-512x512.png", "site.webmanifest"):
+        response = client.get(f"/static/icons/{name}")
+        assert response.status_code == 200, name
+        assert len(response.data) > 200, f"{name} is suspiciously small"
+
+    head = client.get("/").get_data(as_text=True)
+    for rel in ('rel="icon"', 'rel="apple-touch-icon"', 'rel="manifest"'):
+        assert rel in head, rel
