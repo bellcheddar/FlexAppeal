@@ -270,6 +270,17 @@ checkbox list in `README.md`.
   to; mapping by position afterwards would map onto a renumbered molecule.
   `painted.json` lists only the diagrams that have the shading, because the
   mobility legend is a claim about colours.
+- **Both readers now refuse the other's file by its number.** A version 2 package
+  has a `metrics/<cid>.json` per complex and no `metrics.json` at all, so the
+  version 1 reader rejected one as truncated: a message about a missing member that
+  said nothing about the real problem. In the other direction a version 1 file
+  carries `traj.xtc` quite legitimately, and the version 2 reader rejected it for a
+  banned member rather than for its version. Both now check the declared version
+  first, after the hostile-archive checks and before anything that assumes a
+  layout, and the version 1 message says where a package does belong. No existing
+  version 1 test changed.
+- **The command in the README**, with the reason a study has to be a package
+  rather than a bigger single-system file.
 
 ## 2026-07-27
 

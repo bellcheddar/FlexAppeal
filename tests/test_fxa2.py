@@ -490,3 +490,37 @@ def test_a_known_distance_is_reported_in_angstrom(written):
           if line.startswith("ATOM") and line[17:20] == "LIG"]
     assert len(xs) == 2
     assert abs(xs[1] - xs[0]) == pytest.approx(1.0)
+
+
+# ---------------------------------------------------------------------------
+#  Version 1 and version 2 side by side, section 11
+# ---------------------------------------------------------------------------
+
+
+def test_the_version_1_reader_refuses_a_package_by_number(written):
+    """Not for a missing member, which says nothing about the real problem.
+
+    A version 2 file has a `metrics/<cid>.json` per complex and no `metrics.json`
+    at all, so the required-member check would reject one as truncated. A reader
+    seeing a version it does not know must refuse by number.
+    """
+    from flexappeal import fxa as fxa1
+
+    with pytest.raises(fxa1.FxaError) as refused:
+        fxa1.load(written.read_bytes())
+    message = str(refused.value)
+    assert "format version 2" in message
+    assert "missing" not in message
+    # And it says where the file does belong.
+    assert "flexappeal package" in message
+
+
+def test_the_version_2_reader_refuses_a_version_1_file():
+    """The refusal runs both ways, so neither reader part-parses the other's file."""
+    from conftest import FIXTURES
+
+    fixture = FIXTURES / "lysozyme.fxa"
+    if not fixture.is_file():
+        pytest.skip("tests/fixtures/lysozyme.fxa is missing")
+    with pytest.raises(Fxa2Error, match="flexappeal.fxa"):
+        fxa2.read(fixture.read_bytes())

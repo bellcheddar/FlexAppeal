@@ -4,20 +4,40 @@ Running log for the version 2 package writer, specified in `DEEPFLEX_FXA2_SPEC.m
 and driven by `FXA2_BUILD_PROMPT.md`. Rewritten at every step boundary, so an
 interrupted session can be resumed from this file alone.
 
-**Current step:** done. All ten steps of section 12 are built.
-**Validator last reported:** accepted, with `--energies` supplied, and
-**"every sub-score populated: this file would produce a full report."**
+**Status: all ten steps of section 12 are built. Nothing is pushed.**
+
+## What the validator reports
+
+`pixi run python tools/validate_package.py <pkg>.fxa --verbose`, run from the
+DeepFlex checkout, on a four-complex package built by `flexappeal package` from
+the committed trypsin fixture with `--energies` supplied:
 
 | Group | |
 |---|---|
 | grade, pose, occupancy, interactions, energy, convergence, conformation, receptor panels, ranking | **100%** |
-| payload | **80%**, missing only `pocket_traj_path` |
+| payload | **80%** |
 
-`pocket_traj_path` is the one column a spec-conformant file cannot fill: it is
-read from `structures/<cid>_pocket.xtc` and section 8 bans `.xtc` members
-outright. Divergence 5 below, and it belongs on the DeepFlex side.
+> every sub-score populated: this file would produce a full report.
 
----
+**The one short group, and why.** `payload` is missing `pocket_traj_path` alone.
+DeepFlex fills that column from `structures/<cid>_pocket.xtc`, and section 8 of the
+spec bans `.xtc` members outright. There is no way to fill it without writing a
+member the spec forbids, so it is left NULL. The fix belongs on the DeepFlex side:
+the column should accept the multi-model `_scrub.pdb` that section 6.2 asks for,
+which this writer does produce and which the viewer already loads by name.
+Divergence 5 below.
+
+Without `--energies` the energy group is 0% and grade 62.5%. That is the one
+measurement FlexAppeal has no way to produce, documented under **What FlexAppeal
+cannot compute** below.
+
+### The cohort, checked rather than assumed
+
+A package of two receptors by two ligands ingests and grades, and the rows show
+the comparative columns working: grades A and A-, `pending_subscores` empty on
+every complex, `gb_cohort` equal to the receptor rather than to the package (which
+is the ruling the spec calls out), `gb_cohort_n` 2, and ranks 1 and 2 within each
+receptor.
 
 ## The shape of the work
 

@@ -102,8 +102,42 @@ The command-line interface exists so every stage can be driven without a browser
 | `./FlexAppeal.py bundle 1aki.pdb` | Build a run bundle without the browser |
 | `./FlexAppeal.py unpack run.command` | List or extract a bundle's contents |
 | `./FlexAppeal.py validate config.json` | Check a configuration against the registry |
+| `./FlexAppeal.py package -o study.fxa run1 run2` | Collect finished runs into one `.fxa` version 2 study package |
 | `./FlexAppeal.py docs` | Regenerate `docs/options.md` from the option registry |
 | `./FlexAppeal.py sweep` | Remove expired scratch sessions |
+
+### 📦 Packaging a study
+
+A run writes an `.fxa` **version 1**: one system, one replicate, read by the
+Analysis tab here. A study of several receptor-ligand complexes is an `.fxa`
+**version 2**, which is a different kind of file rather than a bigger one, and it
+is read by [DeepFlex](https://deepflex.mdeller.com) as a fully graded report with
+a league table.
+
+```bash
+./FlexAppeal.py package -o study.fxa flexappeal_output/*/
+```
+
+It has to be a package because the central panels are comparative: the energy
+sub-score is a percentile within a receptor's own cohort, and the two rank columns
+are places in that cohort, so one complex has no cohort and those quantities are
+undefined rather than zero. FlexAppeal runs one system per job, so packaging is a
+separate, deliberate act: nothing about how a job runs changes, and a study can be
+assembled from runs done weeks apart.
+
+Sources can be finished run directories or version 1 `.fxa` files, mixed freely. A
+run directory is the better source: it carries the complete trajectory rather than
+a decimated payload. Two options worth knowing:
+
+- `--energies <file.json>` carries in MM/GBSA and interaction energies. FlexAppeal
+  cannot compute those, so without them the energy sub-score is left pending,
+  which the command says out loud rather than writing a zero.
+- `--annotate` resolves each receptor's UniProt accession over the network. Off by
+  default, because it is the only part of the format that needs the internet.
+
+The format is specified in `DEEPFLEX_FXA2_SPEC.md`. No chemistry travels in a
+package: no structure strings and no connectivity, only pocket-cropped coordinates
+and compound names in clear.
 
 ### ▶️ Running a bundle
 

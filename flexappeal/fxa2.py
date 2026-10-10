@@ -175,6 +175,17 @@ def _check_member_name(name: str) -> None:
         raise Fxa2Error(f"{name!r} is an absolute path")
     if ".." in name.split("/"):
         raise Fxa2Error(f"{name!r} escapes the archive root")
+    _check_no_chemistry_member(name)
+
+
+def _check_no_chemistry_member(name: str) -> None:
+    """Refuse a member whose suffix carries chemistry or a trajectory.
+
+    Separate from the path checks above, and checked after the declared version
+    on read, because a version 1 `.fxa` carries `traj.xtc` quite legitimately: it
+    is a different format, and refusing it for a banned member rather than for
+    its version would say nothing about the real problem.
+    """
     basename = name.rsplit("/", 1)[-1]
     suffix = "." + basename.rsplit(".", 1)[-1].lower() if "." in basename else ""
     if suffix in CHEMISTRY_SUFFIXES:
@@ -430,6 +441,42 @@ class ReadPackage:
         return None if blob is None else blob.decode("utf-8", "replace")
 
 
+def _check_path(name: str) -> None:
+    """The path half of `_check_member_name`, without the chemistry suffix."""
+    if not name or name.endswith("/"):
+        raise Fxa2Error(f"{name!r} is not a usable member name")
+    if "\x00" in name:
+        raise Fxa2Error(f"{name!r} contains a null byte")
+    if "\\" in name:
+        raise Fxa2Error(f"{name!r} uses backslash separators")
+    if name.startswith("/") or (len(name) > 1 and name[1] == ":"):
+        raise Fxa2Error(f"{name!r} is an absolute path")
+    if ".." in name.split("/"):
+        raise Fxa2Error(f"{name!r} escapes the archive root")
+
+
+def _check_declared_version(archive: zipfile.ZipFile) -> None:
+    """Refuse a file that is not version 2, by its number.
+
+    Cheap, and it has to be, because it decides whether the rest of this reader
+    is the right one at all. A missing or unreadable manifest falls through to
+    the fuller checks in `read`, which have better messages for those cases.
+    """
+    try:
+        manifest = json.loads(archive.read("manifest.json"))
+    except (KeyError, ValueError):
+        return
+    if not isinstance(manifest, dict):
+        return
+    version = manifest.get("fxa_version")
+    if version == FXA2_VERSION:
+        return
+    raise Fxa2Error(
+        f"this file declares fxa_version {version!r} and the package reader "
+        f"handles {FXA2_VERSION}. Version 1 files are read by flexappeal.fxa."
+    )
+
+
 def read(source: Path | str | bytes) -> ReadPackage:
     """Read a version 2 package, refusing anything else by number."""
     content = Path(source).read_bytes() if not isinstance(source, bytes) else source
@@ -446,6 +493,18 @@ def read(source: Path | str | bytes) -> ReadPackage:
         entries = archive.infolist()
         if len(entries) > MAX_MEMBERS:
             raise Fxa2Error(f"this archive declares {len(entries)} members, over the limit.")
+
+        # The declared version is read before the chemistry check below, and
+        # after the path and size checks above: a version 1 `.fxa` carries
+        # `traj.xtc`, so checking members first would refuse one for a banned
+        # member rather than for its version, which tells the reader nothing. The
+        # hostile-archive checks still come first, because a manifest from an
+        # unvetted archive is not worth reading.
+        for entry in entries:
+            if not entry.is_dir():
+                _check_path(entry.filename)
+        _check_declared_version(archive)
+
         total = 0
         for entry in entries:
             if entry.is_dir():

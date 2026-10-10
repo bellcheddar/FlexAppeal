@@ -191,6 +191,40 @@ def _read_members(content: bytes) -> dict[str, bytes]:
 # ===========================================================================
 
 
+def _refuse_unknown_version(members: dict[str, bytes]) -> None:
+    """Raise if the manifest declares a format version newer than this reader's.
+
+    Deliberately forgiving about everything else: a manifest that is absent,
+    unreadable or silent about its version falls through to the checks below,
+    which have better messages for those cases than a version check could.
+    """
+    blob = members.get("manifest.json")
+    if blob is None:
+        return
+    try:
+        manifest = json.loads(blob)
+    except json.JSONDecodeError:
+        return
+    if not isinstance(manifest, dict):
+        return
+    version = manifest.get("fxa_version")
+    if not isinstance(version, int) or version <= FXA_VERSION:
+        return
+
+    advice = (
+        f"this results file is format version {version}, but this server "
+        f"understands up to {FXA_VERSION}. The run was made with a newer "
+        f"FlexAppeal than this site; rebuild the bundle here and re-run."
+    )
+    if version == 2:
+        advice += (
+            " A version 2 .fxa is a whole study package of receptor-ligand "
+            "complexes, built by `flexappeal package`, and it is read by DeepFlex "
+            "rather than by this tab, which shows one run at a time."
+        )
+    raise FxaError(advice)
+
+
 def load(content: bytes, *, verify_checksums: bool = True) -> Results:
     """Parse and validate a results file. Raises FxaError with a usable message."""
     if not content:
@@ -198,6 +232,14 @@ def load(content: bytes, *, verify_checksums: bool = True) -> Results:
 
     members = _read_members(content)
     warnings: list[str] = []
+
+    # Refuse an unknown version by its number, before looking for members that a
+    # different layout was never going to have. Version 2 is a study package with
+    # a `metrics/<cid>.json` per complex and no `metrics.json` at all, so the
+    # check below would reject one for being truncated, which says nothing about
+    # the real problem. A reader seeing a version it does not know must refuse by
+    # number rather than attempt a partial parse (DEEPFLEX_FXA2_SPEC.md 11).
+    _refuse_unknown_version(members)
 
     missing = [name for name in REQUIRED_MEMBERS if name not in members]
     if missing:
