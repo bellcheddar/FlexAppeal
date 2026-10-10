@@ -450,3 +450,57 @@ def test_the_dssp_ribbon_is_decimated_and_keeps_its_gaps(tmp_path: Path):
     assert payload["stride"] >= 3
     # The unassigned residue survives as the blank marker, not as coil.
     assert payload["frames"][0][3] == "-"
+
+
+def test_the_viewer_route_serves_only_its_two_suffixes(tmp_path: Path):
+    """The route must not be talked into returning anything else in there.
+
+    The analysis directory also holds each run's JSON, and a route that served
+    by filename would hand it over. Served by suffix from a fixed allowlist
+    instead, with the run id checked against the app's own pattern.
+    """
+    from flexappeal.webapp import create_app
+
+    analysis = tmp_path / "analysis"
+    analysis.mkdir()
+    (analysis / "r.pdb").write_text("ATOM\nEND\n")
+    (analysis / "r.xtc").write_bytes(b"\x00\x01")
+    (analysis / "r.json").write_text('{"secret": 1}')
+
+    app = create_app()
+    client = app.test_client()
+    import flexappeal.refstates.web as web
+
+    original_root = app.root_path
+    app.root_path = str(tmp_path / "flexappeal")
+    (tmp_path / "flexappeal").mkdir(exist_ok=True)
+    (tmp_path / "data").mkdir(exist_ok=True)
+    try:
+        # The route resolves data/analysis relative to the app root's parent.
+        import shutil
+
+        shutil.copytree(analysis, tmp_path / "data" / "analysis",
+                        dirs_exist_ok=True)
+        assert client.get("/refstates/run/r/viewer.pdb").status_code == 200
+        assert client.get("/refstates/run/r/viewer.xtc").status_code == 200
+        # Not in the allowlist, so not served even though the file is there.
+        assert client.get("/refstates/run/r/viewer.json").status_code == 404
+        # And an id that is not an id.
+        assert client.get("/refstates/run/..%2F..%2Fetc/viewer.pdb").status_code == 404
+    finally:
+        app.root_path = original_root
+
+
+def test_the_viewer_panel_is_hidden_without_its_files(tmp_path: Path):
+    """A viewer that fails to load is worse than one that is not offered."""
+    from flexappeal.webapp import create_app
+
+    path = tmp_path / "t.db"
+    store.ingest_analysis(path, _analysis_payload(), system_id="s", run_id="r",
+                          family="kinase", environment="water")
+    app = create_app()
+    app.config["REFSTATES_DB"] = str(path)
+    page = app.test_client().get("/refstates/run/r").get_data(as_text=True)
+    assert "molstar-viewer" not in page
+    # The rest of the page still renders.
+    assert "xDFG" in page

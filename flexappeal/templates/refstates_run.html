@@ -23,6 +23,51 @@
   </dl>
 </section>
 
+{% if viewer %}
+  <section class="md-card md-panel is-wide">
+    <h3>The structure</h3>
+    <div id="molstar-viewer" class="md-viewer"
+         style="position:relative;min-height:460px"
+         data-structure="{{ url_for('refstates.viewer_file', run_id=run.run_id, kind='pdb') }}"
+         data-trajectory="{{ url_for('refstates.viewer_file', run_id=run.run_id, kind='xtc') }}"
+         data-frames="{{ viewer.n_frames }}"
+         data-duration="{{ (viewer.n_frames * viewer.frame_ns) | round(1) }}"></div>
+    <p id="viewer-status" class="md-note"></p>
+    <h4>Where the motifs are</h4>
+    <table class="md-table">
+      <thead>
+        <tr><th scope="col">Motif</th><th scope="col">Residues</th><th scope="col">Span</th></tr>
+      </thead>
+      <tbody>
+        {% for motif in motifs %}
+          <tr>
+            <th scope="row">{{ motif.name }}</th>
+            <td>{{ motif.n_residues }}</td>
+            <td>{{ motif.span or "&mdash;" | safe }}</td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    <details class="md-readmore">
+      <summary>What is loaded here, and what is not</summary>
+      <p>
+        Protein and ligand at a {{ viewer.frame_ns }} ns stride,
+        {{ viewer.n_frames }} frame{{ "" if viewer.n_frames == 1 else "s" }}.
+        Solvent and, for the receptor, the bilayer are left out: none of the
+        measurements above are taken from them and including them would make
+        this a gigabyte rather than a megabyte. The full-resolution trajectory
+        stays beside the run.
+      </p>
+      <p>
+        The residue spans in the table are the ones every measurement above was
+        taken on, so a motif can be found in the sequence panel. Colouring the
+        cartoon by motif is not wired up yet; the table is the honest version of
+        it rather than a half-working theme.
+      </p>
+    </details>
+  </section>
+{% endif %}
+
 <section class="md-card md-panel is-wide">
   <h3>Motifs at the end of the run</h3>
   <table class="md-table">
@@ -197,6 +242,10 @@
 
 {% block scripts %}
 <script src="{{ url_for('static', filename='vendor/plotly.min.js') }}"></script>
+{% if viewer %}
+  <script src="{{ url_for('static', filename='vendor/molstar.js') }}"></script>
+  <script src="{{ url_for('static', filename='analysis.js') }}"></script>
+{% endif %}
 <script>
 // The bands at +/-0.2 are the decisive thresholds, drawn rather than described
 // so a reader can see which side of them a line is on without reading a number.

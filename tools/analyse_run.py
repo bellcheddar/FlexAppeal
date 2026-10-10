@@ -269,6 +269,36 @@ def gpcr_setup(start_pdb: Path):
             {"rigidity": rigidity, "alignment": alignment})
 
 
+# Section 6.3: coordinates for the web at a 1 ns stride, full resolution kept
+# in data/md. A 50 ns run is then 500 frames of protein and ligand only, which
+# is a few megabytes rather than the gigabyte the solvated DCD is.
+VIEWER_STRIDE_NS = 1.0
+
+
+def write_viewer_bundle(loaded, name: str, out_dir: Path,
+                        frame_ps: float = 100.0) -> dict:
+    """A topology and a strided trajectory the 3D viewer can load.
+
+    Written beside the analysis rather than served from `data/md`, because the
+    solvated trajectory is most of a gigabyte and none of the solvent is drawn.
+    The topology is PDB and the coordinates XTC, which is the pair Mol* already
+    reads on the analysis tab, so the viewer needs no new code path.
+    """
+    stride = max(1, int(round(VIEWER_STRIDE_NS * 1000.0 / frame_ps)))
+    sliced = loaded[::stride]
+    out_dir.mkdir(parents=True, exist_ok=True)
+    topology = out_dir / f"{name}.pdb"
+    trajectory = out_dir / f"{name}.xtc"
+    sliced[0].save_pdb(str(topology))
+    sliced.save_xtc(str(trajectory))
+    return {
+        "topology": topology.name, "trajectory": trajectory.name,
+        "n_frames": int(sliced.n_frames), "stride": stride,
+        "frame_ns": stride * frame_ps / 1000.0,
+        "bytes": topology.stat().st_size + trajectory.stat().st_size,
+    }
+
+
 def secondary_structure(loaded, motif_residues: dict[str, list[int]]) -> dict:
     """Per-frame DSSP, and each motif's helix and strand content (section 5.6).
 
@@ -422,7 +452,11 @@ def main() -> int:
 
     out_dir = Path(args.out)
     out_dir.mkdir(parents=True, exist_ok=True)
+    viewer = write_viewer_bundle(loaded, args.name, out_dir)
+    log(f"viewer bundle: {viewer['n_frames']} frames at "
+        f"{viewer['frame_ns']:.1f} ns, {viewer['bytes'] / 1e6:.1f} MB")
     payload = run.as_row()
+    payload["viewer"] = viewer
     if dssp_payload:
         payload["dssp"] = dssp_payload
     payload["ensembles"] = {state: e.as_row() for state, e in built.items()}

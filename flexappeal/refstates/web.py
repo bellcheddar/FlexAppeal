@@ -19,7 +19,8 @@ import os
 from pathlib import Path
 from typing import Any
 
-from flask import Blueprint, abort, current_app, jsonify, render_template
+from flask import (Blueprint, abort, current_app, jsonify, render_template,
+                   send_from_directory)
 
 from ..webapp import _RUN_ID
 
@@ -155,17 +156,36 @@ def run(run_id: str):
         # Counted here rather than in the template: Jinja has no JSON filter in
         # this app, and adding one for a length is more surface than it is worth.
         try:
-            motif["n_residues"] = len(json.loads(motif.get("residues_json") or "[]"))
+            residues = json.loads(motif.get("residues_json") or "[]")
         except json.JSONDecodeError:
-            motif["n_residues"] = 0
+            residues = []
+        motif["n_residues"] = len(residues)
+        # The span rather than the whole list: a 35-residue helix listed in
+        # full is a wall of numbers, and the endpoints are what locate it.
+        motif["span"] = (f"{min(residues)} to {max(residues)}"
+                         if residues else "")
     membrane = _rows(
         "SELECT * FROM membrane WHERE run_id = ? ORDER BY time_ns", (run_id,))
 
     from . import store
 
     summary = store.summarise(_database(), run_id) if _database() else {}
+    viewer: dict[str, Any] = {}
+    analysis = analysis_file(run_id)
+    if analysis.is_file():
+        try:
+            viewer = json.loads(analysis.read_text()).get("viewer") or {}
+        except json.JSONDecodeError:
+            viewer = {}
+    # Only offer the panel when both files are actually there: a viewer that
+    # fails to load is worse than one that is not shown.
+    directory = Path(current_app.root_path).parent / "data" / "analysis"
+    if not all((directory / f"{run_id}.{kind}").is_file()
+               for kind in ("pdb", "xtc")):
+        viewer = {}
     return render_template(
         "refstates_run.html", run=detail, system=system, motifs=motifs,
+        viewer=viewer,
         membrane=membrane, summary=summary, finding=finding(run_id),
         shapes=STATE_SHAPES, active="refstates",
         core=json.loads(system.get("notes") or "{}").get("core", {}))
@@ -334,3 +354,26 @@ def dssp(run_id: str):
         "n_frames_total": payload.get("n_frames"),
         "motifs": payload.get("motifs", {}),
     })
+
+
+# The only two things the viewer may fetch out of the analysis directory.
+VIEWER_SUFFIXES = {"pdb": "chemical/x-pdb", "xtc": "application/octet-stream"}
+
+
+@refstates_bp.get("/run/<run_id>/viewer.<kind>")
+def viewer_file(run_id: str, kind: str):
+    """The topology or the strided coordinates for the 3D viewer.
+
+    Served by suffix from a fixed allowlist rather than by filename, so the
+    route cannot be talked into returning the run's JSON, the database, or
+    anything else that happens to sit in that directory. The run id is checked
+    against the same pattern the rest of the app uses.
+    """
+    if not _RUN_ID.match(run_id or "") or kind not in VIEWER_SUFFIXES:
+        abort(404)
+    directory = (Path(current_app.root_path).parent / "data" / "analysis")
+    name = f"{run_id}.{kind}"
+    if not (directory / name).is_file():
+        abort(404)
+    return send_from_directory(directory, name,
+                               mimetype=VIEWER_SUFFIXES[kind])
