@@ -227,3 +227,45 @@ deleted, which is rung 3 of section 4.3's ladder and is flagged in the app as
 
 *Reverse:* set `ligand_runs = false` and restore the apo pairs from sections 4.2
 and 4.3.
+
+---
+
+## D008 - Two pairs, and imatinib is the ABL1 ligand
+
+**2026-10-10, phase 1.** Marc: "Let's just do 2 pairs for each, choose which is
+mostly likely to hold for abl." This amends **D007** by dropping the protonation
+arm, leaving one pair per system and four runs in total.
+
+| # | System | Start | Ligand | State | Expectation |
+|---|---|---|---|---|---|
+| 1 | ABL1 | 2HYY | **imatinib** (`STI`) | DFG-out | holds |
+| 2 | ABL1 | 2GQG | apo (dasatinib stripped) | DFG-in | free to flip |
+| 3 | β2AR | 2RH1 | **(S)-carazolol** | inactive | holds |
+| 4 | β2AR | GPCRdb refined | apo | active | drifts |
+
+**Why imatinib rather than dasatinib.** Imatinib is a type II inhibitor: it binds
+the allosteric pocket that only exists once the DFG motif has flipped out, so the
+drug physically occupies the space the motif would have to move back through. The
+DFG-out state is held by steric occlusion rather than by affinity alone.
+Dasatinib is type I, binding the ATP site with DFG in, and DFG-in is the state the
+kinase reaches more readily in any case, so a dasatinib run would be a weaker test
+of whether a ligand holds a state: it would be hard to tell a ligand holding the
+conformation from the conformation simply being stable.
+
+That matters because the pair is a comparison. Run 1 should hold and run 2 should
+be free to move, and the clearer the hold, the more a change in run 2 means
+something.
+
+**The protonation arm is dropped**, which was the point of raising it in D007.
+Section 5.2 calls it the headline kinase feature and it is not in this build. It
+is a variant of run 2 rather than new machinery, so it can be added later as a
+fifth row for about 16 hours of compute with no change to the pipeline.
+
+**This brings the projection inside the ceiling.** Four runs, 400 ns, about **92
+GPU-hours or 3.8 days against the 96 hour default**, so G1 does not open on the
+estimate. The headroom is four hours, which is thin: at 70 ns/day rather than 80
+for the membrane rows the total reaches 100 hours and the gate opens. Phase 3
+measures it.
+
+*Reverse:* add the protonation arm back as run 5, or restore D007's five-run
+matrix.

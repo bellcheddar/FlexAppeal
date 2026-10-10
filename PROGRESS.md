@@ -13,7 +13,7 @@ phase and at least every 30 minutes during long compute (section 0.1 rule 5).
 | **2 Start models** | not started | ABL1 seeds (2GQG, 2HYY); β2AR refined models from GPCRdb |
 | **3 System build + smoke** | not started | Solvated ABL1, POPC-embedded β2AR, Tier 1 (1 ns per row) |
 | **4 Analysis module** | not started | `flexappeal/refstates/` over the vendored `sse_comparison` |
-| **5 Production** | not started | Tier 2, fifteen runs at 100 ns (1,500 ns) |
+| **5 Production** | not started | Tier 2, four runs at 100 ns (400 ns), two ligand-bound |
 | **6 App** | not started | Two entries in the existing Runs library, trajectory explorer |
 | **7 Findings** | not started | `FINDINGS.md`, deliverables |
 
@@ -45,26 +45,19 @@ than a build problem.
 
 Two things the spec leaves to run time and that shape everything after them:
 
-1. **Compute budget (Gate G1): reduced, and now borderline rather than hopeless.**
-   Marc ruled on 2026-10-10 to drop the replicas (**D006**), so Tier 2 is **five**
-   runs of 100 ns rather than fifteen: ABL1 active-like charged, ABL1 active-like
-   protonated, ABL1 inactive, β2AR active, β2AR inactive, one trajectory each.
+1. **Compute budget (Gate G1): inside the ceiling, but only just.** The matrix is
+   four runs (D007, D008): ABL1 with imatinib from DFG-out and apo from DFG-in,
+   β2AR with carazolol from inactive and apo from active. 400 ns in total.
 
-   | Row | Atoms | ns/day | Hours per run | Runs | Hours |
+   | Row | Atoms | ns/day | Hours | Runs | Hours |
    |---|---|---|---|---|---|
-   | ABL1, water | ~50 k | ~152 | 15.8 | 3 | 47 |
+   | ABL1, water | ~50 k | ~152 | 15.8 | 2 | 32 |
    | β2AR, POPC | ~95 k | ~80 | 30.0 | 2 | 60 |
-   | | | | | **5** | **107** |
+   | | | | | **4** | **92** |
 
-   **4.5 days against a 96 hour ceiling, 1.12 times over**, which is inside the
-   error of an extrapolation. The phase 3 measurement settles it: the membrane
-   rows at 100 ns/day bring the total to 95 hours and under, at 60 ns/day to 127
-   and over. The gate stays shut either way until there is a measured number,
-   because section 0.2 opens G1 only after scope reduction and this is it.
-
-   The cost is recorded in D006 rather than glossed: P5 cannot be evaluated as
-   written, there is no estimate of run-to-run variability, and a single run that
-   goes wrong costs its whole row.
+   **3.8 days against a 96 hour ceiling**, so G1 does not open on the projection.
+   Four hours of headroom is thin: the membrane rows at 70 ns/day rather than 80
+   put the total at 100 hours and open it. Phase 3 measures both systems.
 
 2. **β2AR start models.** The spec's primary route is a GPCRdb *refined* model,
    and it says plainly that not every entry has one (2RH1 and 3SN6 both report

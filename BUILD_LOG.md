@@ -47,3 +47,8 @@ Timestamped, one line per meaningful event, for the reference-state build
   (D007). Matrix becomes imatinib/DFG-out plus apo DFG-in for ABL1, carazolol/
   inactive plus apo active for b2AR, with the protonation arm kept as a third
   ABL1 row. Five runs, unchanged at about 107 GPU-hours.
+- `15:2x` Marc: two pairs only, and pick the ABL1 ligand most likely to hold
+  (D008). Imatinib on DFG-out, because a type II binder occupies the pocket the
+  motif would have to move back through, where dasatinib holds the state the
+  kinase reaches most readily anyway. Protonation arm dropped. Four runs, 400 ns,
+  projected 92 GPU-hours, inside the 96 hour ceiling with four hours to spare.
