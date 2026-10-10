@@ -322,8 +322,9 @@
 
 {% block scripts %}
 {% if results %}
-<script src="{{ asset('vendor/plotly.min.js') }}"></script>
-<script src="{{ asset('vendor/molstar.js') }}"></script>
+  {% include "_analysis_scripts.html" %}
+{% else %}
+  {# The upload form on its own still wants analysis.js for the drop zone. #}
+  <script src="{{ asset('analysis.js') }}" defer></script>
 {% endif %}
-<script src="{{ asset('analysis.js') }}" defer></script>
 {% endblock %}

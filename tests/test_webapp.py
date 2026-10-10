@@ -1692,3 +1692,44 @@ def test_the_warning_about_keeping_names_the_consequence(library):
     body = library.get("/analysis").get_data(as_text=True)
     assert "keep_run" in body
     assert "unpublished" in body
+
+
+@pytest.mark.parametrize("path", ["/example", "/runs/example"])
+def test_a_page_with_plots_also_ships_the_code_that_draws_them(client, path):
+    """The Runs tab shipped without this and every panel on it was blank.
+
+    `run_detail.html` extends base.html directly and never defined
+    `{% block scripts %}`, so it rendered twenty-six divs carrying their figure
+    data and no Plotly to draw it. The page looked complete: right number of
+    cards, right titles, nothing in them.
+
+    Asserted by pairing the two rather than by checking for the script tag on
+    its own, because what makes a plot div wrong is the absence of the library,
+    not the absence of a tag.
+    """
+    import re
+
+    if path.startswith("/runs") and not _example_built():
+        pytest.skip("the example run has not been built")
+    pytest.importorskip("mdtraj")
+
+    body = client.get(path).get_data(as_text=True)
+    divs = re.findall(r'id="plot-[a-z0-9_\-]+"', body)
+    if not divs:
+        pytest.skip(f"{path} renders no plots")
+
+    assert "plotly.min.js" in body, f"{len(divs)} plot divs and no Plotly"
+    assert "analysis.js" in body, "nothing walks the divs"
+    # The viewer's library too, wherever a viewer is mounted.
+    if 'id="molstar-viewer"' in body:
+        assert "molstar.js" in body, "a viewer element and no Mol*"
+
+
+def test_the_upload_form_alone_does_not_pull_the_plotting_libraries(client):
+    """Nothing to draw yet, and Plotly plus Mol* is most of a megabyte."""
+    body = client.get("/analysis").get_data(as_text=True)
+    assert 'id="plot-' not in body
+    assert "plotly.min.js" not in body
+    assert "molstar.js" not in body
+    # analysis.js still loads: it runs the drop zone.
+    assert "analysis.js" in body

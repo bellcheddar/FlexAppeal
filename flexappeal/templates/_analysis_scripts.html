@@ -1,0 +1,11 @@
+{# The front end every results page needs: Plotly for the panels, Mol* for the
+   viewer, and analysis.js, which walks the `data-figure` divs and draws them.
+
+   A partial because this is what the Runs tab shipped without. `run_detail.html`
+   extends base.html directly, never defined `{% block scripts %}`, and so
+   rendered twenty-six plot divs carrying their data and no code to draw it: the
+   page looked complete and every panel was blank. Included by both pages now,
+   so a third results page cannot repeat it. #}
+<script src="{{ asset('vendor/plotly.min.js') }}"></script>
+<script src="{{ asset('vendor/molstar.js') }}"></script>
+<script src="{{ asset('analysis.js') }}" defer></script>

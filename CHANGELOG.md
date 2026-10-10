@@ -284,6 +284,18 @@ checkbox list in `README.md`.
 
 ### Fixed
 
+- **Every panel on the Runs tab was blank.** `run_detail.html` extends
+  `base.html` directly and never defined `{% block scripts %}`, which is where
+  `analysis.html` loads Plotly, Mol\* and `analysis.js`. So the page rendered
+  twenty-six plot divs carrying their figure data and shipped no code to draw
+  it: the right number of cards, the right titles, nothing inside them, and a
+  200 with no error anywhere to say so.
+
+  The scripts are a partial now, included by both results pages, so a third one
+  cannot repeat it. And the test asserts the pair rather than the tag -- a page
+  with plot divs must also carry Plotly -- because what makes a div wrong is the
+  missing library, not a missing script element.
+
 - **The pose RMSD charged a symmetric ligand for its own symmetry.** Benzene's
   six carbons are chemically identical, so a 60 degree ring rotation moved every
   atom by the ring radius while changing the pose not at all. The RMSD now
