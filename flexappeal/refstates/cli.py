@@ -163,6 +163,17 @@ def build_parser() -> argparse.ArgumentParser:
                      default=Path(__file__).resolve().parents[2] / "data" / "systems")
     two.add_argument("--out", type=Path, default=None)
     two.set_defaults(func=controls)
+
+    three = sub.add_parser("report", help="print what the explorer database holds")
+    three.add_argument("--db", type=Path,
+                       default=Path(__file__).resolve().parents[2]
+                       / "data" / "refstates.db")
+    three.set_defaults(func=report)
+
+    four = sub.add_parser("run", help="run the MD queue (tools/queue_md.py)")
+    four.add_argument("queue_args", nargs=argparse.REMAINDER,
+                      help="passed through, for example: --smoke --only b2ar_apo")
+    four.set_defaults(func=run)
     return parser
 
 
@@ -294,3 +305,72 @@ def controls(args: argparse.Namespace) -> int:
     # which section 9 is explicit about, so this exits zero either way and the
     # table is the output.
     return 0
+
+
+# ===========================================================================
+#  report and run
+# ===========================================================================
+
+
+def report(args: argparse.Namespace) -> int:
+    """Print what the explorer database holds, as a build-state summary.
+
+    Reads the same file the pages read, so a disagreement between this and the
+    site is a bug rather than two views drifting. Nothing here recomputes
+    anything: a report that re-derived its numbers could agree with itself and
+    still disagree with what is served.
+    """
+    from . import store
+
+    if not args.db.is_file():
+        log(f"no database at {args.db}; run tools/analyse_all.sh first")
+        return 1
+
+    with store.connect(args.db, read_only=True) as connection:
+        systems = [dict(r) for r in connection.execute(
+            "SELECT * FROM systems ORDER BY system_id")]
+        runs = [dict(r) for r in connection.execute(
+            "SELECT * FROM runs ORDER BY system_id, run_id")]
+
+    if not runs:
+        print("No runs ingested yet.")
+        return 0
+
+    print()
+    for system in systems:
+        print(f"{system['system_id']}  {system.get('name') or ''}"
+              f"  ({system.get('environment') or 'unknown'})")
+        for run in [r for r in runs if r["system_id"] == system["system_id"]]:
+            length = (f"{run['length_ns']:.1f} ns" if run.get("length_ns")
+                      else "no frames")
+            speed = (f"{run['ns_per_day']:.0f} ns/day" if run.get("ns_per_day")
+                     else "speed not recorded")
+            print(f"    {run['run_id']:18s} {str(run.get('start_state')):10s} "
+                  f"{length:>10s}  {run['status']:9s} {speed}")
+            summary = store.summarise(args.db, run["run_id"])
+            for motif, values in sorted((summary.get("motifs") or {}).items()):
+                if values.get("final_s") is None:
+                    continue
+                name = motif.split(":", 1)[-1]
+                print(f"        {name:12s} start {values['start_s']:+.3f} "
+                      f"-> final {values['final_s']:+.3f}  "
+                      f"{values.get('final_label') or ''}")
+        print()
+    return 0
+
+
+def run(args: argparse.Namespace) -> int:
+    """Run the MD queue. A thin pass-through to tools/queue_md.py.
+
+    Exists so the CLI surface section 11 names is real rather than partly
+    documented, and it delegates rather than reimplementing: one definition of
+    the run matrix and the protocol, which is the same reason `annotate`
+    imports its family wiring instead of copying it.
+    """
+    import subprocess
+
+    root = Path(__file__).resolve().parents[2]
+    command = [sys.executable, str(root / "tools" / "queue_md.py")]
+    command += args.queue_args or []
+    log("delegating to tools/queue_md.py " + " ".join(args.queue_args or []))
+    return subprocess.run(command, cwd=root).returncode
