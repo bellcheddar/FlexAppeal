@@ -294,3 +294,121 @@ def test_the_worker_survives_a_corrupt_request(session):
                                 request_path, output_path) == 1
     assert json.loads(output_path.read_text())["status"] == "error"
     assert not (session / ".reanalyse.lock").exists()
+
+
+# ---------------------------------------------------------------------------
+#  Binding-site panels, from a version 1 upload with a ligand in it
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture(scope="module")
+def measured():
+    """The committed trypsin and benzamidine run, measured as a complex."""
+    from flexappeal import fxa, package
+
+    fixture = FIXTURES / "trypsin_ben.fxa"
+    if not fixture.is_file():
+        pytest.skip("tests/fixtures/trypsin_ben.fxa is missing")
+    pytest.importorskip("mdtraj")
+    result, _ = package.measure_results(fxa.load(fixture.read_bytes()), "trypsin_ben")
+    if result is None:
+        pytest.skip("the fixture could not be measured")
+    return result
+
+
+def test_an_apo_run_has_no_binding_panels_and_says_why():
+    """A run with no ligand has no binding site, and that is not an error."""
+    from flexappeal import fxa, package
+
+    fixture = FIXTURES / "lysozyme.fxa"
+    if not fixture.is_file():
+        pytest.skip("tests/fixtures/lysozyme.fxa is missing")
+    result, reasons = package.measure_results(fxa.load(fixture.read_bytes()))
+    assert result is None
+    assert any("no ligand" in reason for reason in reasons)
+
+
+def test_every_binding_panel_builds_for_a_real_complex(measured):
+    panels = plots.build_binding(measured)
+    ids = {panel["id"] for panel in panels}
+    # The six sub-score inputs, the matrices and the ligand's own chemistry.
+    assert {"pose", "centroid", "occupancy", "interactions", "barcode",
+            "clusters", "strain", "torsions", "ligand_rmsf", "pocket_rmsf",
+            "rmsd_2d", "dccm"} <= ids
+
+
+def test_every_binding_panel_is_json_serialisable(measured):
+    """The template serialises each figure into the page.
+
+    Every series here came out of numpy, and a stray float32 reaches the
+    template as an unserialisable object rather than as a number: the panel then
+    fails to render with a traceback about the whole page.
+    """
+    json.dumps(plots.build_binding(measured))
+
+
+def test_every_binding_panel_is_titled_and_explained(measured):
+    for panel in plots.build_binding(measured):
+        assert panel["title"]
+        assert len(panel["blurb"]) > 40, panel["id"]
+        # The card's own heading names the panel, so an in-figure title would
+        # say the same thing twice.
+        assert panel["figure"]["layout"]["title"] == {"text": ""}
+
+
+def test_the_page_weight_stays_reasonable(measured):
+    """A 500 by 500 matrix is a quarter of a million numbers in the HTML.
+
+    The file keeps them, which is right for a stored payload; the page cannot
+    show a quarter of them, so both matrices are block-reduced on the way out.
+    """
+    blob = json.dumps(plots.build_binding(measured))
+    assert len(blob) < 400_000, f"{len(blob) // 1024} KB of panel JSON"
+
+
+def test_the_matrices_are_reduced_for_the_wire(measured):
+    panels = {p["id"]: p for p in plots.build_binding(measured)}
+    for key in ("rmsd_2d", "dccm"):
+        z = panels[key]["figure"]["data"][0]["z"]
+        assert len(z) <= plots.WIRE_MATRIX_SIDE, (key, len(z))
+        assert len(z[0]) == len(z), "a reduced matrix must stay square"
+
+
+def test_the_matrix_axes_stay_the_same_length_as_the_matrix(measured):
+    """A decimated matrix with an undecimated axis silently mislabels every cell."""
+    panels = {p["id"]: p for p in plots.build_binding(measured)}
+    for key in ("rmsd_2d", "dccm"):
+        trace = panels[key]["figure"]["data"][0]
+        assert len(trace["x"]) == len(trace["z"]), key
+        assert len(trace["y"]) == len(trace["z"]), key
+
+
+def test_the_pose_panel_shows_both_fits(measured):
+    """Fitted on the pocket and fitted on the ligand: the pair is the point."""
+    panels = {p["id"]: p for p in plots.build_binding(measured)}
+    names = {trace["name"] for trace in panels["pose"]["figure"]["data"]}
+    assert names == {"pocket fit", "ligand fit"}
+
+
+def test_the_discarded_head_is_shaded_on_the_scored_panels(measured):
+    """A chart that includes the equilibration beside a number that does not."""
+    if measured.metrics["equil_start_frame"] == 0:
+        pytest.skip("nothing was discarded in this run")
+    panels = {p["id"]: p for p in plots.build_binding(measured)}
+    shapes = panels["pose"]["figure"]["layout"]["shapes"]
+    assert any(s["type"] == "rect" for s in shapes)
+
+
+def test_the_occupancy_panel_draws_the_threshold(measured):
+    """The line is what `in_pocket_fraction` counts, so it has to be visible."""
+    panels = {p["id"]: p for p in plots.build_binding(measured)}
+    shapes = panels["occupancy"]["figure"]["layout"]["shapes"]
+    assert any(s["type"] == "line" for s in shapes)
+
+
+def test_the_interaction_panel_is_ordered_by_occupancy(measured):
+    """The question is which contacts carried the pose, not where they sit."""
+    panels = {p["id"]: p for p in plots.build_binding(measured)}
+    values = panels["interactions"]["figure"]["data"][0]["x"]
+    assert values == sorted(values)
+    assert all(0.0 <= v <= 1.0 for v in values)

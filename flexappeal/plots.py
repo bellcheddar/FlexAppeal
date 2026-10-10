@@ -782,3 +782,470 @@ def build_reanalysis(metrics: dict[str, Any]) -> list[dict[str, Any]]:
         add("contacts", "Contact map", contact_map(metrics, arrays))
 
     return panels
+
+
+# ===========================================================================
+#  Binding-site panels, from flexappeal.measure
+# ===========================================================================
+#
+# The same measurements an `.fxa` version 2 package carries, drawn for the one
+# complex an upload contains. There is deliberately no grade here: the six
+# sub-scores are weighted and banded in DeepFlex, and the energy sub-score, the
+# league table and both rank columns are percentiles within a receptor's own
+# cohort, which a single complex does not have. These panels show what was
+# measured and leave the judgement where its definition lives.
+
+# Interaction types, in the order they are stacked and coloured. Polar and ionic
+# are the directional, specific ones and get the first two slots; hydrophobic is
+# the bulk term and sits third.
+_ITYPE_COLOUR = {
+    "HBond": CATEGORICAL[0],
+    "Ionic": CATEGORICAL[1],
+    "Hydrophobic": CATEGORICAL[2],
+    "contact": NEUTRAL,
+}
+
+
+# What a matrix is reduced to before it is written into the page. The file keeps
+# up to 500 on a side, which is right for a stored payload, but a 500 by 500
+# heatmap is a quarter of a million numbers in the HTML: for a 162-residue
+# receptor that measured 4.5 MB of JSON on one page, against a panel a few
+# hundred pixels wide that cannot show a quarter of it.
+WIRE_MATRIX_SIDE = 200
+# Points per line panel. DeepFlex decimates to about this for the same reason.
+WIRE_SERIES_POINTS = 600
+
+
+def _wire_matrix(matrix) -> np.ndarray:
+    """Block-reduce a matrix to something a page can carry."""
+    side = matrix.shape[0]
+    if side <= WIRE_MATRIX_SIDE:
+        return matrix
+    step = int(np.ceil(side / WIRE_MATRIX_SIDE))
+    return matrix[::step, ::step]
+
+
+def _wire_stride(length: int) -> int:
+    """Frames to skip so a series panel stays within `WIRE_SERIES_POINTS`."""
+    if length <= WIRE_SERIES_POINTS:
+        return 1
+    return int(np.ceil(length / WIRE_SERIES_POINTS))
+
+
+def _equil_band(start_frame: int, time_ns) -> list[dict[str, Any]]:
+    """A shaded region over the frames that were measured and not scored.
+
+    Every scored number on these panels is cut from `equil_start_frame`, so the
+    discarded head has to be visible: a reader looking at a chart that includes
+    it would otherwise reasonably assume the number beside it does too.
+    """
+    if start_frame <= 0 or len(time_ns) == 0:
+        return []
+    end = float(time_ns[min(int(start_frame), len(time_ns) - 1)])
+    return [{
+        "type": "rect", "xref": "x", "yref": "paper",
+        "x0": float(time_ns[0]), "x1": end, "y0": 0, "y1": 1,
+        "fillcolor": GRID, "opacity": 0.85, "line": {"width": 0}, "layer": "below",
+    }]
+
+
+def pose_stability(measured) -> dict[str, Any] | None:
+    """Ligand RMSD two ways: fitted on the pocket, and fitted on itself.
+
+    The pair is the point. Fitted on the pocket, the curve is the ligand moving
+    inside a receptor held still. Fitted on the ligand, it is the ligand
+    changing shape. A rise in the first with a flat second is a pose sliding; a
+    rise in both is a ligand doing something more interesting.
+    """
+    series = measured.series or {}
+    if "pose_rmsd_a" not in series:
+        return None
+    stride = _wire_stride(len(series["time_ns"]))
+    time_ns = series["time_ns"][::stride]
+    layout = _layout("Ligand pose", "Time (ns)", "RMSD (Å)",
+                     showlegend=True,
+                     legend={"orientation": "h", "y": 1.12, "x": 0})
+    layout["shapes"] = _equil_band(measured.metrics.get("equil_start_frame", 0), time_ns)
+    return _figure([
+        _line(time_ns, _finite(series["pose_rmsd_a"][::stride]), "pocket fit",
+              CATEGORICAL[0], "pocket fit %{y:.2f} Å<extra></extra>"),
+        _line(time_ns, _finite(series["inplace_rmsd_a"][::stride]), "ligand fit",
+              CATEGORICAL[1], "ligand fit %{y:.2f} Å<extra></extra>"),
+    ], layout)
+
+
+def centroid_drift(measured) -> dict[str, Any] | None:
+    """How far the ligand centroid has gone, and how far it sits from the pocket.
+
+    The drift is measured from the ligand's own starting centroid. The offset is
+    to the pocket centroid, which sits several angstrom away even in a perfectly
+    held pose, so it is a diagnostic rather than a second drift measure.
+    """
+    series = measured.series or {}
+    if "com_drift_a" not in series:
+        return None
+    stride = _wire_stride(len(series["time_ns"]))
+    time_ns = series["time_ns"][::stride]
+    layout = _layout("Centroid drift", "Time (ns)", "Distance (Å)",
+                     showlegend=True,
+                     legend={"orientation": "h", "y": 1.12, "x": 0})
+    layout["shapes"] = _equil_band(
+        measured.metrics.get("equil_start_frame", 0), time_ns)
+    # The 5 A line is DeepFlex's hard gate: a mean drift above it, or a drift
+    # above it in more than a fifth of frames, caps the grade at C.
+    layout["shapes"].append({
+        "type": "line", "xref": "x", "yref": "y",
+        "x0": float(time_ns[0]), "x1": float(time_ns[-1]), "y0": 5.0, "y1": 5.0,
+        "line": {"color": CATEGORICAL[5], "width": 1, "dash": "dot"},
+    })
+    return _figure([
+        _line(time_ns, _finite(series["com_drift_a"][::stride]),
+              "from its own start", CATEGORICAL[0],
+              "drift %{y:.2f} Å<extra></extra>"),
+        _line(time_ns, _finite(series["pocket_offset_a"][::stride]),
+              "from the pocket centre", CATEGORICAL[3],
+              "offset %{y:.2f} Å<extra></extra>"),
+    ], layout)
+
+
+def pocket_occupancy(measured) -> dict[str, Any] | None:
+    """Native contacts retained per frame, against the quarter-retained threshold.
+
+    The threshold is what `in_pocket_fraction` counts: the fraction of scored
+    frames holding at least a quarter of the contacts present at the start.
+    """
+    series = measured.series or {}
+    if "contacts" not in series:
+        return None
+    stride = _wire_stride(len(series["time_ns"]))
+    time_ns = series["time_ns"][::stride]
+    threshold = float(series["native_contact_threshold"][0]) \
+        if "native_contact_threshold" in series else None
+    layout = _layout("Pocket occupancy", "Time (ns)", "Residues in contact")
+    layout["shapes"] = _equil_band(
+        measured.metrics.get("equil_start_frame", 0), time_ns)
+    if threshold is not None:
+        layout["shapes"].append({
+            "type": "line", "xref": "x", "yref": "y",
+            "x0": float(time_ns[0]), "x1": float(time_ns[-1]),
+            "y0": threshold, "y1": threshold,
+            "line": {"color": CATEGORICAL[5], "width": 1, "dash": "dot"},
+        })
+    return _figure([
+        _line(time_ns, [int(v) for v in series["contacts"][::stride]], "contacts",
+              CATEGORICAL[2], "%{y} residues<extra></extra>"),
+    ], layout)
+
+
+def interaction_occupancy(measured) -> dict[str, Any] | None:
+    """Which contacts held, and for how much of the scored window.
+
+    Sorted by occupancy rather than by residue number: the question a reader
+    brings to this panel is which interactions carried the pose, and a plot
+    ordered by sequence position buries the answer.
+    """
+    rows = measured.summary or []
+    if not rows:
+        return None
+    rows = sorted(rows, key=lambda r: r["occupancy"])[-24:]
+    return _figure([{
+        "type": "bar", "orientation": "h",
+        "x": [float(r["occupancy"]) for r in rows],
+        "y": [f"{r['residue']} {r['itype']}" for r in rows],
+        "marker": {"color": [_ITYPE_COLOUR.get(r["itype"], NEUTRAL) for r in rows]},
+        "hovertemplate": "%{y}<br>%{x:.0%} of scored frames<extra></extra>",
+    }], _layout("Interaction occupancy", "Fraction of scored frames", "",
+                hovermode="closest",
+                xaxis={"range": [0, 1], "tickformat": ".0%",
+                       "gridcolor": GRID, "zeroline": False, "linecolor": AXIS,
+                       "title": {"text": "Fraction of scored frames",
+                                 "font": {"size": 12, "color": INK_MUTED}}},
+                margin={"l": 150, "r": 18, "t": 44, "b": 48}))
+
+
+def contact_barcode(measured) -> dict[str, Any] | None:
+    """Which contact was present when, busiest first.
+
+    A barcode rather than a set of lines: twenty-plus on-off series stacked as
+    lines is unreadable, and the question is when each was present rather than
+    its exact value.
+    """
+    barcode = measured.barcode or {}
+    if "z" not in barcode or not len(barcode.get("labels", [])):
+        return None
+    labels = [str(v) for v in barcode["labels"]]
+    return _figure([{
+        "type": "heatmap",
+        "z": [[int(v) for v in row] for row in barcode["z"]],
+        "x": [float(v) for v in barcode["time_ns"]],
+        "y": labels,
+        "colorscale": [(0.0, "#f2f7fd"), (1.0, CATEGORICAL[0])],
+        "showscale": False,
+        "hovertemplate": "%{y}<br>%{x:.1f} ns<extra></extra>",
+    }], _layout("Contact barcode", "Time (ns)", "", hovermode="closest",
+                margin={"l": 150, "r": 18, "t": 44, "b": 48}))
+
+
+def pose_clusters(measured) -> dict[str, Any] | None:
+    """How the scored window divides into distinct poses.
+
+    Each bar is a cluster's share of the window; the x position is how far that
+    cluster's centroid sits from the starting pose. One tall bar near zero is a
+    ligand that held; two bars wide apart is one that moved and stayed.
+    """
+    clusters = measured.metrics.get("pose_clusters") or []
+    if not clusters:
+        return None
+    return _figure([{
+        "type": "bar",
+        "x": [float(c["rmsd_to_t0_a"]) for c in clusters],
+        "y": [float(c["population"]) for c in clusters],
+        "marker": {"color": CATEGORICAL[0]},
+        "width": 0.18,
+        "customdata": [[int(c["cluster_id"]), int(c["n_frames"])] for c in clusters],
+        "hovertemplate": ("cluster %{customdata[0]}<br>%{y:.0%} of the window"
+                          "<br>%{customdata[1]} frames<br>%{x:.2f} Å from the "
+                          "start<extra></extra>"),
+    }], _layout("Pose clusters", "Centroid RMSD from the starting pose (Å)",
+                "Share of the scored window", hovermode="closest",
+                yaxis={"range": [0, 1], "tickformat": ".0%",
+                       "gridcolor": GRID, "zeroline": False, "linecolor": AXIS,
+                       "title": {"text": "Share of the scored window",
+                                 "font": {"size": 12, "color": INK_MUTED}}}))
+
+
+def ligand_strain(measured) -> dict[str, Any] | None:
+    """MMFF94 strain in excess of the starting pose.
+
+    The excess, never the absolute energy: these coordinates come from an OpenFF
+    or GAFF force field and are being scored by MMFF94, and both offsets are
+    constant for a given ligand and cancel when the first frame is subtracted.
+    Below zero means the ligand relaxed out of the pose it started in, which is
+    a good outcome rather than a neutral one.
+    """
+    conformer = measured.conformer or {}
+    if "strain_excess_kcal" not in conformer:
+        return None
+    layout = _layout("Ligand strain", "Time (ns)", "Excess strain (kcal/mol)")
+    layout["shapes"] = [{
+        "type": "line", "xref": "paper", "yref": "y",
+        "x0": 0, "x1": 1, "y0": 0, "y1": 0,
+        "line": {"color": AXIS, "width": 1},
+    }]
+    return _figure([
+        _line(_finite(conformer["time_ns"]),
+              _finite(conformer["strain_excess_kcal"]),
+              "excess strain", CATEGORICAL[3],
+              "%{y:+.1f} kcal/mol<extra></extra>"),
+    ], layout)
+
+
+def ligand_torsions(measured) -> dict[str, Any] | None:
+    """Each rotatable torsion over the scored window.
+
+    Flat traces are a rigid ligand. A trace jumping between bands is a rotamer
+    flip, which is what the flip rate counts.
+    """
+    conformer = measured.conformer or {}
+    angles = conformer.get("torsion_deg")
+    if angles is None or not angles.size:
+        return None
+    time_ns = _finite(conformer["time_ns"])
+    data = [
+        _line(time_ns, _finite(angles[:, column]),
+              f"torsion {column + 1}", CATEGORICAL[column % len(CATEGORICAL)],
+              "%{y:.0f}°<extra></extra>")
+        for column in range(angles.shape[1])
+    ]
+    return _figure(data, _layout(
+        "Ligand torsions", "Time (ns)", "Dihedral (°)",
+        showlegend=angles.shape[1] > 1,
+        legend={"orientation": "h", "y": 1.12, "x": 0},
+        yaxis={"range": [-180, 180], "dtick": 90, "gridcolor": GRID,
+               "zeroline": False, "linecolor": AXIS,
+               "title": {"text": "Dihedral (°)",
+                         "font": {"size": 12, "color": INK_MUTED}}}))
+
+
+def ligand_atom_fluctuation(measured) -> dict[str, Any] | None:
+    """Per-atom ligand movement about its mean position, after the pocket fit."""
+    series = measured.series or {}
+    values = series.get("ligand_rmsf_a")
+    if values is None or not len(values):
+        return None
+    return _figure([{
+        "type": "bar",
+        "x": list(range(1, len(values) + 1)),
+        "y": _finite(values),
+        "marker": {"color": CATEGORICAL[0]},
+        "hovertemplate": "atom %{x}: %{y:.2f} Å<extra></extra>",
+    }], _layout("Ligand atom fluctuation", "Heavy atom", "RMSF (Å)",
+                hovermode="closest"))
+
+
+def pocket_flexibility(measured) -> dict[str, Any] | None:
+    """Per-residue receptor fluctuation, with the pocket residues marked.
+
+    The pocket is picked out rather than left to a reader to look up: the
+    question this panel answers is whether the site itself is rigid, and that is
+    invisible on an unmarked trace of two hundred residues.
+    """
+    panels = measured.panels or {}
+    if "rmsf_resid" not in panels:
+        return None
+    resid = [int(v) for v in panels["rmsf_resid"]]
+    values = _finite(panels["rmsf_a"])
+    pocket = set(measured.pocket.get("pocket_residues_filtered") or [])
+    marked = [(r, v) for r, v in zip(resid, values) if r in pocket]
+    data = [{
+        "type": "scatter", "mode": "lines", "name": "all residues",
+        "x": resid, "y": values,
+        "line": {"color": CATEGORICAL[0], "width": 1.5},
+        "hovertemplate": "residue %{x}: %{y:.2f} Å<extra></extra>",
+    }]
+    if marked:
+        data.append({
+            "type": "scatter", "mode": "markers", "name": "pocket",
+            "x": [r for r, _ in marked], "y": [v for _, v in marked],
+            "marker": {"color": CATEGORICAL[1], "size": 7},
+            "hovertemplate": "pocket residue %{x}: %{y:.2f} Å<extra></extra>",
+        })
+    return _figure(data, _layout(
+        "Receptor flexibility", "Residue", "Cα RMSF (Å)", showlegend=True,
+        legend={"orientation": "h", "y": 1.12, "x": 0}, hovermode="closest"))
+
+
+def rmsd_matrix(measured) -> dict[str, Any] | None:
+    """Frame against frame Cα RMSD: a map of which parts of the run resemble which.
+
+    Block structure along the diagonal is a trajectory that visited distinct
+    states; a uniform field is one that stayed in one.
+    """
+    panels = measured.panels or {}
+    matrix = panels.get("rmsd_2d")
+    if matrix is None or matrix.ndim != 2 or matrix.shape[0] < 2:
+        return None
+    time_ns = panels["time_ns"]
+    step = max(1, len(time_ns) // matrix.shape[0])
+    axis = [float(v) for v in time_ns[::step][: matrix.shape[0]]]
+    matrix = _wire_matrix(matrix)
+    axis = axis[::max(1, int(np.ceil(len(axis) / matrix.shape[0])))][: matrix.shape[0]]
+    return _figure([{
+        "type": "heatmap",
+        "z": [[round(float(v), 2) for v in row] for row in matrix],
+        "x": axis, "y": axis,
+        "colorscale": [list(stop) for stop in SEQUENTIAL],
+        "colorbar": {"title": {"text": "Å", "font": {"size": 11}},
+                     "thickness": 12, "outlinewidth": 0},
+        "hovertemplate": "%{x:.1f} ns vs %{y:.1f} ns: %{z:.2f} Å<extra></extra>",
+    }], _layout("Frame-to-frame RMSD", "Time (ns)", "Time (ns)",
+                hovermode="closest"))
+
+
+def cross_correlation(measured) -> dict[str, Any] | None:
+    """Residue motion correlation: which parts of the receptor move together.
+
+    Diverging, because the sign is the whole point: +1 is moving together, -1 is
+    moving oppositely, and a sequential ramp would hide the difference.
+    """
+    panels = measured.panels or {}
+    matrix = panels.get("cross_correlation")
+    if matrix is None or matrix.ndim != 2 or matrix.shape[0] < 2:
+        return None
+    resid = [int(v) for v in panels["dccm_resid"]]
+    reduced = _wire_matrix(matrix)
+    if reduced.shape[0] != matrix.shape[0]:
+        step = int(np.ceil(len(resid) / reduced.shape[0]))
+        resid = resid[::step][: reduced.shape[0]]
+    matrix = reduced
+    return _figure([{
+        "type": "heatmap",
+        "z": [[round(float(v), 2) for v in row] for row in matrix],
+        "x": resid, "y": resid, "zmin": -1, "zmax": 1,
+        "colorscale": [(0.0, "#c02c2e"), (0.5, "#f7f7f7"), (1.0, "#1e5c92")],
+        "colorbar": {"thickness": 12, "outlinewidth": 0,
+                     "tickvals": [-1, 0, 1]},
+        "hovertemplate": "%{x} vs %{y}: %{z:.2f}<extra></extra>",
+    }], _layout("Residue cross-correlation", "Residue", "Residue",
+                hovermode="closest"))
+
+
+def _plain(value: Any) -> Any:
+    """numpy scalars and arrays reduced to what `json.dumps` accepts.
+
+    Every series on these panels came out of numpy, and a stray `float32`
+    reaches the template as an unserialisable object rather than as a number:
+    the panel then fails to render with a traceback about the whole page. One
+    sweep where the panels are assembled beats remembering it in twelve
+    builders.
+    """
+    if isinstance(value, np.generic):
+        value = value.item()
+        return round(value, 3) if isinstance(value, float) else value
+    if isinstance(value, float):
+        return round(value, 3)
+    if isinstance(value, np.ndarray):
+        return [_plain(v) for v in value.tolist()]
+    if isinstance(value, dict):
+        return {key: _plain(v) for key, v in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [_plain(v) for v in value]
+    return value
+
+
+def build_binding(measured) -> list[dict[str, Any]]:
+    """Every binding-site panel this measurement can support, in reading order."""
+    panels: list[dict[str, Any]] = []
+
+    def add(key, title, figure, blurb="", wide=False):
+        if figure is None:
+            return
+        figure = _plain(figure)
+        figure["layout"]["title"] = {"text": ""}
+        figure["layout"]["margin"] = dict(figure["layout"].get("margin", {}), t=12)
+        panels.append({"id": key, "title": title, "figure": figure,
+                       "blurb": blurb, "wide": wide})
+
+    add("pose", "Ligand pose", pose_stability(measured),
+        "Two fits of the same ligand. Against the pocket, the curve is the "
+        "ligand moving in a receptor held still; against itself, it is the "
+        "ligand changing shape. The shaded head is the equilibration that was "
+        "measured and not scored.")
+    add("centroid", "Centroid drift", centroid_drift(measured),
+        "Displacement of the ligand centroid from where it started. The dotted "
+        "line at 5 Å is the drift beyond which DeepFlex caps a grade.")
+    add("occupancy", "Pocket occupancy", pocket_occupancy(measured),
+        "Receptor residues in contact with the ligand. The dotted line is a "
+        "quarter of the contacts present at the start, which is the threshold "
+        "for counting a frame as still bound.")
+    add("interactions", "Interaction occupancy", interaction_occupancy(measured),
+        "Which contacts carried the pose, and for how much of the scored "
+        "window. Typed from heavy-atom geometry, so these are polar, ionic and "
+        "hydrophobic contacts rather than a full interaction fingerprint.",
+        wide=True)
+    add("barcode", "Contact barcode", contact_barcode(measured),
+        "When each contact was present, busiest first. Gaps are the contact "
+        "breaking and reforming.", wide=True)
+    add("clusters", "Pose clusters", pose_clusters(measured),
+        "How the scored window divides into distinct poses. One tall bar near "
+        "zero is a ligand that held its pose.")
+    add("strain", "Ligand strain", ligand_strain(measured),
+        "MMFF94 strain in excess of the starting pose, never the absolute "
+        "energy. Below zero means the ligand relaxed out of the pose it "
+        "started in, which is a good outcome rather than a neutral one.")
+    add("torsions", "Ligand torsions", ligand_torsions(measured),
+        "Each rotatable torsion over the run. Flat traces are a rigid ligand; "
+        "a trace jumping between bands is a rotamer flip.")
+    add("ligand_rmsf", "Ligand atom fluctuation", ligand_atom_fluctuation(measured),
+        "Which part of the ligand moves, about its own mean position.")
+    add("pocket_rmsf", "Receptor flexibility", pocket_flexibility(measured),
+        "Per-residue backbone fluctuation, with the binding-site residues "
+        "marked. A mobile pocket makes every pose measurement noisier.",
+        wide=True)
+    add("rmsd_2d", "Frame-to-frame RMSD", rmsd_matrix(measured),
+        "Every frame against every other. Blocks along the diagonal are "
+        "distinct states; a uniform field is a run that stayed in one.")
+    add("dccm", "Residue cross-correlation", cross_correlation(measured),
+        "Which parts of the receptor move together. Blue is correlated, red is "
+        "anticorrelated.")
+    return panels

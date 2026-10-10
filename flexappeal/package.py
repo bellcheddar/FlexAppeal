@@ -294,23 +294,30 @@ def load_run_directory(path: Path) -> Source:
 
 
 def load_fxa1(path: Path) -> Source:
-    """A version 1 `.fxa`, read with FlexAppeal's own reader.
-
-    Its topology and trajectory are written out to a temporary directory because
-    MDTraj loads from paths rather than from bytes. They are deleted as soon as
-    the trajectory is in memory.
-    """
-    import tempfile  # noqa: PLC0415
-
-    import mdtraj as md  # noqa: PLC0415
-
+    """A version 1 `.fxa` on disk, read with FlexAppeal's own reader."""
     from . import fxa as fxa1  # noqa: PLC0415
 
     try:
         results = fxa1.load(path.read_bytes())
     except fxa1.FxaError as exc:
         raise PackageError(f"{path.name}: {exc}") from None
+    return source_from_results(results, path.stem)
 
+
+def source_from_results(results, label: str) -> Source:
+    """A loaded version 1 result set, as a measurable source.
+
+    Split out from `load_fxa1` so the Analysis tab can measure an upload it has
+    already parsed, without writing the file back out to be read again. Its
+    topology and trajectory still go through a temporary directory, because
+    MDTraj loads from paths rather than from bytes; they are deleted as soon as
+    the trajectory is in memory.
+    """
+    import tempfile  # noqa: PLC0415
+
+    import mdtraj as md  # noqa: PLC0415
+
+    path = Path(f"{label}.fxa")
     if results.topology_pdb is None or results.trajectory_xtc is None:
         raise PackageError(
             f"{path.name} carries no coordinates, so nothing can be measured from "
@@ -358,6 +365,46 @@ def load_fxa1(path: Path) -> Source:
         config=results.config, structure=results.manifest.get("structure") or {},
         run_manifest=results.run, frame_spacing_ps=spacing, notes=notes,
     )
+
+
+def measure_results(results, label: str = "upload"):
+    """Measure one version 1 upload as a receptor-ligand complex.
+
+    Returns `(Measured, [])` or `(None, [reasons])`. This is the Analysis tab's
+    way into the binding panels: the same measurements a version 2 package
+    carries, computed for the one complex an upload contains. What it cannot
+    produce is a grade, and that is not a limitation to be worked around: the
+    six sub-scores are weighted and banded in DeepFlex, and `S_E`, the league
+    table and both rank columns are percentiles within a receptor's cohort,
+    which one complex does not have.
+    """
+    resnames = [str(n).strip().upper()
+                for n in (results.config.get("keep_heteroatoms") or [])
+                if str(n).strip()]
+    if not resnames:
+        return None, ["this run kept no heteroatoms, so it has no ligand and no "
+                      "binding site to measure"]
+    try:
+        source = source_from_results(results, label)
+    except PackageError as exc:
+        return None, [str(exc)]
+
+    selection = str(source.config.get("traj_selection") or "")
+    if selection in LIGANDLESS_SELECTIONS:
+        return None, [f"the run wrote its trajectory with traj_selection="
+                      f"{selection!r}, which keeps no ligand, so there are no "
+                      f"ligand coordinates here to measure"]
+
+    measured = measure.measure_complex(
+        source.trajectory,
+        complex_id=fxa2.complex_id("0" * 16, source.receptor()),
+        receptor=source.receptor(), ligand_id="0" * 16,
+        ligand_resnames=resnames, frame_spacing_ps=source.frame_spacing_ps,
+    )
+    if measured.status != "ok":
+        return None, [f"the binding site could not be measured "
+                      f"({measured.status})"] + measured.notes
+    return measured, source.notes
 
 
 def discover(paths: list[Path]) -> list[Path]:

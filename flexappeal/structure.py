@@ -29,9 +29,33 @@ import gemmi
 # anything a user means by "ligand". Offering to keep PEG fragments and cryo-
 # protectant as parameterisable ligands is noise, so they are flagged rather than
 # hidden -- a user who genuinely wants glycerol in their system can still say so.
+# Things that are in a crystal because of how it was grown rather than because
+# anybody is studying them: precipitants, cryoprotectants, buffers, reducing
+# agents and detergents. Being on this list is not a refusal, only a change of
+# default -- the form still offers each one with "tick it if it is the thing you
+# are studying", because citrate really is aconitase's substrate and sucrose
+# really is a sugar-binding protein's ligand. Erring towards this list is the
+# safe direction: a missed additive costs an AM1-BCC charging run for nothing,
+# while a misfiled ligand is one tick away from being back.
 _CRYSTALLISATION_ADDITIVES = {
-    "GOL", "EDO", "PEG", "PG4", "PGE", "1PE", "MPD", "DMS", "TRS", "MES",
-    "EPE", "ACT", "ACY", "FMT", "SO4", "PO4", "CIT", "TLA", "IMD", "BME",
+    # Polyols and precipitants
+    "GOL", "EDO", "PEG", "PG4", "PGE", "1PE", "2PE", "7PE", "12P", "P6G",
+    "PE4", "PEU", "XPE", "MPD", "MRD", "PGO", "PDO", "POL", "DIO", "DOX",
+    # Solvents
+    "DMS", "EOH", "MOH", "IPA", "ACN", "THJ",
+    # Buffers
+    "TRS", "MES", "EPE", "BTB", "CAC", "IMD", "NHE", "TAU", "EEE",
+    # Small anions and acids
+    "ACT", "ACY", "FMT", "SO4", "PO4", "CIT", "FLC", "TLA", "TAR", "MLA",
+    "MLI", "SIN", "OXL", "BCT", "NO3", "SCN", "AZI", "PER",
+    # Reducing agents. HED is beta-mercaptoethanol's oxidised dimer and turns up
+    # in T4 lysozyme structures at a surface cysteine, where it is an artefact
+    # of the reducing buffer rather than a binding event.
+    "BME", "HED", "DTT", "DTU", "TCE",
+    # Cryoprotectants and denaturants
+    "SUC", "TRE", "URE", "GAI",
+    # Detergents
+    "BOG", "LDA", "C8E", "LMT", "DDQ", "P33", "HTG", "HTO", "F09",
 }
 
 # OPM marks the bilayer boundaries with planes of dummy atoms. They are genuinely
