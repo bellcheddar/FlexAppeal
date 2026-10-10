@@ -28,6 +28,13 @@ numpy>=1.26
 # trajectory formats. Carrying it meant a dependency in the droplet's install
 # and in every generated bundle's environment solve, for nothing.
 mdtraj>=1.10
+# Pose clustering for the binding panels: average-linkage over a pairwise ligand
+# RMSD matrix. Without it those panels are simply absent, which the Analysis tab
+# handles, but the convergence sub-score inputs are worth having on the server.
+# RDKit is deliberately NOT here: it is an order of magnitude larger and only the
+# ligand-strain and torsion panels need it, so the deployed site does without
+# them and says so rather than carrying a chemistry toolkit for two charts.
+scipy>=1.11
 
 # Needed by the web app despite being a terminal library, because the /reanalyse
 # route spawns FlexAppeal.py as a detached subprocess (webapp.py) and the CLI

@@ -939,8 +939,15 @@ def pose_clusters(ligand_xyz: np.ndarray, pose_rmsd: np.ndarray,
     cut at 2 A. Returns the cluster records, the dominant population and the
     changed-pose flag, or None when there is too little of the window to cluster.
     """
-    from scipy.cluster.hierarchy import fcluster, linkage  # noqa: PLC0415
-    from scipy.spatial.distance import squareform  # noqa: PLC0415
+    try:
+        from scipy.cluster.hierarchy import fcluster, linkage  # noqa: PLC0415
+        from scipy.spatial.distance import squareform  # noqa: PLC0415
+    except ImportError:
+        # The web server installs a deliberately thin set of packages, so a
+        # missing SciPy is a configuration this has to survive rather than a
+        # bug. Omitting the keys leaves the convergence sub-score pending,
+        # which is the answer the format gives for any measurement not made.
+        return None
 
     n_frames = len(pose_rmsd)
     scored = np.arange(n_frames)[start:]
@@ -1026,8 +1033,14 @@ def ligand_mol(traj, atoms: np.ndarray):
     without them MMFF cannot type the molecule either. A payload that dropped
     them returns None and the sub-score stays pending, which is honest.
     """
-    from rdkit import Chem, RDLogger  # noqa: PLC0415
-    from rdkit.Chem import rdDetermineBonds  # noqa: PLC0415
+    try:
+        from rdkit import Chem, RDLogger  # noqa: PLC0415
+        from rdkit.Chem import rdDetermineBonds  # noqa: PLC0415
+    except ImportError:
+        # Same reasoning as the SciPy guard in pose_clusters. The strain is the
+        # one measurement here needing a chemistry toolkit, and a deployment
+        # without one should lose that panel rather than the page.
+        return None
 
     RDLogger.DisableLog("rdApp.*")
 
@@ -1121,8 +1134,15 @@ def strain_records(mol, traj, atoms: np.ndarray, start: int, time_ns: np.ndarray
     Done that way the bond and angle terms largely cancel inside each frame as
     well as between frames, so what is left is torsional.
     """
-    from rdkit.Chem import AllChem, rdMolTransforms  # noqa: PLC0415
-    from rdkit.Geometry import Point3D  # noqa: PLC0415
+    try:
+        from rdkit.Chem import AllChem, rdMolTransforms  # noqa: PLC0415
+        from rdkit.Geometry import Point3D  # noqa: PLC0415
+    except ImportError:
+        return {}, {}, [
+            "RDKit is not installed here, so the ligand strain and torsion "
+            "measurements are omitted and the conformation sub-score stays "
+            "pending"
+        ]
 
     if mol is None:
         return {}, {}, [
@@ -1353,9 +1373,12 @@ def depiction(mol, atoms: np.ndarray, heavy: np.ndarray,
     if mol is None:
         return None, False
 
-    from rdkit import Chem  # noqa: PLC0415
-    from rdkit.Chem import AllChem  # noqa: PLC0415
-    from rdkit.Chem.Draw import rdMolDraw2D  # noqa: PLC0415
+    try:
+        from rdkit import Chem  # noqa: PLC0415
+        from rdkit.Chem import AllChem  # noqa: PLC0415
+        from rdkit.Chem.Draw import rdMolDraw2D  # noqa: PLC0415
+    except ImportError:
+        return None, False
 
     # The fluctuation is per heavy atom and the molecule carries its hydrogens,
     # so it is attached as an atom property and travels through RemoveHs with

@@ -412,3 +412,72 @@ def test_the_interaction_panel_is_ordered_by_occupancy(measured):
     values = panels["interactions"]["figure"]["data"][0]["x"]
     assert values == sorted(values)
     assert all(0.0 <= v <= 1.0 for v in values)
+
+
+def test_the_panels_survive_a_server_without_scipy_or_rdkit():
+    """The droplet installs a deliberately thin set of packages.
+
+    `requirements.txt` carries SciPy for the pose clusters but not RDKit, which
+    is an order of magnitude larger and only two panels need. Either missing has
+    to cost those panels and not the page: an unguarded import here would 500
+    the Analysis tab for every ligand run on the deployed site.
+    """
+    import sys
+
+    from flexappeal import fxa, package
+
+    fixture = FIXTURES / "trypsin_ben.fxa"
+    if not fixture.is_file():
+        pytest.skip("tests/fixtures/trypsin_ben.fxa is missing")
+
+    blocked = ["scipy", "scipy.cluster", "scipy.cluster.hierarchy",
+               "scipy.spatial", "scipy.spatial.distance",
+               "rdkit", "rdkit.Chem", "rdkit.Chem.AllChem", "rdkit.Geometry",
+               "rdkit.Chem.rdMolTransforms", "rdkit.Chem.rdDetermineBonds",
+               "rdkit.Chem.Draw", "rdkit.RDLogger"]
+    saved = {name: sys.modules.get(name) for name in blocked}
+    try:
+        # A None in sys.modules makes `import name` raise ImportError, which is
+        # exactly what a server without the package does.
+        for name in blocked:
+            sys.modules[name] = None
+        measured, _ = package.measure_results(fxa.load(fixture.read_bytes()))
+        assert measured is not None and measured.status == "ok"
+        ids = {panel["id"] for panel in plots.build_binding(measured)}
+    finally:
+        for name, module in saved.items():
+            if module is None:
+                sys.modules.pop(name, None)
+            else:
+                sys.modules[name] = module
+
+    # The nine that need neither still draw.
+    assert {"pose", "centroid", "occupancy", "interactions", "barcode",
+            "ligand_rmsf", "pocket_rmsf", "rmsd_2d", "dccm"} <= ids
+    # The three that do are absent rather than broken.
+    assert not ids & {"clusters", "strain", "torsions"}
+
+
+def test_a_measurement_that_raises_costs_the_panels_not_the_page(monkeypatch):
+    """A traceback here would take down a page that otherwise works."""
+    from flexappeal import package, webapp
+
+    def explode(*args, **kwargs):
+        raise RuntimeError("measurement blew up")
+
+    monkeypatch.setattr(package, "measure_results", explode)
+    webapp._BINDING_CACHE.clear()
+
+    application = webapp.create_app()
+    application.config.update(TESTING=True)
+    with application.app_context():
+        from flexappeal import fxa
+
+        fixture = FIXTURES / "trypsin_ben.fxa"
+        if not fixture.is_file():
+            pytest.skip("tests/fixtures/trypsin_ben.fxa is missing")
+        content = fixture.read_bytes()
+        panels, notes = webapp._binding_panels(fxa.load(content), content, "x")
+    assert panels == []
+    assert any("could not be built" in note for note in notes)
+    webapp._BINDING_CACHE.clear()

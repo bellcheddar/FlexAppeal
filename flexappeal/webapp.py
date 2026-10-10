@@ -398,6 +398,7 @@ def analysis_page():
     (path / "results.fxa").write_bytes(content)
 
     summary = fxa.summarise(results)
+    binding, binding_notes = _binding_panels(results, content, results.job_name)
     return render_template(
         "analysis.html",
         active="analysis",
@@ -405,6 +406,8 @@ def analysis_page():
         summary=summary,
         token=token,
         tiles=plots.tiles(summary, results.metrics),
+        binding=binding,
+        binding_notes=binding_notes,
         panels=plots.build_all(results)["panels"],
         convergence=plots.convergence(
             plots.parse_state_data(results.members["state_data.csv"])
@@ -414,6 +417,51 @@ def analysis_page():
         warnings=results.warnings,
         reanalysis_metrics=analysis.METRICS,
     )
+
+
+# The binding panels are measured from the trajectory rather than read out of
+# the file, which costs seconds, and the example page re-renders on every
+# request. Keyed on a digest of the file so the example is measured once per
+# process and a re-uploaded file is not measured twice; the built panels are
+# cached rather than the measurement, because they are the part the template
+# needs and they are two orders of magnitude smaller.
+_BINDING_CACHE: dict[str, tuple[list, list[str]]] = {}
+_BINDING_CACHE_MAX = 4
+
+
+def _binding_panels(results, content: bytes, label: str) -> tuple[list, list[str]]:
+    """The binding-site panels for one results file, and any caveats.
+
+    Returns `([], [])` for a run with no ligand: that is not a failure, it is a
+    run with no binding site. A measurement that raises costs the panels and not
+    the page -- the rest of the Analysis tab is unaffected by it, and a
+    traceback here would take down a page that works.
+    """
+    import hashlib  # noqa: PLC0415
+
+    key = hashlib.sha256(content).hexdigest()
+    if key in _BINDING_CACHE:
+        return _BINDING_CACHE[key]
+
+    panels: list = []
+    notes: list[str] = []
+    try:
+        from flexappeal import package as package_mod  # noqa: PLC0415
+
+        measured, reasons = package_mod.measure_results(results, label)
+        if measured is None:
+            notes = [r for r in reasons if "no heteroatoms" not in r]
+        else:
+            panels = plots.build_binding(measured)
+            notes = list(measured.notes)
+    except Exception as exc:                                  # noqa: BLE001
+        current_app.logger.exception("binding panels failed")
+        notes = [f"the binding-site panels could not be built ({exc})"]
+
+    if len(_BINDING_CACHE) >= _BINDING_CACHE_MAX:
+        _BINDING_CACHE.pop(next(iter(_BINDING_CACHE)))
+    _BINDING_CACHE[key] = (panels, notes)
+    return panels, notes
 
 
 # ---------------------------------------------------------------------------
@@ -517,9 +565,11 @@ def example_page():
         return render_template("example_missing.html", active="example",
                                path=EXAMPLE_FXA.relative_to(REPO_ROOT)), 200
 
-    results = fxa.load(EXAMPLE_FXA.read_bytes(), verify_checksums=False)
+    content = EXAMPLE_FXA.read_bytes()
+    results = fxa.load(content, verify_checksums=False)
     summary = fxa.summarise(results)
     config = results.manifest.get("config", {})
+    binding, binding_notes = _binding_panels(results, content, results.job_name)
 
     return render_template(
         "analysis.html",
@@ -534,6 +584,8 @@ def example_page():
         summary=summary,
         token=_example_session(),
         tiles=plots.tiles(summary, results.metrics),
+        binding=binding,
+        binding_notes=binding_notes,
         panels=plots.build_all(results)["panels"],
         convergence=plots.convergence(
             plots.parse_state_data(results.members["state_data.csv"])

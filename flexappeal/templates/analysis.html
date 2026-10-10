@@ -100,6 +100,39 @@
     </section>
   {% endif %}
 
+  {% if binding %}
+    <section class="md-card md-section-head">
+      <h2>The binding site</h2>
+      <p class="md-panel-blurb">
+        The measurements a DeepFlex report is graded on, for the one complex this
+        run contains: how far the ligand moved, whether it stayed in the pocket,
+        which contacts held it there, and how much of its own strain it carried.
+        <strong>There is no grade here, and that is deliberate.</strong> The six
+        sub-scores are weighted and banded in
+        <a href="https://deepflex.mdeller.com">DeepFlex</a>, and the energy
+        sub-score and both rank columns are percentiles within a receptor's own
+        cohort, which a single complex does not have. Build a study package with
+        <code>flexappeal package</code> to get the graded report.
+        {% if binding_notes %}
+          <span class="md-panel-caveat">
+            {% for note in binding_notes %}{{ note }}{% if not loop.last %} {% endif %}{% endfor %}
+          </span>
+        {% endif %}
+      </p>
+    </section>
+    {% for panel in binding %}
+      <section class="md-card md-panel {% if panel.wide %}is-wide{% endif %}">
+        <h3>{{ panel.title }}</h3>
+        {% if panel.blurb %}<p class="md-panel-blurb">{{ panel.blurb }}</p>{% endif %}
+        <div class="md-plot" id="plot-{{ panel.id }}"
+             data-figure='{{ panel.figure | tojson }}'></div>
+      </section>
+    {% endfor %}
+    <section class="md-card md-section-head">
+      <h2>The whole system</h2>
+    </section>
+  {% endif %}
+
   {% for panel in panels %}
     <section class="md-card md-panel {% if panel.wide %}is-wide{% endif %}">
       <h3>{{ panel.title }}</h3>

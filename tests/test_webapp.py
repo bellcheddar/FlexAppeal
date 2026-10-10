@@ -1255,3 +1255,45 @@ def test_an_apo_structure_ships_no_ligand_directory(client, offline_ccd):
                            data=_form_from_defaults(token, job_name="apo"))
     files = bundle.unpack(response.get_data())
     assert not [name for name in files if name.startswith("ligands/")]
+
+
+def test_a_ligand_upload_shows_the_binding_panels(client):
+    """The question a reader brings to a ligand run is whether the pose held."""
+    fixture = FIXTURES / "trypsin_ben.fxa"
+    if not fixture.is_file():
+        pytest.skip("tests/fixtures/trypsin_ben.fxa is missing")
+    pytest.importorskip("mdtraj")
+    from flexappeal import webapp as webapp_mod
+
+    webapp_mod._BINDING_CACHE.clear()
+    body = _analyse(client, fixture.read_bytes()).get_data(as_text=True)
+    assert "The binding site" in body
+    assert "The whole system" in body
+    for panel in ("pose", "occupancy", "interactions", "barcode"):
+        assert f'id="plot-{panel}"' in body, panel
+
+
+def test_the_binding_section_says_there_is_no_grade(client):
+    """The weights and the bands live in DeepFlex, and a cohort of one is none.
+
+    Showing these measurements without saying that would invite a reader to
+    assume the absence of a grade means a bad one.
+    """
+    fixture = FIXTURES / "trypsin_ben.fxa"
+    if not fixture.is_file():
+        pytest.skip("tests/fixtures/trypsin_ben.fxa is missing")
+    pytest.importorskip("mdtraj")
+    from flexappeal import webapp as webapp_mod
+
+    webapp_mod._BINDING_CACHE.clear()
+    body = _analyse(client, fixture.read_bytes()).get_data(as_text=True)
+    assert "no grade here" in body
+    assert "flexappeal package" in body
+
+
+def test_an_apo_upload_shows_no_binding_section(client):
+    """A run with no ligand has no binding site, and that is not a failure."""
+    body = _analyse(client).get_data(as_text=True)
+    assert "The binding site" not in body
+    # And the ordinary panels are all still there.
+    assert 'id="plot-rmsd"' in body
