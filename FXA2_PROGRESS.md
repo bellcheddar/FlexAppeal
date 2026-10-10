@@ -162,6 +162,16 @@ Measured on synthetic series: a drift ending at frame 60 is detected at 57, one
 ending at frame 20 at 18, pure noise at 0, and a never-settling ramp reports the
 ceiling.
 
+### D8a. `n_exit_events` is counted over the window
+
+Section 4 says "times the ligand left and did not return **within the window**",
+so it is counted from `equil_start_frame` onward like every other scored
+quantity. DeepFlex's binding layer counts the transitions over the whole
+trajectory, which includes the equilibration head: an exit there is a frame the
+file itself says was discarded, so counting it puts a departure on the page that
+nothing scored. Same shape of difference as D8 below, and the same remark
+applies: it affects the displayed count and not the sub-score.
+
 ### D8. `n_native_contacts` counts residues, as the spec says
 
 Section 4 defines it as "receptor residues within the contact cutoff of the ligand

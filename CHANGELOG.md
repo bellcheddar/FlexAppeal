@@ -281,6 +281,13 @@ checkbox list in `README.md`.
   version 1 test changed.
 - **The command in the README**, with the reason a study has to be a package
   rather than a bigger single-system file.
+- **`n_exit_events` is counted over the scored window**, as section 4 asks
+  ("within the window"), not over the whole trajectory. An exit in the
+  equilibration head is a frame the file itself says was discarded, so counting it
+  would put a departure on the page that nothing scored. The test asserts the
+  scalar against the series rather than against a fixed number, because which
+  frame the detector picks is its business: what has to hold is that the count
+  starts at `equil_start_frame`.
 
 ## 2026-07-27
 

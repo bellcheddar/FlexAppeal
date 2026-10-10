@@ -177,8 +177,6 @@ def ligand_atoms(topology, resnames: list[str]) -> tuple[np.ndarray, np.ndarray,
     a flag, because two copies of a ligand in the same selection makes a centroid
     that sits between them and moves when either does.
     """
-    import mdtraj as md  # noqa: PLC0415  -- heavy import, only needed here
-
     if not resnames:
         raise MeasureError("no_ligand_resname")
     selection = " or ".join(f"resname {name}" for name in resnames)
@@ -200,7 +198,6 @@ def ligand_atoms(topology, resnames: list[str]) -> tuple[np.ndarray, np.ndarray,
                       if topology.atom(int(i)).element.symbol != "H"], dtype=int)
     if len(heavy) == 0:
         raise MeasureError("ligand_all_hydrogen")
-    assert md is not None
     return atoms, heavy, fragmented
 
 
@@ -1303,8 +1300,7 @@ def receptor_panels(traj, fitted, receptor_ca: np.ndarray, start: int,
             correlation = dot / np.outer(variance, variance)
         arrays["cross_correlation"] = np.nan_to_num(
             np.clip(correlation, -1.0, 1.0), nan=0.0).astype(np.float32)
-        arrays["dccm_resid"] = resids[order][selected] if len(order) == len(resids) \
-            else resids[selected]
+        arrays["dccm_resid"] = resids[order][selected]
 
         # The first two principal components of the fitted Calpha coordinates,
         # over the whole trajectory so the discarded head is visible on the plot
@@ -1543,9 +1539,13 @@ def _measure(traj, cid: str, receptor: str, ligand: str, resnames: list[str],
         # S_occ
         "n_native_contacts": n_native,
         "in_pocket_fraction": float(in_pocket[scored].mean()),
-        # A transition from inside the pocket to outside it.
+        # A transition from inside the pocket to outside it, counted over the
+        # scored window and not the whole run. Section 4 says "within the
+        # window", and every other scored quantity here is cut the same way: an
+        # exit in the equilibration head is a frame the file says was discarded,
+        # so counting it would put a departure on the page that nothing scored.
         "n_exit_events": int(np.count_nonzero(
-            np.diff(in_pocket.astype(np.int8)) == -1)),
+            np.diff(in_pocket[scored].astype(np.int8)) == -1)),
         "com_drift_mean_a": float(com_drift[scored].mean()),
         "com_drift_max_a": float(com_drift[scored].max()),
         "pocket_offset_mean_a": float(pocket_offset[scored].mean()),

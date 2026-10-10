@@ -1480,3 +1480,25 @@ def test_a_nonsense_accession_is_refused_before_any_request():
         sources.fetch_uniprot_for_pdb("../../etc/passwd")
     with pytest.raises(sources.SourceError, match="not a PDB identifier"):
         sources.fetch_uniprot_for_pdb("3PTB/../x")
+
+
+def test_the_exit_count_is_taken_over_the_window(deposited):
+    """Section 4 counts exits within the window, like every other scored number.
+
+    The ligand leaves and returns inside the equilibration head and then holds.
+    Asserted against the series rather than against a fixed number, because which
+    frame the detector picks is its business: what must hold is that the scalar
+    counts transitions from `equil_start_frame` onward and not from frame 0. An
+    exit in the discarded head would put a departure on the page that nothing
+    scored.
+    """
+    offsets = ([[0, 0, 0]] * 3 + [[25.0, 0, 0]] * 4 + [[0, 0, 0]] * 33)
+    measured = _measured(_translated(deposited, offsets))
+    start = measured.metrics["equil_start_frame"]
+    in_pocket = measured.series["in_pocket"]
+
+    windowed = int(np.count_nonzero(np.diff(in_pocket[start:].astype(np.int8)) == -1))
+    whole = int(np.count_nonzero(np.diff(in_pocket.astype(np.int8)) == -1))
+    assert measured.metrics["n_exit_events"] == windowed
+    # And the excursion really is in there to be miscounted.
+    assert whole == 1

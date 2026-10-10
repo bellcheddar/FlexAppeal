@@ -509,7 +509,8 @@ def read(source: Path | str | bytes) -> ReadPackage:
         for entry in entries:
             if entry.is_dir():
                 continue
-            _check_member_name(entry.filename)
+            # The paths were vetted above; this is the chemistry half.
+            _check_no_chemistry_member(entry.filename)
             mode = entry.external_attr >> 16
             if mode and (mode & 0xF000) == 0xA000:
                 raise Fxa2Error("this archive contains a symbolic link; refusing to read it.")
