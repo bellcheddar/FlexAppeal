@@ -128,3 +128,46 @@ alone, which is recorded here rather than left to be discovered.
 
 *Reverse:* delete `vendor/boltzmaker/examples/*/boltz_cif/`; the four tests then
 fail again with a clear file-not-found.
+
+---
+
+## D006 - One replica per row, not three
+
+**2026-10-10, phase 0.** Ruled by Marc after the first compute projection. Tier 2
+goes from fifteen runs to **five**, and from 1,500 ns to 500: ABL1 active-like
+with the Asp charged, ABL1 active-like with it protonated, ABL1 inactive, β2AR
+active, β2AR inactive, one trajectory each.
+
+Projected cost falls from 322 GPU-hours to **107**, 4.5 days rather than 13.4.
+That is still 1.12 times the spec's 96 hour default, which is close enough that
+the phase 3 measurement decides it: at 100 ns/day for the membrane rows it comes
+in at 95 hours and under the ceiling, at 60 ns/day it is 127 and over. Section
+0.2 opens G1 only when the budget exceeds the ceiling *after* scope reduction,
+and this is that reduction, so the gate stays shut unless the measured number
+says otherwise.
+
+**What it costs, stated plainly because it is a real loss and not a tidy-up.**
+
+- **Positive control P5 cannot be evaluated as written.** It reads "≥ 2 of 3
+  replicas keep whole-protein `s` < 0 over the final 20 ns". With one trajectory
+  there is no majority to take. It becomes a single observation, reported as
+  such: either that trajectory stayed inactive or it did not.
+- **No estimate of run-to-run variability.** A conformational change in MD is a
+  stochastic event, and three replicas exist so that "the active-start β2AR
+  relaxed" can be distinguished from "one trajectory did something". With n = 1
+  every finding in `FINDINGS.md` and every sentence on the page is one
+  trajectory's behaviour and must say so. No claim of reproducibility can be
+  made from this data.
+- **A single run that goes wrong costs the whole row.** With three replicas, one
+  trajectory that unfolds, drifts out of the box or hits a bad start is survivable
+  and the other two carry the row. Here it is the row. The checkpoint-and-resume
+  machinery (section 0.1 rule 4) matters more, not less.
+
+**What it does not cost.** Every positive control except P5 is measured on the
+reference structures or on a single frame, so P1, P2, P3, P4 and P6 are
+unaffected. The annotation module, the state score, the motif metrics and the app
+are all per-frame work and do not care how many trajectories exist.
+
+*Reverse:* set replicas back to 3 in the run matrix and re-run; the per-run
+pipeline is identical and the analysis keys on `run_id`, so added replicas appear
+as extra rows rather than needing anything rebuilt.

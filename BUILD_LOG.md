@@ -33,3 +33,6 @@ Timestamped, one line per meaningful event, for the reference-state build
   25,463 atoms: 322 GPU-hours, 13.4 days continuous, 3.4x the 96 hour ceiling.
   Not treated as opening G1, because section 2.2 requires a measured budget and
   phase 3 Tier 1 provides one.
+- `14:4x` Marc: drop the replicas. Tier 2 becomes five runs of 100 ns, 500 ns in
+  total, projected 107 GPU-hours against the 96 hour ceiling (D006). P5 becomes
+  a single observation rather than a 2-of-3 majority; recorded, not hidden.

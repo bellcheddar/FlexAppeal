@@ -45,32 +45,27 @@ than a build problem.
 
 Two things the spec leaves to run time and that shape everything after them:
 
-1. **Compute budget (Gate G1), and it is very likely to open.** Tier 2 is
-   **fifteen** production runs of 100 ns, not twelve: section 5.3's first row is
-   three replicas *per protonation arm*, so ABL1 active-like is six runs on its
-   own. Six ABL1 active-like, three ABL1 inactive, three β2AR active, three β2AR
-   inactive: **1,500 ns in total**.
-
-   Projected from this morning's measured 298 ns/day at 25,463 atoms on this
-   machine and platform, scaling inversely with atom count:
+1. **Compute budget (Gate G1): reduced, and now borderline rather than hopeless.**
+   Marc ruled on 2026-10-10 to drop the replicas (**D006**), so Tier 2 is **five**
+   runs of 100 ns rather than fifteen: ABL1 active-like charged, ABL1 active-like
+   protonated, ABL1 inactive, β2AR active, β2AR inactive, one trajectory each.
 
    | Row | Atoms | ns/day | Hours per run | Runs | Hours |
    |---|---|---|---|---|---|
-   | ABL1, water (three rows) | ~50 k | ~152 | 15.8 | 9 | 142 |
-   | β2AR, POPC (two rows) | ~95 k | ~80 | 30.0 | 6 | 180 |
-   | | | | | **15** | **322** |
+   | ABL1, water | ~50 k | ~152 | 15.8 | 3 | 47 |
+   | β2AR, POPC | ~95 k | ~80 | 30.0 | 2 | 60 |
+   | | | | | **5** | **107** |
 
-   That is **13.4 days of continuous GPU against a 96 hour ceiling, 3.4 times
-   over**. Scope levers the spec allows before the gate: two replicas rather than
-   three gives 215 hours, halving Tier 2 to 50 ns gives 161, both together give
-   107, still just over.
+   **4.5 days against a 96 hour ceiling, 1.12 times over**, which is inside the
+   error of an extrapolation. The phase 3 measurement settles it: the membrane
+   rows at 100 ns/day bring the total to 95 hours and under, at 60 ns/day to 127
+   and over. The gate stays shut either way until there is a measured number,
+   because section 0.2 opens G1 only after scope reduction and this is it.
 
-   This is an extrapolation and section 2.2 is explicit that budgets come from
-   measurement, so the gate is not opened on it. Tier 1 in phase 3 measures both
-   systems for real and the number is settled then. Two things could move it
-   either way: a membrane system under `MonteCarloMembraneBarostat` is usually
-   slower than atom count alone predicts, and `concurrent_md = 1` means none of
-   this overlaps.
+   The cost is recorded in D006 rather than glossed: P5 cannot be evaluated as
+   written, there is no estimate of run-to-run variability, and a single run that
+   goes wrong costs its whole row.
+
 2. **β2AR start models.** The spec's primary route is a GPCRdb *refined* model,
    and it says plainly that not every entry has one (2RH1 and 3SN6 both report
    none). The fallback ladder runs through state-specific homology models to
