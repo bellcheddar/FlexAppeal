@@ -388,14 +388,25 @@ def main() -> int:
         from flexappeal.refstates.gpcr import ionic_lock
 
         def rule_labels(chain, index):
-            """The ionic lock, which is the receptor's own single-frame rule.
+            """No corroborating rule for the receptor, and that is a result.
 
-            Attached to TM6 because that is the helix whose motion the lock
-            reports on. For beta2AR it reads broken in both reference states,
-            so in practice it corroborates nothing here and the geometry
-            stands alone; see FINDINGS.md.
+            The obvious candidate is the ionic lock, and attaching it was wrong.
+            Measured on the two reference models it reads `broken` in both, at
+            9.95 A inactive and 15.47 A active, which is the known beta2AR
+            result rather than a fault: the R3.50-E6.30 lock does not form in
+            this receptor's inactive crystal forms. Mapping `broken` to active
+            then made every inactive frame report a conflict on TM6, which the
+            carazolol control showed at s = -1.000 against a nearest inactive
+            reference of 0.00 A. A permanent conflict on a correct measurement
+            is worse than no corroboration.
+
+            So TM6 is scored on geometry alone here and the lock's distance,
+            which does separate the states by 5.5 A, is reported beside it as a
+            measurement rather than used as a vote. The same reasoning as D015,
+            one step further: a criterion that cannot distinguish the states of
+            this protein should not be asked to.
             """
-            return {"TM6": (ionic_lock(chain, own)["state"], "ionic_lock")}
+            return {}
 
     dssp_payload = secondary_structure(loaded, motif_residues)
     if dssp_payload:

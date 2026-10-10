@@ -208,6 +208,33 @@ Whole-protein score +0.593, active, no conflicts. The system was built from
 4LDE, an active-state refined model, so active is the answer it should give;
 3P0G is an agonist-bound active entry and 2RH1 is the canonical inactive one.
 
+The inactive system is the other half of the control, and it is the stronger
+one. Built from 5D5A, it scores **−0.934, inactive**, every motif inactive, with
+5D5A itself as the nearest inactive reference at **0.00 Å** — which is what it
+must be, since that is the structure the system was built from. The active
+distances are 2 to 4 Å. Secondary structure agrees independently: every TM helix
+comes out 92 to 97 per cent helical and NPxxY 100 per cent.
+
+So the receptor pipeline reads active for an active start and inactive for an
+inactive one, with no conflicts either way.
+
+### 2.6 A criterion that cannot tell the states apart should not be asked to
+
+TM6 originally reported `conflict` on every frame of the inactive run, with the
+geometry at s = −1.000 against a nearest inactive reference of 0.00 Å. The cause
+was attaching the ionic lock as TM6's corroborating rule, which section 1.2
+had already shown reads `broken` in both β2AR reference states. Mapping `broken`
+to active then guaranteed a conflict on exactly the frames the measurement had
+got right.
+
+TM6 is now scored on geometry alone for this receptor, and the lock's distance,
+which does separate the states by 5.5 Å, is reported beside it as a measurement
+rather than used as a vote. This is D015 one step further: D015 moved a
+threshold that was in the wrong place, and this removes a criterion that has no
+discriminating power for this protein at all. A permanent conflict on a correct
+measurement is worse than no corroboration, because it trains a reader to
+ignore the flag that exists to be noticed.
+
 ## 3. Faults worth recording because the output looked right
 
 Three bugs in this build produced plausible numbers. They are listed because
