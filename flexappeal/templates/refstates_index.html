@@ -49,6 +49,43 @@
       <div><dt>Runs</dt><dd>{{ card.runs | length }}</dd></div>
     </dl>
 
+    {% if card.pair %}
+      <div class="md-readout">
+        <h4>The two start states, at the end of each run</h4>
+        <dl class="md-stats">
+          <div>
+            <dt>From the active state</dt>
+            <dd>{{ "%+.3f"|format(card.pair.active_s) }}</dd>
+          </div>
+          <div>
+            <dt>From the inactive state</dt>
+            <dd>{{ "%+.3f"|format(card.pair.inactive_s) }}</dd>
+          </div>
+          <div>
+            <dt>Separation</dt>
+            <dd>{{ "%.3f"|format(card.pair.separation) }}</dd>
+          </div>
+        </dl>
+        <p class="md-note">
+          {% if card.pair.held %}
+            Both runs stayed on the side they started: the active-start run ends
+            above +0.2 and the inactive-start run below &minus;0.2, so neither
+            crossed into the other's territory over the simulated time.
+          {% elif card.pair.separation > 0 %}
+            The two runs are still ordered the way they started, but at least
+            one of them has drifted into the intermediate band rather than
+            holding its state. The separation is what it is rather than a
+            result either way.
+          {% else %}
+            The two runs have crossed: the run started from the active state
+            now scores below the one started from the inactive state. That is a
+            result worth reading the per-motif tables for rather than a number
+            to summarise.
+          {% endif %}
+        </p>
+      </div>
+    {% endif %}
+
     {% if card.runs %}
       <table class="md-table">
         <thead>

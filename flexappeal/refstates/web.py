@@ -123,6 +123,8 @@ def finding(run_id: str) -> str:
 @refstates_bp.get("/")
 def index():
     """Section 6.2's Examples tab: one card per system."""
+    from . import store
+
     systems = _rows("SELECT * FROM systems ORDER BY system_id")
     cards = []
     for system in systems:
@@ -130,8 +132,39 @@ def index():
                      (system["system_id"],))
         title, subtitle = SYSTEM_TITLES.get(
             system["system_id"], (system.get("name") or system["system_id"], ""))
+        # The pair, where both halves exist. The point of each system is two
+        # runs from opposite start states, so the result that matters is the
+        # separation between them rather than either one on its own: two runs
+        # that stay apart have held their states, and two that meet have not.
+        scores = {run["run_id"]: store.whole_score(_database(), run["run_id"])
+                  for run in runs} if _database() else {}
+        by_state = {}
+        for run in runs:
+            score = scores.get(run["run_id"]) or {}
+            if score.get("final_s") is not None and run.get("start_state"):
+                by_state[run["start_state"]] = (run["run_id"], score)
+        pair = None
+        active = next((v for k, v in by_state.items()
+                       if k in ("active", "DFG-in")), None)
+        inactive = next((v for k, v in by_state.items()
+                         if k in ("inactive", "DFG-out")), None)
+        if active and inactive:
+            gap = active[1]["final_s"] - inactive[1]["final_s"]
+            pair = {
+                "active_run": active[0], "inactive_run": inactive[0],
+                "active_s": active[1]["final_s"],
+                "inactive_s": inactive[1]["final_s"],
+                "separation": gap,
+                # Both on the correct side of the intermediate band is the
+                # result the build is looking for; anything else is reported
+                # as what it is rather than rounded towards it.
+                "held": (active[1]["final_s"] > 0.2
+                         and inactive[1]["final_s"] < -0.2),
+            }
+
         cards.append({
             "system": system, "runs": runs, "title": title, "subtitle": subtitle,
+            "scores": scores, "pair": pair,
             "findings": {run["run_id"]: finding(run["run_id"]) for run in runs},
             "n_references": (_rows(
                 "SELECT COUNT(*) AS n FROM reference_structures WHERE "

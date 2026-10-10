@@ -289,3 +289,57 @@ def summarise(path: Path, run_id: str) -> dict[str, Any]:
                 "final_tenth_mean_s": tail["mean"] if tail else None,
             }
         return out
+
+
+def whole_score(path: Path, run_id: str) -> dict[str, Any]:
+    """The residue-weighted whole-protein score at the start and the end.
+
+    Recomputed from the stored per-motif scores rather than stored itself, so
+    there is one definition of the weighting and it cannot drift between what
+    the analysis wrote and what a page shows. The weights are the motifs' own
+    residue counts, which is what makes a twenty-residue loop count for more
+    than a single toggle tryptophan.
+
+    Reported with the number of motifs behind it, because a mean over two
+    motifs and a mean over six are not the same claim and the figure alone
+    does not say which it is.
+    """
+    import json as _json
+
+    summary = summarise(path, run_id)
+    if not summary.get("motifs"):
+        return {}
+
+    with connect(path, read_only=True) as connection:
+        weights = {}
+        for row in connection.execute(
+                "SELECT motif_id, residues_json FROM motifs"):
+            try:
+                weights[row["motif_id"]] = len(
+                    _json.loads(row["residues_json"] or "[]"))
+            except (TypeError, _json.JSONDecodeError):
+                weights[row["motif_id"]] = 0
+
+    def weighted(key: str) -> float | None:
+        pairs = [(values[key], weights.get(motif_id, 0))
+                 for motif_id, values in summary["motifs"].items()
+                 if values.get(key) is not None and weights.get(motif_id, 0) > 0]
+        if not pairs:
+            return None
+        total = sum(n for _, n in pairs)
+        return sum(v * n for v, n in pairs) / total
+
+    start = weighted("start_s")
+    final = weighted("final_tenth_mean_s")
+    out: dict[str, Any] = {
+        "n_motifs": sum(1 for v in summary["motifs"].values()
+                        if v.get("final_tenth_mean_s") is not None),
+        "span_ns": summary.get("span_ns"),
+    }
+    if start is not None:
+        out["start_s"] = start
+    if final is not None:
+        out["final_s"] = final
+        out["label"] = ("active" if final > 0.2 else
+                        "inactive" if final < -0.2 else "intermediate")
+    return out

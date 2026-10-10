@@ -1044,3 +1044,107 @@ def test_an_endpoint_with_nothing_to_show_returns_404_not_an_empty_body(tmp_path
                 "/refstates/references/nothing",
                 "/refstates/run/nothing/viewer.pdb"):
         assert client.get(url).status_code == 404, url
+
+
+# ===========================================================================
+#  The pair, which is the result the build is actually for
+# ===========================================================================
+
+
+def _pair_db(path: Path, active_s: float, inactive_s: float) -> None:
+    """Two runs of one system from opposite start states."""
+    def payload(value: float) -> dict:
+        return {
+            "name": "pair", "kind": "gpcr", "core": {},
+            "motif_residues": {"TM6": list(range(269, 300)),
+                               "NPxxY": [322, 323, 324, 325, 326]},
+            "ensembles": {"active": {"codes": ["3P0G"]},
+                          "inactive": {"codes": ["2RH1"]}},
+            "frames": [{"time_ns": t / 10.0, "n_conflicts": 0, "motifs": [
+                {"motif": "TM6", "d_act_a": 1.0, "d_inact_a": 4.0,
+                 "s": value, "label": "x"},
+                {"motif": "NPxxY", "d_act_a": 1.0, "d_inact_a": 3.0,
+                 "s": value, "label": "x"}]} for t in range(10)],
+            "notes": [],
+        }
+
+    store.ingest_analysis(path, payload(active_s), system_id="b2ar",
+                          run_id="b2ar_apo", family="gpcr", environment="POPC",
+                          run_fields={"start_state": "active",
+                                      "status": "complete"})
+    store.ingest_analysis(path, payload(inactive_s), system_id="b2ar",
+                          run_id="b2ar_carazolol", family="gpcr",
+                          environment="POPC",
+                          run_fields={"start_state": "inactive",
+                                      "status": "complete"})
+
+
+def test_the_whole_score_is_weighted_by_the_motifs_own_residue_counts(tmp_path: Path):
+    """Recomputed from the stored per-motif scores, not stored separately.
+
+    One definition of the weighting, so it cannot drift between what the
+    analysis wrote and what a page shows. TM6 is 31 residues against NPxxY's
+    five, so a disagreement between them must land nearer TM6.
+    """
+    path = tmp_path / "t.db"
+
+    def payload(tm6: float, npxxy: float) -> dict:
+        return {
+            "name": "w", "kind": "gpcr", "core": {},
+            "motif_residues": {"TM6": list(range(269, 300)),
+                               "NPxxY": [322, 323, 324, 325, 326]},
+            "ensembles": {"active": {"codes": ["3P0G"]}},
+            "frames": [{"time_ns": 0.0, "n_conflicts": 0, "motifs": [
+                {"motif": "TM6", "d_act_a": 1.0, "d_inact_a": 4.0, "s": tm6},
+                {"motif": "NPxxY", "d_act_a": 1.0, "d_inact_a": 3.0,
+                 "s": npxxy}]}],
+            "notes": [],
+        }
+
+    store.ingest_analysis(path, payload(1.0, -1.0), system_id="b2ar",
+                          run_id="r", family="gpcr", environment="POPC")
+    score = store.whole_score(path, "r")
+    # 31 at +1 against 5 at -1 is +26/36.
+    assert score["final_s"] == pytest.approx(26 / 36, abs=1e-6)
+    assert score["n_motifs"] == 2
+
+
+@pytest.mark.parametrize("active_s,inactive_s,held,ordered", [
+    (0.60, -0.85, True, True),      # both hold their state
+    (0.10, -0.85, False, True),     # one drifted into the band
+    (-0.40, 0.30, False, False),    # the two crossed
+])
+def test_the_pair_panel_says_which_of_the_three_things_happened(
+        tmp_path: Path, active_s, inactive_s, held, ordered):
+    """Each outcome is reported as itself, not rounded towards the hoped-for one."""
+    from flexappeal.webapp import create_app
+
+    path = tmp_path / "t.db"
+    _pair_db(path, active_s, inactive_s)
+    app = create_app()
+    app.config["REFSTATES_DB"] = str(path)
+    page = app.test_client().get("/refstates/").get_data(as_text=True)
+
+    assert "The two start states" in page
+    if held:
+        assert "stayed on the side they started" in page
+    elif ordered:
+        assert "drifted into the intermediate band" in page
+    else:
+        assert "have crossed" in page
+    # The separation is always stated, whichever way it went.
+    assert f"{active_s - inactive_s:.3f}" in page
+
+
+def test_no_pair_panel_without_both_halves(tmp_path: Path):
+    """One run is not a comparison, and the page must not imply it is."""
+    from flexappeal.webapp import create_app
+
+    path = tmp_path / "t.db"
+    store.ingest_analysis(path, _analysis_payload(), system_id="s", run_id="r",
+                          family="kinase", environment="water",
+                          run_fields={"start_state": "DFG-in"})
+    app = create_app()
+    app.config["REFSTATES_DB"] = str(path)
+    page = app.test_client().get("/refstates/").get_data(as_text=True)
+    assert "The two start states" not in page
