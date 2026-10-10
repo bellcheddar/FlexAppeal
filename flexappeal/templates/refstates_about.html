@@ -1,0 +1,117 @@
+{% extends "base.html" %}
+{% block title %}About the reference states{% endblock %}
+{% block description %}How the reference-state annotation works, what it is built on, and every citation behind it.{% endblock %}
+
+{% block content %}
+{% include "_banner.html" %}
+
+<section class="md-card md-intro">
+  <h2>How this works</h2>
+  <p>
+    A simulation tells you what moved. It does not tell you whether what moved
+    went anywhere meaningful. These pages answer the second question by
+    comparing every frame against the experimental structures of the same
+    protein, so a motif's drift is reported as a distance from the active and
+    inactive states rather than as a number with no scale.
+  </p>
+  <p>
+    Nothing here is hand-annotated. Kinase residues are resolved through the
+    KLIFS pocket alignment and receptor residues through GPCRdb generic
+    numbering, which means the same code names the motifs of a protein it has
+    never seen, and a construct that renumbers is refused rather than measured
+    at the wrong residues.
+  </p>
+  <h3>The two readings</h3>
+  <p>
+    Each motif is read twice. Geometrically, as how close it sits to the nearest
+    active and nearest inactive reference after superposing on the part of the
+    fold that does not move on activation. And by rule, using the published
+    criterion for that motif, such as the DFG two-distance test or the ionic
+    lock distance.
+  </p>
+  <p>
+    When they agree the motif is labelled active or inactive. When they disagree
+    it is labelled <strong>conflict</strong>, and that is shown rather than
+    resolved: a frame whose geometry has drifted one way while its rule-based
+    criterion still reads the other is the interesting case, not noise to be
+    averaged out.
+  </p>
+  <h3>Where the published thresholds did not hold</h3>
+  <p>
+    Two of them were recalibrated, and both for the same reason: the published
+    number was fitted on crystal structures and sits at the edge of a cluster,
+    which leaves no room for a side chain at 300 K.
+  </p>
+  <ul>
+    <li>
+      The DFG two-distance criterion's 11.0 &#8491; cut called six of ABL1's own
+      DFG-out references neither state. The two classes separate by 8.5 &#8491;
+      on the difference between the distances, so the state is read from which
+      anchor the ring is nearer, and agreement with KLIFS goes from 11 of 17 to
+      17 of 17.
+    </li>
+    <li>
+      The regulatory spine's 6.0 &#8491; contact distance sits a tenth of an
+      angstrom above the top of the active range. Moved to 7.7 &#8491;, in the
+      empty region between the clusters, the references still classify perfectly
+      and the trajectory stops reporting a permanent conflict.
+    </li>
+  </ul>
+</section>
+
+<section class="md-card md-panel is-wide">
+  <h3>Software and data</h3>
+  <table class="md-table">
+    <thead>
+      <tr><th scope="col">What it does</th><th scope="col">Reference</th><th scope="col">Verified</th></tr>
+    </thead>
+    <tbody>
+      {% for reference in references %}
+        <tr>
+          <th scope="row">{{ reference.role }}</th>
+          <td>
+            {% if reference.resolved %}
+              {{ reference.first_author }}
+              {%- if reference.n_authors and reference.n_authors > 1 %} et al.{% endif %}
+              {% if reference.year %}({{ reference.year }}){% endif %}
+              {{ reference.crossref_title }}.
+              {% if reference.venue %}<em>{{ reference.venue }}</em>.{% endif %}
+              <a href="https://doi.org/{{ reference.doi }}" rel="noopener">{{ reference.doi }}</a>
+            {% else %}
+              {{ reference.title }}
+            {% endif %}
+            {% if reference.note %}
+              <br><small class="md-note">{{ reference.note }}</small>
+            {% endif %}
+          </td>
+          <td>
+            {% if reference.resolved %}
+              Crossref{% if reference.verified_by == 'doi' %}, by DOI{% endif %}
+            {% else %}
+              not verified
+            {% endif %}
+          </td>
+        </tr>
+      {% endfor %}
+      {% if boltzmaker_sha %}
+        <tr>
+          <th scope="row">Motif annotation</th>
+          <td>
+            Deller M.C. BoltzMaker, <code>sse_comparison</code> at commit
+            <code>{{ boltzmaker_sha }}</code>, vendored rather than imported so
+            the annotation cannot change under a run that has already been scored.
+          </td>
+          <td>pinned</td>
+        </tr>
+      {% endif %}
+    </tbody>
+  </table>
+  <p class="md-note">
+    {{ n_verified }} of {{ references | length }} citations resolved through
+    Crossref during the build. Each was checked on title, venue, year and author
+    together, because a bibliographic search will return a near-identical
+    meeting abstract or a supporting-information deposit with its own DOI, and a
+    confidently wrong citation is worse than a missing one.
+  </p>
+</section>
+{% endblock %}

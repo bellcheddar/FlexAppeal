@@ -35,6 +35,10 @@ SYSTEM_TITLES = {
 }
 
 
+def references_file() -> Path:
+    return Path(current_app.root_path).parent / "data" / "references.json"
+
+
 def _database() -> Path | None:
     path = Path(current_app.config.get(
         "REFSTATES_DB",
@@ -253,3 +257,33 @@ def state_map(system_id: str):
                     # D010's line, drawn so a reader can see where it falls
                     # rather than being told about it.
                     "published_threshold": 11.0 if system_id == "abl1" else None})
+
+
+@refstates_bp.get("/about")
+def about():
+    """Section 6.2's About page: methods, software and verified references.
+
+    The reference list is read from `data/references.json`, which
+    `tools/verify_references.py` wrote by resolving every citation through
+    Crossref during the build. Serving this page touches no network, and a
+    citation that could not be verified is shown as unverified rather than
+    omitted, because dropping it silently would leave the method uncited and
+    look deliberate.
+    """
+    rows: list[dict[str, Any]] = []
+    path = references_file()
+    if path.is_file():
+        try:
+            rows = json.loads(path.read_text())
+        except json.JSONDecodeError:
+            rows = []
+    verified = [r for r in rows if r.get("resolved")]
+
+    vendored = ""
+    sha = Path(current_app.root_path).parent / "vendor" / "BOLTZMAKER_SHA.txt"
+    if sha.is_file():
+        vendored = sha.read_text().strip().split()[0][:12]
+
+    return render_template("refstates_about.html", references=rows,
+                           n_verified=len(verified), boltzmaker_sha=vendored,
+                           active="refstates")
