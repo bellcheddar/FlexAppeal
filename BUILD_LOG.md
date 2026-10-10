@@ -143,3 +143,29 @@ Timestamped, one line per meaningful event, for the reference-state build
 - `16:0x` Phase 6: a fifth tab reading one SQLite file, with the per-run
   explorer, the generated finding and the reference browser where P1 and P2 are
   visible to a reader as 17 of 17 with three unlabelled.
+- `16:39` **Tier 1 membrane run reaches production.** The whole of section 5.2's
+  membrane column executed in order for the first time: minimise with the
+  protein restrained and lipid P held in z, six gentle heating stages at 1 fs
+  from 50.5 to 303.1 K, the remaining 0.4 ns of NVT at 4 fs, barostat on, the
+  six-step restraint ladder with the lipid z restraint released after the
+  second, then unrestrained production. Minimisation took 55 s against about 5
+  minutes before the clash repair, because the system no longer starts from a
+  pathological energy.
+- `16:3x` **P4 passes 4 of 4.** Each start structure scores as its own state
+  with no simulation in between: +0.305, -0.368, +0.593, -0.934. The kinase
+  rows clear the band by under 0.07 and the reason is interpretable, which
+  FINDINGS records rather than leaving as a near miss.
+- `16:3x` Two false claims found and fixed by running the controls rather than
+  by reading the code. TM6 reported `conflict` on every inactive frame because
+  the ionic lock was attached as its corroborating rule, and that lock reads
+  broken in both beta2AR states. And the reference browser reported 116 of 116
+  agreement for the receptor where `our_state` was a copy of the catalogue's
+  own; it now comes from the TM3-TM6 cleft against P3's threshold and reads
+  100 of 100, which matches P3 exactly.
+- `16:4x` Section 12.3 satisfied: 15 of 15 citations resolved through Crossref,
+  after four intermediate versions that each raised the pass count while making
+  the output wrong. Supporting-information deposits and PDB data entries carry
+  the paper's exact title with their own DOI, and a meeting abstract carries it
+  in a different journal a year later.
+- `16:4x` Viewer bundle at a 1 ns stride: 0.4 MB for the partial ABL1 run,
+  about 1 MB for a finished row, against section 6.3's 150 MB ceiling.
