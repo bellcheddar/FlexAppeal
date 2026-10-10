@@ -206,9 +206,12 @@ def ingest_analysis(path: Path, analysis: dict[str, Any], *,
                    environment=environment,
                    notes=json.dumps({"core": analysis.get("core", {}),
                                      "notes": analysis.get("notes", [])}))
-        put_run(connection, run_id, system_id, status="complete",
-                length_ns=(analysis.get("frames") or [{}])[-1].get("time_ns"),
-                **(run_fields or {}))
+        # The caller's fields win, so a run still in flight keeps its own
+        # status rather than being overwritten with "complete" by the default.
+        fields = {"status": "complete",
+                  "length_ns": (analysis.get("frames") or [{}])[-1].get("time_ns")}
+        fields.update(run_fields or {})
+        put_run(connection, run_id, system_id, **fields)
 
         for name, residues in (analysis.get("motif_residues") or {}).items():
             put_motif(connection, f"{system_id}:{name}", system_id, name,
