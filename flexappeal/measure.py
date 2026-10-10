@@ -83,6 +83,28 @@ MIN_FRAMES_PER_BLOCK = 6
 # few hundred samples of the same window.
 MAX_CLUSTER_FRAMES = 400
 
+# --- ligand strain ----------------------------------------------------------
+# Frames of the scored window sampled for the strain and the torsions. Strain is
+# a slowly varying quantity and each frame costs two MMFF minimisations, so a
+# finer sampling buys noise and a bigger member. The spec asks for around this
+# many for the panel.
+MAX_STRAIN_FRAMES = 120
+MAX_STRAIN_ITERATIONS = 500
+# Force constant on the torsion restraints during the held minimisation, in
+# kcal/mol/rad^2. Stiff enough that a dihedral does not leave its well while
+# bonds and angles relax, soft enough not to fight the minimiser into
+# non-convergence.
+TORSION_RESTRAINT_K = 1000.0
+# Rotamer binning: three wells at -180..-60, -60..60, 60..180. A dihedral has to
+# clear a boundary by the hysteresis before the well it is assigned to changes,
+# or a torsion rattling on a boundary registers a flip on every frame.
+WELL_EDGES = (-60.0, 60.0)
+HYSTERESIS_DEG = 20.0
+# Total charges tried when inferring bond orders, in order. Benzamidine is an
+# amidinium at pH 7 and a neutral amidine on paper, and nothing in a trajectory
+# says which was simulated, so the first assignment that sanitises is taken.
+CANDIDATE_CHARGES = (0, 1, -1, 2, -2)
+
 
 class MeasureError(ValueError):
     """A complex could not be measured. Recorded as a failure, not a bad grade."""
@@ -111,6 +133,7 @@ class Measured:
     panels_summary: dict[str, Any] | None = None
     barcode: dict[str, np.ndarray] | None = None
     conformer: dict[str, np.ndarray] | None = None
+    conformer_summary: dict[str, Any] | None = None
     notes: list[str] = field(default_factory=list)
 
     @property
@@ -965,6 +988,235 @@ def pose_clusters(ligand_xyz: np.ndarray, pose_rmsd: np.ndarray,
 
 
 # ===========================================================================
+#  Ligand strain and torsions, sections 4 and 5.4
+# ===========================================================================
+
+
+def ligand_mol(traj, atoms: np.ndarray):
+    """An RDKit molecule for the ligand, with bond orders, or None.
+
+    The bond orders are **inferred from the trajectory's own coordinates**
+    rather than read from the chemical definition the bundle fetched. Three
+    reasons, in order of weight:
+
+    * It works for both source kinds. A version 1 `.fxa` carries no SDF at all,
+      and a strain that only appears for one kind of source is a column that
+      silently means different things.
+    * No chemistry file is opened at any point, so there is no path by which one
+      could end up in the package. Section 8 is absolute about that and the
+      cheapest way to honour a rule is to have no code that could break it.
+    * Matching an SDF's atom order onto an MD topology's is its own failure mode,
+      and a mismatch produces a plausible wrong number rather than an error.
+
+    It needs hydrogens: the valences are what make the inference possible, and
+    without them MMFF cannot type the molecule either. A payload that dropped
+    them returns None and the sub-score stays pending, which is honest.
+    """
+    from rdkit import Chem, RDLogger  # noqa: PLC0415
+    from rdkit.Chem import rdDetermineBonds  # noqa: PLC0415
+
+    RDLogger.DisableLog("rdApp.*")
+
+    hydrogens = sum(1 for i in atoms
+                    if traj.topology.atom(int(i)).element.symbol == "H")
+    if hydrogens == 0:
+        return None
+
+    block = _pdb_text(traj[0].atom_slice(atoms))
+    base = Chem.MolFromPDBBlock(block, removeHs=False, proximityBonding=True,
+                                sanitize=False)
+    if base is None or base.GetNumAtoms() != len(atoms):
+        return None
+
+    for charge in CANDIDATE_CHARGES:
+        candidate = Chem.Mol(base)
+        try:
+            rdDetermineBonds.DetermineBondOrders(candidate, charge=charge)
+            Chem.SanitizeMol(candidate)
+        except Exception:  # noqa: BLE001 - a failed assignment is tried again
+            continue
+        return candidate
+    return None
+
+
+def rotatable_torsions(mol) -> list[tuple[int, int, int, int]]:
+    """One dihedral quadruple per rotatable bond.
+
+    The heaviest neighbour is taken on each side rather than the first, so the
+    dihedral tracks the substituent that actually moves rather than a hydrogen
+    that spins freely and would register a flip on every frame.
+    """
+    from rdkit import Chem  # noqa: PLC0415
+
+    pattern = Chem.MolFromSmarts("[!$(*#*)&!D1]-&!@[!$(*#*)&!D1]")
+    torsions: list[tuple[int, int, int, int]] = []
+    for j, k in mol.GetSubstructMatches(pattern):
+        def heaviest(centre: int, other: int) -> int | None:
+            best, best_mass = None, -1.0
+            for neighbour in mol.GetAtomWithIdx(centre).GetNeighbors():
+                index = neighbour.GetIdx()
+                if index == other:
+                    continue
+                if neighbour.GetMass() > best_mass:
+                    best, best_mass = index, neighbour.GetMass()
+            return best
+
+        first, last = heaviest(j, k), heaviest(k, j)
+        if first is not None and last is not None:
+            torsions.append((first, j, k, last))
+    return torsions
+
+
+def assign_wells(angles: np.ndarray) -> np.ndarray:
+    """Rotamer well per frame, with hysteresis so boundary rattle is not a flip."""
+    low, high = WELL_EDGES
+    wells = np.zeros(angles.size, dtype=np.int8)
+    # Frame 0 with no hysteresis: there is nothing to be sticky about yet.
+    current = 0 if angles[0] < low else (1 if angles[0] < high else 2)
+    wells[0] = current
+    for index in range(1, angles.size):
+        angle = angles[index]
+        candidate = 0 if angle < low else (1 if angle < high else 2)
+        if candidate != current:
+            boundary = low if {current, candidate} == {0, 1} else high
+            if abs(angle - boundary) >= HYSTERESIS_DEG:
+                current = candidate
+        wells[index] = current
+    return wells
+
+
+def strain_records(traj, atoms: np.ndarray, start: int, time_ns: np.ndarray
+                   ) -> tuple[dict[str, Any], dict[str, np.ndarray], list[str]]:
+    """MMFF94 torsional strain in excess of frame 0, and the torsion series.
+
+    **The excess, not the absolute energy.** These coordinates come from an
+    OpenFF or GAFF force field and are being scored by MMFF94, and a 298 K
+    snapshot of a drug-sized ligand carries tens of kcal/mol in its internal
+    modes. Both offsets are constant for a given ligand and cancel when frame 0
+    is subtracted; an absolute MMFF number is not comparable between ligands and
+    would be scored as if it were.
+
+    Per frame, the strain is the cost of *holding the observed torsions*:
+
+    1. minimise with every rotatable torsion restrained to its observed value,
+       which relaxes the bonds and angles the MD constrained differently;
+    2. minimise again with nothing restrained, which falls into the nearest free
+       minimum because the conformer has already relaxed;
+    3. take the difference.
+
+    Done that way the bond and angle terms largely cancel inside each frame as
+    well as between frames, so what is left is torsional.
+    """
+    from rdkit.Chem import AllChem, rdMolTransforms  # noqa: PLC0415
+    from rdkit.Geometry import Point3D  # noqa: PLC0415
+
+    mol = ligand_mol(traj, atoms)
+    if mol is None:
+        return {}, {}, [
+            "the ligand's bond orders could not be inferred from the "
+            "trajectory (most often because the payload carries no hydrogens), "
+            "so the strain and torsion measurements are omitted and the "
+            "conformation sub-score stays pending"
+        ]
+
+    properties = AllChem.MMFFGetMoleculeProperties(mol)
+    if properties is None:
+        return {}, {}, [
+            "MMFF94 has no parameters for this ligand, so the strain and torsion "
+            "measurements are omitted and the conformation sub-score stays pending"
+        ]
+
+    torsions = rotatable_torsions(mol)
+    conformer = mol.GetConformer()
+
+    # Frame 0 prepended, so the reference is measured by exactly the same code
+    # path as every scored frame. A frame-0 value computed differently would
+    # reintroduce the offset that subtracting it exists to cancel.
+    scored = np.arange(traj.n_frames)[start:]
+    stride = max(1, int(np.ceil(len(scored) / MAX_STRAIN_FRAMES)))
+    frames = np.concatenate([[0], scored[::stride]])
+    coordinates = traj.xyz[frames] * 10.0          # nanometres to angstrom
+
+    strain = np.zeros(len(frames), dtype=np.float32)
+    angles = np.zeros((len(frames), len(torsions)), dtype=np.float32)
+
+    for row in range(len(frames)):
+        for atom, position in enumerate(coordinates[row][atoms]):
+            conformer.SetAtomPosition(
+                atom, Point3D(float(position[0]), float(position[1]),
+                              float(position[2])))
+
+        # Read the dihedrals before minimising anything: the minimisation moves
+        # the conformer, so a reading taken afterwards is of the relaxed pose.
+        for index, (i, j, k, l) in enumerate(torsions):
+            angles[row, index] = rdMolTransforms.GetDihedralDeg(conformer, i, j, k, l)
+
+        held = AllChem.MMFFGetMoleculeForceField(mol, properties)
+        free = AllChem.MMFFGetMoleculeForceField(mol, properties)
+        if held is None or free is None:
+            continue
+        for i, j, k, l in torsions:
+            current = rdMolTransforms.GetDihedralDeg(conformer, i, j, k, l)
+            held.MMFFAddTorsionConstraint(i, j, k, l, False, current, current,
+                                         TORSION_RESTRAINT_K)
+        held.Minimize(maxIts=MAX_STRAIN_ITERATIONS)
+        held_energy = held.CalcEnergy()
+        free.Minimize(maxIts=MAX_STRAIN_ITERATIONS)
+        strain[row] = float(max(0.0, held_energy - free.CalcEnergy()))
+
+    # Row 0 is frame 0 and is not part of the scored window.
+    strain_t0 = float(strain[0])
+    angles_t0 = angles[0].copy()
+    strain, angles = strain[1:], angles[1:]
+    frames = frames[1:]
+    if not len(strain):
+        return {}, {}, ["the scored window held no frames to measure strain over"]
+
+    flips = [int(np.count_nonzero(np.diff(assign_wells(angles[:, index]))))
+             for index in range(len(torsions))]
+    span_ns = float(time_ns[frames[-1]] - time_ns[frames[0]]) if len(frames) > 1 \
+        else 0.0
+
+    metrics: dict[str, Any] = {
+        # The excess over frame 0, which is the number that gets scored.
+        "strain_kcal": float(np.median(strain) - strain_t0),
+        # Before the subtraction, for audit, and the value subtracted.
+        "strain_absolute_kcal": float(np.median(strain)),
+        "strain_t0_kcal": strain_t0,
+        "n_rotatable_bonds": len(torsions),
+        "n_torsion_flips": int(sum(flips)),
+    }
+    if span_ns > 0 and torsions:
+        metrics["flips_per_ns_per_torsion"] = float(
+            sum(flips) / (span_ns * len(torsions)))
+    elif torsions:
+        metrics["flips_per_ns_per_torsion"] = 0.0
+
+    arrays = {
+        "frame": frames.astype(np.int32),
+        "time_ns": time_ns[frames].astype(np.float32),
+        "strain_kcal": strain.astype(np.float32),
+        "strain_t0_kcal": np.float32(strain_t0),
+        "strain_excess_kcal": (strain - strain_t0).astype(np.float32),
+        "torsion_deg": angles.astype(np.float32),
+        "torsion_deg_t0": angles_t0.astype(np.float32),
+        "torsion_atoms": np.array(torsions, dtype=np.int32).reshape(-1, 4),
+        "flips_per_torsion": np.array(flips, dtype=np.int32),
+    }
+
+    notes: list[str] = [
+        "the ligand's bond orders were inferred from the trajectory's own "
+        "coordinates and hydrogens rather than read from a chemical definition, "
+        "so the MMFF94 atom typing rests on that inference"
+    ]
+    if not torsions:
+        notes.append(
+            "the ligand has no rotatable bond, so the torsion-flip term is "
+            "vacuous and the conformation sub-score rests on the strain alone")
+    return metrics, arrays, notes
+
+
+# ===========================================================================
 #  The whole measurement for one complex
 # ===========================================================================
 
@@ -1192,6 +1444,21 @@ def _measure(traj, cid: str, receptor: str, ligand: str, resnames: list[str],
         structures[f"{cid}_cluster{record['cluster_id']}.pdb"] = pocket_pdb(
             pose_fit, frame, crop_atoms, resnames)
 
+    # ---- ligand strain -----------------------------------------------------
+    strain_metrics, conformer, strain_notes = strain_records(
+        traj, atoms, start, time_ns)
+    metrics.update(strain_metrics)
+    notes.extend(strain_notes)
+    # The same four numbers again, under the spelling DeepFlex's layer manifest
+    # uses. `n_rotatable` rather than `n_rotatable_bonds` is that manifest's own
+    # name for it; the spec uses the column's name, so the mapping is explicit
+    # here rather than left to a coincidence.
+    conformer_line = {
+        "n_rotatable": strain_metrics["n_rotatable_bonds"],
+        **{key: value for key, value in strain_metrics.items()
+           if key != "n_rotatable_bonds"},
+    } if strain_metrics else {}
+
     interactions, summary, barcode = interaction_records(
         traj, cid, heavy, pocket["indices_raw"], start, time_ns)
     if interactions is None:
@@ -1225,5 +1492,6 @@ def _measure(traj, cid: str, receptor: str, ligand: str, resnames: list[str],
         complex_id=cid, receptor=receptor, ligand_id=ligand,
         metrics=metrics, pocket=pocket_record, structures=structures,
         series=series, interactions=interactions, summary=summary,
-        barcode=barcode, notes=notes,
+        barcode=barcode, conformer=conformer or None,
+        conformer_summary=conformer_line or None, notes=notes,
     )

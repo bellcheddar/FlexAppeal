@@ -374,6 +374,7 @@ def assemble(sources: list[Source], *, package_name: str,
     seen: dict[str, str] = {}
     with_energies: list[str] = []
     panel_lines: list[dict[str, Any]] = []
+    conformer_lines: list[dict[str, Any]] = []
     for source in sources:
         warnings.extend(source.notes)
         receptor = source.receptor()
@@ -421,7 +422,7 @@ def assemble(sources: list[Source], *, package_name: str,
             summary = dict(measured.panels_summary or {})
             summary["mmpbsa_terms"] = terms
             measured.panels_summary = summary
-        _add(package, measured, panel_lines)
+        _add(package, measured, panel_lines, conformer_lines)
         package.register_receptor(
             receptor,
             protein_name=str(source.structure.get("filename") or "") or None,
@@ -437,15 +438,17 @@ def assemble(sources: list[Source], *, package_name: str,
             "file is a package of receptor-ligand complexes."
         )
 
-    # `manifests/panels.jsonl` is not in the spec's member layout, and DeepFlex
-    # reads the receptor flexibility summary rows and the energy decomposition
-    # out of it rather than out of `metrics/`. The same numbers are also in
-    # `metrics/` where the spec puts them; FXA2_PROGRESS.md lists this as a gap
-    # for the other side rather than a decision taken here.
-    if panel_lines:
-        package.add_text(
-            "manifests/panels.jsonl",
-            "".join(json.dumps(line, default=_plain) + "\n" for line in panel_lines))
+    # Neither layer manifest is in the spec's member layout, and DeepFlex reads
+    # the receptor flexibility rows, the energy decomposition and the four strain
+    # columns out of them rather than out of `metrics/`. The same numbers are
+    # also in `metrics/` where the spec puts them, so a future DeepFlex that
+    # reads them there finds them; FXA2_PROGRESS.md lists this as a gap for the
+    # other side rather than a decision taken here.
+    for name, lines in (("panels", panel_lines), ("conformer", conformer_lines)):
+        if lines:
+            package.add_text(
+                f"manifests/{name}.jsonl",
+                "".join(json.dumps(line, default=_plain) + "\n" for line in lines))
 
     if not with_energies:
         warnings.append(
@@ -514,7 +517,8 @@ def _set_kind(package: fxa2.Package) -> list[str]:
 
 
 def _add(package: fxa2.Package, measured: measure.Measured,
-         panel_lines: list[dict[str, Any]]) -> None:
+         panel_lines: list[dict[str, Any]],
+         conformer_lines: list[dict[str, Any]]) -> None:
     """Write one complex's members into the package."""
     cid = measured.complex_id
     package.add_complex(cid)
@@ -544,6 +548,9 @@ def _add(package: fxa2.Package, measured: measure.Measured,
     if measured.panels_summary:
         panel_lines.append({"complex_id": cid, "receptor": measured.receptor,
                             **measured.panels_summary})
+    if measured.conformer_summary:
+        conformer_lines.append({"complex_id": cid, "receptor": measured.receptor,
+                                **measured.conformer_summary})
 
 
 def build(paths: list[Path], *, out: Path, package_name: str | None = None,

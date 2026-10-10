@@ -4,11 +4,13 @@ Running log for the version 2 package writer, specified in `DEEPFLEX_FXA2_SPEC.m
 and driven by `FXA2_BUILD_PROMPT.md`. Rewritten at every step boundary, so an
 interrupted session can be resumed from this file alone.
 
-**Current step:** 8 of 10 (`S_conf`, the strain excess and the torsions).
-**Validator last reported:** accepted, with `--energies` supplied. **pose 100%,
-occupancy 100%, interactions 100%, energy 100%, convergence 100%, ranking 100%,
-grade 87.5%, payload 40%**, 26 interaction rows, 4 energy terms, 2 pose clusters.
-Conformation and receptor panels are at 0%: steps 8 and 9.
+**Current step:** 9 of 10 (`panels/`, the receptor matrices).
+**Validator last reported:** accepted, with `--energies` supplied, and
+**"every sub-score populated: this file would produce a full report."**
+grade, pose, occupancy, interactions, energy, convergence, conformation and
+ranking all **100%**; payload **60%**. Receptor panels are at 0%, which is step 9,
+and `pocket_traj_path` is the one column a spec-conformant file cannot fill
+(divergence 5 below).
 
 ---
 
@@ -40,7 +42,7 @@ Section 12 of the spec, which is also the commit boundaries.
 - [x] 5. `S_int`, `summary/`, `barcode/`.
 - [ ] 6. `S_E`, the energies.
 - [x] 7. `S_conv`, the block split and the pose clusters.
-- [ ] 8. `S_conf`, the strain excess and the torsions.
+- [x] 8. `S_conf`, the strain excess and the torsions.
 - [ ] 9. `panels/`, the receptor matrices.
 - [ ] 10. `annotations/` and `depictions/`.
 
@@ -245,6 +247,45 @@ reasonably discards everything before it, leaving one cluster and no flag. That 
 correct behaviour rather than a miss, and it is why the test moves the pose three
 quarters of the way in.
 
+### D14. The ligand's chemistry is inferred from the trajectory
+
+The MMFF94 strain needs bond orders, and the obvious source is the SDF the bundle
+fetched from the chemical component dictionary, which is still beside a finished
+run. It is not used. Bond orders are inferred from the trajectory's own
+coordinates and hydrogens instead (RDKit's `DetermineBondOrders`, trying a small
+range of total charges and taking the first assignment that sanitises). Three
+reasons, in order of weight:
+
+1. **It works for both source kinds.** A version 1 `.fxa` carries no SDF, so a
+   strain that needed one would be a column that silently means different things
+   depending on where the trajectory came from.
+2. **No chemistry file is opened anywhere in this writer.** Section 8 is absolute
+   about chemistry not reaching the package, and the cheapest way to honour a
+   rule is to have no code that could break it.
+3. Matching an SDF's atom order onto an MD topology's is its own failure mode, and
+   a mismatch produces a plausible wrong number rather than an error.
+
+It needs hydrogens, because the valences are what make the inference possible and
+MMFF cannot type a molecule without them either. A payload that dropped them (a
+deposited structure, or a selection that stripped them) leaves the keys out and
+the sub-score pending. Verified on the committed trypsin run: benzamidine comes
+back as `N=C(N)c1ccccc1` with two rotatable torsions.
+
+`rdkit` is now declared in `pixi.toml`. It is not a new dependency: it already
+arrives with `openff-toolkit`, so the solve does not change, and the repo's own
+comment beside `rich` and `psutil` gives the reason for naming it anyway. The
+import is lazy and optional.
+
+### D15. The strain is torsional, computed twice per frame
+
+Not a single-point MMFF energy. Per sampled frame: minimise with every rotatable
+torsion restrained to its observed value, minimise again with nothing restrained,
+and take the difference. That is the cost of *holding the observed torsions*, and
+doing it this way cancels the bond and angle terms inside each frame as well as
+between frames, which matters because the MD constrained its bonds under a
+different force field. `strain_kcal` is then the median of that over the scored
+window less its frame-0 value, which is DeepFlex's own definition.
+
 ## Divergences between the spec and the reader that actually ingests these files
 
 Found by reading DeepFlex's `pipeline/ingest.py`, `pipeline/store.py` and
@@ -269,11 +310,24 @@ spelling, and whatever the reader reads today.
    `score_package` skips the interaction sub-score unless the record carries it. Not
    in the spec, which lists only the seven measurements and `complex_id`.
 
-4. **The receptor flexibility summary rows come from `manifests/panels.jsonl`.**
-   Section 4 lists `rmsd_ca_mean`, `radgyr_mean`, `rmsf_ca_mean` and
-   `n_rmsf_residues` as optional keys in `metrics/<cid>.json`, but
-   `store.metric_columns` reads them from a JSON-lines layer manifest the spec never
-   names. Written in both places.
+4. **Two layer manifests the spec never names, and the columns that need them.**
+   `store.metric_columns` reads the receptor flexibility rows (`rmsd_ca_mean`,
+   `radgyr_mean`, `rmsf_ca_mean`, `n_rmsf_residues`) and the MM/PBSA term
+   decomposition from `manifests/panels.jsonl`, and the four strain columns
+   (`strain_kcal`, `strain_absolute_kcal`, `strain_t0_kcal`, `n_rotatable_bonds`,
+   `n_torsion_flips`, `flips_per_ns_per_torsion`) from
+   `manifests/conformer.jsonl`. Section 4 puts all of those in
+   `metrics/<cid>.json`, and section 4's own note on `S_conf` says explicitly that
+   "DeepFlex reads these four from `metrics/<cid>.json`, which is where this spec
+   puts them: you do not need a separate conformer manifest".
+
+   It half does. `ingest.conformer_records` falls back to the metrics record for
+   the *grade*, so `s_conf` is scored, but the six `complex` columns stay NULL and
+   the conformation panel does not draw: measured at 0% with the metrics keys
+   alone and 100% once `manifests/conformer.jsonl` is added. The panels manifest
+   has no fallback at all. Both are written, as well as the spec's own spelling in
+   `metrics/`, so a DeepFlex that later reads them there finds them. Note the
+   spelling: that manifest calls it `n_rotatable`, not `n_rotatable_bonds`.
 
 5. **`pocket_traj_path` wants a file the spec forbids.** The column is filled from
    `structures/<cid>_pocket.xtc`, and section 8 bans `.xtc` members outright. This

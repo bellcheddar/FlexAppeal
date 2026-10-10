@@ -206,6 +206,33 @@ checkbox list in `README.md`.
   of each half of the scored window and requires the second half's winner to
   actually dominate it, because comparing the first and last frame fires on
   ordinary thermal motion and the flag caps the grade at B.
+- **`S_conf`: MMFF94 strain in excess of the frame-0 pose, never the absolute
+  number.** The coordinates come from an OpenFF or GAFF force field and are being
+  scored by MMFF94, and a 298 K snapshot of a drug-sized ligand carries tens of
+  kcal/mol in its internal modes. Both offsets are constant per ligand and cancel
+  when frame 0 is subtracted; an absolute MMFF number is not comparable between
+  ligands and would be scored as if it were.
+
+  The strain itself is torsional rather than a single point: minimise with every
+  rotatable torsion restrained to its observed value, minimise again with nothing
+  restrained, take the difference. That is the cost of holding the observed
+  torsions, and it cancels the bond and angle terms inside each frame as well as
+  between frames, which matters because the MD constrained its bonds under a
+  different force field.
+- **The ligand's bond orders are inferred from the trajectory, not read from the
+  SDF.** The chemical definition the bundle fetched is still beside a finished run
+  and is deliberately not used. A version 1 `.fxa` carries no SDF, so a strain that
+  needed one would be a column that silently means different things depending on
+  where the trajectory came from; and with no code that opens a chemistry file,
+  there is no path by which one could reach the package, which section 8 of the
+  spec bans outright. It needs hydrogens, and a payload without them leaves the
+  keys out and the sub-score pending. Verified on the committed trypsin run:
+  benzamidine comes back with two rotatable torsions and no flips, which is what a
+  near-rigid ligand should measure.
+- **`rdkit` declared in `pixi.toml`.** Not a new dependency: it already arrives
+  with `openff-toolkit`, so the solve does not change. Named for the same reason as
+  `rich` and `psutil` beside it, and imported lazily, so a build without it leaves
+  the conformation sub-score pending rather than failing.
 
 ## 2026-07-27
 

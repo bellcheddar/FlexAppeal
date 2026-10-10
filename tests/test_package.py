@@ -1114,3 +1114,151 @@ def test_each_cluster_centroid_is_a_real_frame_with_a_structure(written):
             name = f"traj/{cid}_cluster{cluster['cluster_id']}.pdb"
             assert name in read_back.members
             assert b"LIG" in read_back.members[name]
+
+
+# ---------------------------------------------------------------------------
+#  S_conf: the strain excess and the torsions, sections 4 and 5.4
+# ---------------------------------------------------------------------------
+
+REAL_RUN = FIXTURES / "trypsin_ben.fxa"
+
+
+@pytest.fixture(scope="module")
+def real_source():
+    """The committed trypsin and benzamidine run: a real trajectory, with hydrogens.
+
+    The 3PTB fixture is a deposited structure and carries none, and the strain
+    needs them: the valences are what make the bond orders inferable, and MMFF
+    cannot type a molecule without them either.
+    """
+    if not REAL_RUN.is_file():
+        pytest.skip("tests/fixtures/trypsin_ben.fxa is missing")
+    pytest.importorskip("rdkit")
+    return package.load_fxa1(REAL_RUN)
+
+
+@pytest.fixture(scope="module")
+def real_measured(real_source):
+    return measure.measure_complex(
+        real_source.trajectory, complex_id=fxa2.complex_id("0" * 16, "3PTB"),
+        receptor="3PTB", ligand_id="0" * 16, ligand_resnames=["BEN"],
+        frame_spacing_ps=real_source.frame_spacing_ps)
+
+
+def test_the_ligand_chemistry_is_inferred_from_the_trajectory(real_source):
+    """No chemistry file is opened at any point.
+
+    A version 1 `.fxa` carries no SDF, so a strain that needed one would mean a
+    column that silently means different things for different sources. Inferring
+    it also means there is no code path by which a chemical definition could
+    reach the package, which section 8 bans outright.
+    """
+    traj = real_source.trajectory
+    atoms = traj.topology.select("resname BEN")
+    mol = measure.ligand_mol(traj, atoms)
+    assert mol is not None
+    assert mol.GetNumAtoms() == len(atoms)
+    # Benzamidine: a benzene ring and an amidine, so two rotatable torsions.
+    assert len(measure.rotatable_torsions(mol)) == 2
+
+
+def test_benzamidine_strains_little_and_flips_nothing(real_measured):
+    """A near-rigid ligand, measured as one.
+
+    Benzamidine's only degrees of freedom are the phenyl-amidine rotation and the
+    amidine itself, so a large strain or a torsion flip here would mean the
+    measurement is wrong rather than that the ligand is interesting.
+    """
+    metrics = real_measured.metrics
+    assert metrics["n_rotatable_bonds"] == 2
+    assert metrics["n_torsion_flips"] == 0
+    assert abs(metrics["strain_kcal"]) < 10.0
+
+
+def test_the_strain_is_the_excess_over_frame_zero(real_measured):
+    """Never the absolute MMFF number.
+
+    These coordinates come from an OpenFF force field and are scored by MMFF94,
+    and a 298 K snapshot carries tens of kcal/mol in its internal modes. Both
+    offsets are constant per ligand and cancel when frame 0 is subtracted; an
+    absolute number is not comparable between ligands and would be scored as if
+    it were.
+    """
+    metrics = real_measured.metrics
+    assert metrics["strain_kcal"] == pytest.approx(
+        metrics["strain_absolute_kcal"] - metrics["strain_t0_kcal"], abs=1e-4)
+    # And the absolute value really is a different number, so the subtraction is
+    # doing something.
+    assert abs(metrics["strain_absolute_kcal"]) > abs(metrics["strain_kcal"])
+
+
+def test_the_conformer_arrays_match_the_spec(real_measured):
+    arrays = real_measured.conformer
+    assert arrays is not None
+    n = len(arrays["frame"])
+    t = arrays["torsion_atoms"].shape[0]
+    assert arrays["frame"].dtype == np.int32
+    assert arrays["time_ns"].dtype == np.float32
+    assert arrays["strain_kcal"].shape == (n,)
+    assert arrays["strain_excess_kcal"].shape == (n,)
+    assert arrays["torsion_deg"].shape == (n, t)
+    assert arrays["torsion_deg_t0"].shape == (t,)
+    assert arrays["torsion_atoms"].shape == (t, 4)
+    assert arrays["flips_per_torsion"].shape == (t,)
+    assert np.allclose(arrays["strain_excess_kcal"],
+                       arrays["strain_kcal"] - arrays["strain_t0_kcal"])
+
+
+def test_the_strain_frames_are_absolute_and_inside_the_window(real_measured):
+    """The panel lines up with every other series only if these are absolute."""
+    arrays = real_measured.conformer
+    metrics = real_measured.metrics
+    assert arrays["frame"].min() >= metrics["equil_start_frame"]
+    assert arrays["frame"].max() < metrics["n_frames"]
+
+
+def test_the_conformer_manifest_uses_the_name_deepflex_reads(real_measured, deposited):
+    """`n_rotatable`, not `n_rotatable_bonds`: the layer manifest's own spelling."""
+    summary = real_measured.conformer_summary
+    assert summary["n_rotatable"] == real_measured.metrics["n_rotatable_bonds"]
+    assert "n_rotatable_bonds" not in summary
+
+
+def test_a_payload_without_hydrogens_leaves_the_subscore_pending(deposited):
+    """A deposited structure has none, and omitting the key is the honest answer."""
+    measured = _measured(_translated(deposited, [[0, 0, 0]] * 20))
+    assert "strain_kcal" not in measured.metrics
+    assert measured.conformer is None
+    assert any("no hydrogens" in note for note in measured.notes)
+
+
+def test_a_boundary_rattle_is_not_a_torsion_flip():
+    """A dihedral sitting on a well boundary would otherwise flip every frame."""
+    rattle = np.array([-62.0, -58.0, -62.0, -58.0, -62.0, -58.0])
+    assert np.count_nonzero(np.diff(measure.assign_wells(rattle))) == 0
+    # A real crossing, well clear of the boundary, is counted.
+    crossing = np.array([-120.0, -120.0, 0.0, 0.0, 0.0])
+    assert np.count_nonzero(np.diff(measure.assign_wells(crossing))) == 1
+
+
+def test_a_torsion_tracks_the_heaviest_neighbour(real_source):
+    """Not the first one.
+
+    A dihedral defined through a light substituent that spins freely registers a
+    flip on nearly every frame, so the flip rate would measure the hydrogens
+    rather than the ligand. Where a rotatable bond has nothing but hydrogens on
+    one side, as the amidine nitrogen does, a hydrogen is the correct choice and
+    the hysteresis in the well assignment is what keeps it honest.
+    """
+    traj = real_source.trajectory
+    mol = measure.ligand_mol(traj, traj.topology.select("resname BEN"))
+    torsions = measure.rotatable_torsions(mol)
+    assert torsions
+
+    def heaviest_mass(centre, exclude):
+        return max(n.GetMass() for n in mol.GetAtomWithIdx(centre).GetNeighbors()
+                   if n.GetIdx() != exclude)
+
+    for i, j, k, l in torsions:
+        assert mol.GetAtomWithIdx(i).GetMass() == pytest.approx(heaviest_mass(j, k))
+        assert mol.GetAtomWithIdx(l).GetMass() == pytest.approx(heaviest_mass(k, j))

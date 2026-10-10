@@ -38,6 +38,13 @@ openff-toolkit = "*"
 mdtraj = "*"
 numpy = "*"
 scipy = "*"
+# Declared rather than added: rdkit already arrives with openff-toolkit, so this
+# changes nothing about the solve. flexappeal/measure.py uses it for the MMFF94
+# ligand strain in an .fxa version 2 package, and the same reasoning as rich and
+# psutil below applies -- a change in something else's dependencies would remove
+# it silently. The import is lazy and optional: without rdkit the conformation
+# sub-score is left pending rather than the package failing.
+rdkit = "*"
 
 # --- Web app (mirrors requirements.txt so local and droplet behave alike) ---
 flask = ">=3.0"
