@@ -261,10 +261,18 @@
     <p>
       One line per motif, with the <strong>whole-protein score</strong> drawn in
       black on top: it is the residue-weighted mean of the motif scores, so a
-      twenty-residue loop counts for more than a single tryptophan. Above +0.2
-      the geometry is calling a motif active-like and below &minus;0.2
-      inactive-like; between them it is intermediate, and the bands are drawn to
-      show that.
+      twenty-residue loop counts for more than a single tryptophan. Above
+      {{ "%+.1f"|format(decisive_s) }} the geometry is calling a motif
+      active-like and below {{ "%+.1f"|format(-decisive_s) }} inactive-like;
+      between them it is intermediate, and the bands are drawn to show that.
+    </p>
+    <p>
+      The <strong>thick flat segment</strong> over each half of a line is that
+      half's mean, and it is there because a noisy line is hard to read for
+      direction. A motif that sits on a threshold crosses it repeatedly and
+      looks like it is moving across it; two means level with each other say it
+      is not. They are the same two numbers the table above prints, split at the
+      same frame, so the picture and the table cannot tell you different things.
     </p>
     <p>
       Where the run is long enough, the black line is a centred
@@ -538,6 +546,39 @@
       line: {width: 1.5, color: motifColour[name] || undefined},
       hovertemplate: "%{y:+.3f} at %{x:.1f} ns<extra>%{fullData.name}</extra>",
     };
+  });
+  /* Each motif's two half-means, over the halves they belong to.
+   *
+   * The table below this chart has these numbers and the chart did not, and
+   * the difference is not academic: reading this trace for beta2AR I called
+   * TM5 a drift towards inactive when its halves are -0.034 and +0.016, which
+   * is flat. A line that crosses a threshold the eye is drawn to looks like it
+   * is moving across it. Split where `summarise` splits, so the segment a
+   * reader sees is the number the table prints.
+   *
+   * Flat segments rather than a fitted slope: a slope invites being read as a
+   * rate, and two means are a comparison. Hidden from the legend, which is
+   * already five motifs plus the whole protein, and reachable on hover. */
+  Object.entries(payload.motifs).forEach(function ([id, series]) {
+    const name = id.split(":").pop();
+    const n = (series.s || []).length;
+    const cut = Math.floor(n / 2);
+    if (cut < 2) return;
+    const mean = function (from, to) {
+      let total = 0;
+      for (let i = from; i < to; i += 1) total += series.s[i];
+      return total / (to - from);
+    };
+    [[0, cut], [cut, n]].forEach(function (half) {
+      const value = mean(half[0], half[1]);
+      traces.push({
+        x: [series.time_ns[half[0]], series.time_ns[half[1] - 1]],
+        y: [value, value], mode: "lines", showlegend: false,
+        name: name + " half mean", opacity: 0.55,
+        line: {width: 4, color: motifColour[name] || undefined},
+        hovertemplate: "%{y:+.3f} mean<extra>" + name + "</extra>",
+      });
+    });
   });
   // The whole-protein score last, so it draws on top of the motifs it is the
   // weighted mean of. Section 5.6 wants the breakdown shown beside it rather

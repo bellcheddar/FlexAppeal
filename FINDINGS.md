@@ -3243,6 +3243,17 @@ The figure computes them from the frames it plots and `summarise` computes them
 in SQL, so a reader checking one against the other is checking two paths: on
 the live run they agree to three decimals.
 
+**And on the explorer, which is the deliverable.** The figure is only where I
+happened to notice it. The page carries the same trace, for the same reader,
+and now carries the same two segments, split at the same frame, hidden from a
+legend that is already five motifs and the whole protein, and explained in the
+note under the chart. Three renderings of one pair of numbers, which is three
+chances to disagree, and the split is `len // 2` in all of them.
+
+The note under that chart also said "above +0.2" in prose while the bands were
+drawn from `DECISIVE_S`. Same shape as section 4am and section 4aq, found in
+the sentence that was explaining the bands.
+
 **What is moving, as far as anything is.** TM6 falls from +0.534 to +0.377, and
 between halves from +0.459 to +0.379. H8 falls from +0.474 to about +0.21 in
 the first few nanoseconds and then holds, its halves +0.216 and +0.203. Both

@@ -974,3 +974,17 @@ means would start to drift the day the two metrics of a motif carried different
 scores.
 
 985 passed, 1 skipped.
+
+### 11 October, 10:59 to 11:20
+
+The half-mean segments are on the explorer chart now as well as the figure. The
+page is the deliverable; the figure is only where I noticed the problem. Same
+split, `len // 2` of the plotted series, hidden from the legend, explained in
+the note under the chart. Confirmed on the live page: TM5's pair level, TM6's
+stepping down, no console errors.
+
+The note under that chart wrote "+0.2" as prose beside bands drawn from
+`DECISIVE_S`. It reads the constant now. Same shape as 4am and 4aq, this time
+in the sentence explaining the bands.
+
+987 passed, 1 skipped.

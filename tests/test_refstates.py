@@ -4798,3 +4798,33 @@ def test_the_half_means_agree_with_the_stored_summary(tmp_path: Path):
         assert abs(second - stored["second_half_mean_s"]) < 1e-9, motif
         checked += 1
     assert checked >= 2, "both motifs should have been compared"
+
+
+def test_the_page_chart_draws_the_same_half_means_as_the_figure():
+    """The page is the deliverable; the figure was only where it was noticed.
+
+    Both split at `len // 2` of the plotted series, which is where `summarise`
+    splits, so the segment a reader sees is the number the table beside it
+    prints. Three renderings of one pair of numbers that must not disagree.
+    """
+    root = Path(__file__).resolve().parents[1]
+    page = (root / "flexappeal" / "templates" / "refstates_run.html").read_text()
+    assert "Math.floor(n / 2)" in page, "split where summarise splits"
+    assert "half mean" in page
+    assert "showlegend: false" in page, (
+        "the legend is already five motifs and the whole protein")
+    assert "thick flat segment" in page, (
+        "a reader needs to be told what the segments are")
+
+    figure = (root / "tools" / "make_figures.py").read_text()
+    assert "midpoint = len(points) // 2" in figure
+
+
+def test_the_chart_explanation_reads_the_threshold_from_the_context():
+    """It said "+0.2" in prose beside bands drawn from `DECISIVE_S`."""
+    root = Path(__file__).resolve().parents[1]
+    page = (root / "flexappeal" / "templates" / "refstates_run.html").read_text()
+    note = page[page.index("<summary>How to read this</summary>"):]
+    note = note[:note.index("</details>")]
+    assert 'format(decisive_s)' in note
+    assert "+0.2 " not in note, "the threshold should not be written out"
