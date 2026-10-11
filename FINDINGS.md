@@ -3763,6 +3763,36 @@ pattern it was the production queue that died: `queue_md.py` and `run_md.py`
 were checked to be untouched before and after, and `abl1_apo` went on writing
 through both.
 
+## 4bd. One plot wrote its unit as "A" while the panel beside it wrote "Å"
+
+Section 10's last QC line is "Units everywhere: Å, ns, degrees, Å²; threshold
+lines labelled on every plot". The threshold lines were done, in 4ap. The units
+were not, in four places:
+
+| Where | Was | Now |
+|---|---|---|
+| state map axes, both systems | `DFG-Phe to alphaC-Glu+4 Calpha (A)` | `DFG-Phe to αC-Glu+4 Cα (Å)` |
+| bilayer figure | `area per lipid (A^2)`, `P-P thickness (A)` | `area per lipid (Å²)`, `P-P thickness (Å)` |
+| map figure threshold | `published threshold 11 A, both axes` | `published threshold 11 Å, both axes` |
+| map threshold on the page | `published 11 A` | `published 11 Å` |
+
+Small, and worth the entry for two reasons. The first is that it was
+*inconsistent* rather than merely plain: the motif timelines on the same page
+label their y axis `RMSD (Å)`, so a reader moving between two panels of one
+page met two conventions and had to decide whether they meant the same thing.
+The second is that `Calpha` and `alphaC` were spelled out where section 5.4
+names them Cα and αC, so the axis of the kinase state map did not use the
+vocabulary the rest of the build does.
+
+Checked rather than assumed before changing it: matplotlib resolves to DejaVu
+Sans here, and U+00C5, U+00B2 and U+03B1 are all in its cmap, so the figures
+render the characters rather than a box. Confirmed by looking at the redrawn
+figures, not by the font table alone.
+
+There is now a test for it, and the test was checked by putting the ASCII label
+back and watching it fail. A unit is exactly the kind of thing that drifts back
+the next time a label is edited, and nothing else would have noticed.
+
 ## 5. Production runs
 
 Tier 2 started at 17:04 on 10 October, in section 5.3's priority order: β2AR

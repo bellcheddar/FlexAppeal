@@ -1547,3 +1547,19 @@ Docstring corrected to describe what the code does, and the deviation added to
 FINDINGS section 4, where the other five already are.
 
 1036 passed, 2 skipped.
+
+### 11 October, 19:50. Section 10's units line
+
+"Units everywhere: Å, ns, degrees, Å²" was not done in four places: both state
+map axes, the two bilayer figure labels, and the published-threshold annotation
+on both the figure and the page. All wrote `A` or `A^2`, and the state map
+axes also spelled out `Calpha` and `alphaC` where section 5.4 names them Cα and
+αC. The motif timelines on the same page already wrote `RMSD (Å)`, so the fault
+was an inconsistency between two panels of one page rather than plainness.
+
+Checked that DejaVu Sans, which matplotlib resolves to here, carries U+00C5,
+U+00B2 and U+03B1 before changing anything, then confirmed by looking at the
+redrawn figures. A test covers the served axis labels and the page's threshold
+annotation, and it was checked by putting the ASCII back and watching it fail.
+
+1036 passed, 2 skipped.

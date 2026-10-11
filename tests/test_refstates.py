@@ -5998,3 +5998,52 @@ def test_the_real_finished_row_reads_as_finished():
         ["bash", "-c",
          f'source "{root}/tools/analyse_all.sh"; row_finished b2ar_apo'],
         cwd=root, capture_output=True).returncode == 0
+
+
+# ===========================================================================
+#  Section 10's "units everywhere"
+# ===========================================================================
+
+
+def test_the_state_map_axes_are_labelled_in_angstrom(tmp_path: Path):
+    """Section 10: "Units everywhere: A, ns, degrees, A^2", in Angstrom.
+
+    The axis labels the state map serves were written `(A)` with `Calpha` and
+    `alphaC` spelled out, while the same page wrote `\\u00c5` everywhere else,
+    so one plot carried a different convention from the panel beside it. This
+    is the guard, because a unit is the kind of thing that drifts back when a
+    label is next edited and nothing notices.
+    """
+    from flexappeal.webapp import create_app
+
+    application = create_app()
+    application.config.update(TESTING=True)
+    client = application.test_client()
+
+    seen = 0
+    for system in ("abl1", "b2ar"):
+        response = client.get(f"/refstates/map/{system}.json")
+        if response.status_code == 404:
+            continue            # no references for this system in this checkout
+        axes = json.loads(response.data).get("axes") or []
+        assert axes, f"{system}: a state map with no axis labels"
+        for label in axes:
+            seen += 1
+            assert "Å" in label, f"{system}: {label!r} carries no Angstrom"
+            assert "(A)" not in label, f"{system}: {label!r} uses ASCII A"
+            assert "Calpha" not in label and "alphaC" not in label, \
+                f"{system}: {label!r} spells out a Greek letter"
+    if not seen:
+        pytest.skip("no state map in this checkout")
+
+
+def test_the_published_threshold_is_annotated_in_angstrom():
+    """The threshold line on the state map names its own unit.
+
+    Section 10 asks for threshold lines labelled on every plot, and a
+    threshold without a unit is half a label.
+    """
+    template = (Path(__file__).resolve().parents[1] / "flexappeal"
+                / "templates" / "refstates_run.html").read_text()
+    assert "published ${v} \\u00c5" in template, \
+        "the state map threshold annotation lost its Angstrom"

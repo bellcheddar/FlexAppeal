@@ -283,7 +283,7 @@ def map_figure(client, system_id: str, out: Path,
         # horizontal line, and on the alphaC axis they are nowhere near it.
         axis.axvline(threshold, color=INK, linewidth=1.2, linestyle="--",
                      zorder=2,
-                     label=f"published threshold {threshold:g} A, both axes")
+                     label=f"published threshold {threshold:g} Å, both axes")
         axis.axhline(threshold, color=INK, linewidth=1.2, linestyle="--",
                      zorder=2)
 
@@ -342,9 +342,9 @@ def bilayer_figure(connection, run_id: str, out: Path) -> bool:
     times = [c["time_ns"] for c in chunks]
 
     windows = ((membrane.APL_EXPECTED_A2, membrane.APL_ACCEPTABLE_A2, "apl",
-                "area per lipid (A^2)"),
+                "area per lipid (Å²)"),
                (membrane.THICKNESS_EXPECTED_A, None, "thickness",
-                "P-P thickness (A)"))
+                "P-P thickness (Å)"))
     for axis, (expected, acceptable, key, label) in zip(axes, windows):
         if acceptable:
             axis.axhspan(*acceptable, color=AMBER, alpha=0.10,
