@@ -510,11 +510,22 @@ Timestamped, one line per meaningful event, for the reference-state build
 - `02:5x` The ribbon's "motif bands marked" clause was unbuilt, and building it
   turned up the colour system behind it. `--motif-1` to `--motif-6` are stored
   on every motif row and were defined nowhere in the only stylesheet, and the
-  map assigning them did not match the motifs the build measures: `c.l`, `TM5`
-  and `TM7` had no colour, while `r_spine`, `ionic_lock`, `PIF` and `toggle`
-  had one and are not motif rows: those four are measured, as pocket states,
-  micro-switch metrics and corroborating rules, which is a different kind of
-  thing from a motif and needs no motif colour. Palette defined in Okabe-Ito, map aligned
-  both ways with a test, and the ribbon bands and the state timeline now read
-  the token so a motif is one colour in both. Plotly's autorange ignores
-  shapes, so the first version clipped every band it drew.
+  map assigning them is section 6.1's own table, which does not match the
+  motifs the build ended up scoring: `c.l`, `TM5` and `TM7` had no colour,
+  while `r_spine`, the ionic lock, `PIF` and `toggle` had one and are measured
+  as pocket states, micro-switch metrics and corroborating rules rather than as
+  motifs with ensembles of their own. Palette defined in Okabe-Ito, and the
+  table honoured wherever it names a motif the build renders, with only the
+  free tokens reused. I had also moved helix 8 off its spec token for tidiness
+  and put it back: reading the clause rather than working from the shape of the
+  problem is what caught that. The ribbon bands, the state timeline and the
+  figures now all read the token. Plotly's autorange ignores shapes, so the
+  first version clipped every band it drew.
+- `03:0x` Section 6.1's table has a last row naming `--state-active` and three
+  siblings for "state badges, map colours". Not defined either, and the state
+  markers I had written an hour earlier hard-coded the four values into the
+  rules: the same fault as the motif tokens, in the same stylesheet, while I
+  was writing the motif tokens up as a fault. Defined, referenced, and read by
+  the figure generator for the state map. Also re-measured section 6.3's three
+  budgets after the explorer grew: first paint 432 ms of 2 s, scrub handler
+  0.1 ms of 100 ms, bundle 3.5 MB of 150 MB at 50 ns.

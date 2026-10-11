@@ -46,6 +46,15 @@
   --motif-5:           #e69f00;
   --motif-6:           #56b4e9;
 
+  /* Section 6.1 names these alongside the motif tokens, for "state badges, map
+     colours". They were not defined either, and the first version of the state
+     markers below hard-coded the four values straight into the rules, which is
+     the same fault one paragraph later. */
+  --state-active:       #2f6f4e;
+  --state-inactive:     #a33333;
+  --state-intermediate: #b8860b;
+  --state-conflict:     #9b51e0;
+
   --md-shadow-sm:      6px 6px 9px rgba(0,0,0,0.12);
   --md-shadow-md:      12px 12px 50px rgba(0,0,0,0.18);
   --md-radius:         8px;
@@ -318,15 +327,20 @@ a { color: var(--md-primary); }
   content: ""; width: 9px; height: 9px; flex: 0 0 auto;
   background: var(--md-text-muted);
 }
-.md-state-active::before { background: #2f6f4e; border-radius: 50%; }
-.md-state-inactive::before { background: #a33; border-radius: 1px; }
+.md-state-active::before {
+  background: var(--state-active); border-radius: 50%;
+}
+.md-state-inactive::before {
+  background: var(--state-inactive); border-radius: 1px;
+}
 .md-state-intermediate::before {
-  background: #b8860b; border-radius: 1px; transform: rotate(45deg);
+  background: var(--state-intermediate); border-radius: 1px;
+  transform: rotate(45deg);
 }
 .md-state-conflict::before {
   background: transparent; width: 0; height: 0;
   border-left: 5px solid transparent; border-right: 5px solid transparent;
-  border-bottom: 9px solid #9b51e0;
+  border-bottom: 9px solid var(--state-conflict);
 }
 /* The strip above the viewer. Fixed-width cells so the badges do not jump
    sideways as the labels change length while the slider is dragged, which is

@@ -590,6 +590,7 @@
     x: pts.map(p => p.x), y: pts.map(p => p.y), text: pts.map(p => p.pdb),
     mode: "markers", type: "scatter", name: state,
     marker: {size: 11, symbol: marks[state] || "cross",
+             color: STATE_COLOURS[state],
              line: {width: 1, color: "rgba(0,0,0,0.45)"}},
     hovertemplate: "%{text}<br>%{x:.2f}, %{y:.2f}<extra>" + state + "</extra>",
   }));
@@ -656,6 +657,25 @@
 // The motifs' ranges and colours, read once and shared by both charts. The
 // token is a CSS custom property name, resolved here rather than hard-coded,
 // so the palette has one definition and it is the stylesheet's.
+// Section 6.1's state tokens, for the map's point colours and anything else
+// that has to agree with the badges. Resolved from the stylesheet for the same
+// reason the motif tokens are: the generated figures read the same four
+// properties, and a chart that picks its own colours disagrees with them.
+const STATE_COLOURS = (function () {
+  const root = getComputedStyle(document.documentElement);
+  const out = {};
+  ["active", "inactive", "intermediate", "conflict"].forEach(function (state) {
+    const value = root.getPropertyValue("--state-" + state).trim();
+    if (value) { out[state] = value; }
+  });
+  // The catalogues label the kinase in and out rather than active and
+  // inactive, and they mean the same two states on this map.
+  out["in"] = out.active;
+  out["out"] = out.inactive;
+  out.other = out.intermediate;
+  return out;
+})();
+
 const MOTIF_META = (function () {
   const node = document.getElementById("motif-meta");
   if (!node) return [];

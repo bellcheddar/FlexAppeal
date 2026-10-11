@@ -47,6 +47,27 @@ AMBER = "#fcb900"
 RED = "#d63638"
 BLUE = "#2b6cb0"
 
+def css_tokens(prefix: str) -> dict[str, str]:
+    """Custom properties with a given prefix, out of the stylesheet itself.
+
+    Used for both of section 6.1's token sets. Reading them rather than
+    restating them is the point: the figures and the pages have to agree, and
+    a copy of a colour is a copy that drifts.
+    """
+    import re
+
+    css = (ROOT / "flexappeal" / "static" / "brand.css").read_text()
+    return {name: value for name, value in
+            re.findall(rf"(--{prefix}-[a-z0-9]+):\s*(#[0-9a-fA-F]{{3,8}})\s*;",
+                       css)}
+
+
+def state_palette() -> dict[str, str]:
+    """Section 6.1's `--state-*` colours, keyed by the state they name."""
+    return {token.removeprefix("--state-"): colour
+            for token, colour in css_tokens("state").items()}
+
+
 def motif_palette() -> dict[str, str]:
     """Section 6.1's motif tokens, read out of the stylesheet that defines them.
 
@@ -197,8 +218,15 @@ def map_figure(client, system_id: str, out: Path,
         if point.get("y") is None:
             continue
         by_state.setdefault(str(point.get("state")), []).append(point)
-    colours = {"in": GREEN, "active": GREEN, "out": RED, "inactive": RED,
-               "None": MUTED, "intermediate": AMBER}
+    # Section 6.1's state tokens, not this module's own greens and reds. The
+    # map is one of the two places the spec names them for.
+    states = state_palette()
+    colours = {"in": states.get("active", GREEN),
+               "active": states.get("active", GREEN),
+               "out": states.get("inactive", RED),
+               "inactive": states.get("inactive", RED),
+               "None": MUTED,
+               "intermediate": states.get("intermediate", AMBER)}
 
     figure, axis = plt.subplots(figsize=(6.6, 5.4), dpi=130)
     for state, got in sorted(by_state.items()):

@@ -1924,6 +1924,37 @@ def test_every_motif_that_becomes_a_row_has_a_colour_token(tmp_path: Path):
         tokens = list(store.MOTIF_TOKENS[family].values())
         assert len(set(tokens)) == len(tokens), family
 
+    # Section 6.1 fixes these in a table, so every assignment it makes for a
+    # motif this build renders has to survive. Only the tokens the spec gave to
+    # something that is not a motif row here are free to be reused, and the
+    # test says which those are rather than allowing any change at all.
+    from_the_spec = {
+        "kinase": {"alphaC": "--motif-1", "xDFG": "--motif-2",
+                   "A-loop": "--motif-3", "g.l": "--motif-4",
+                   "hinge": "--motif-5"},
+        "gpcr": {"TM6": "--motif-1", "NPxxY": "--motif-3", "H8": "--motif-6"},
+    }
+    for family, fixed in from_the_spec.items():
+        for motif, token in fixed.items():
+            assert store.MOTIF_TOKENS[family][motif] == token, (
+                f"section 6.1 gives {family} {motif} {token}, and it is a "
+                f"motif this build renders, so it is not free to be moved")
+
+
+def test_the_state_tokens_section_6_1_names_exist_and_are_used():
+    """`--state-active` and its three siblings, named in the same table.
+
+    The first version of the state markers put the four hex values straight
+    into the rules, which is the fault the motif tokens had, one paragraph
+    later in the same stylesheet.
+    """
+    root = Path(__file__).resolve().parents[1]
+    css = (root / "flexappeal" / "static" / "brand.css").read_text()
+    for state in ("active", "inactive", "intermediate", "conflict"):
+        assert f"--state-{state}:" in css, f"--state-{state} is not defined"
+        assert f"var(--state-{state})" in css, (
+            f"--state-{state} is defined and nothing uses it")
+
 
 def test_the_motif_tokens_resolve_to_real_colours():
     """A token is a CSS custom property name, so the property has to exist.
