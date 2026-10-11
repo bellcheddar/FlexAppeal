@@ -1519,3 +1519,31 @@ Nothing was missing, so there is no finding to write. It is recorded here
 because "the verifier says every motif metric has a reading" answers a
 different question from "every metric the spec lists exists", and only the
 second one was outstanding.
+
+### 11 October, 19:45. Section 7, and a docstring that described the spec rather than the code
+
+Checked the database against section 7's schema. Every table, every column and
+all four indexes match, with `references` renamed `reference_structures`
+because the spec's own name is a SQL keyword.
+
+The one difference is beside the schema rather than in it. Section 7 puts
+per-residue DSSP in `data/dssp/<run_id>.parquet`; there is no such directory
+and never was. It lives in the run's analysis JSON, one string per frame of one
+character per residue, and is served as the compact per-run JSON section 7 asks
+for.
+
+The design is right and the record was not. `store.py` carried a docstring
+saying "Section 7 puts it in Parquet, because it is a residues-by-frames matrix
+that would be a few hundred thousand rows per run in a table", which describes
+the spec's decision as though the code had followed it. Measured rather than
+argued: b2ar_apo's matrix is 499 frames by 322 residues, 160,678 cells, 162 KiB
+on disk and 10 KiB gzipped, against the 160,678 SQLite rows section 7 is
+avoiding. So the saving the spec wanted is there in full. pyarrow is already
+installed, so Parquet would have cost nothing either; the reason for one file
+rather than two is that the analysis JSON is already written per run and
+already read by the page that draws the ribbon.
+
+Docstring corrected to describe what the code does, and the deviation added to
+FINDINGS section 4, where the other five already are.
+
+1036 passed, 2 skipped.

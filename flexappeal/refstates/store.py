@@ -11,9 +11,20 @@ SQLite the right choice here: no write concurrency to arrange, one file to copy
 to the droplet, and the per-frame table indexed on the two columns the explorer
 filters by.
 
-Per-residue DSSP does not go in here. Section 7 puts it in Parquet, because it is
-a residues-by-frames matrix that would be a few hundred thousand rows per run in
-a table and is a single compact array on disk.
+Per-residue DSSP does not go in here, which is the point section 7 makes: it is
+a residues-by-frames matrix and would be a few hundred thousand rows per run in
+a table. Section 7 names Parquet for it; this build keeps it in the run's own
+analysis JSON instead, as one string per frame of one character per residue.
+
+That is the same saving by the same argument. b2ar_apo's matrix is 499 frames
+by 322 residues, 160,678 cells, which is 162 KiB on disk and 10 KiB over the
+wire gzipped, against the 160,678 SQLite rows the spec is avoiding. Parquet
+would hold it in a comparable space, and pyarrow is already installed, so the
+reason for not using it is not cost: it is that the analysis JSON is already
+the one artefact written per run and already read by the page that draws the
+ribbon. A second file would be another thing to write, to rsync and to keep in
+step with the first, for a matrix this size. Recorded as a deviation in
+FINDINGS section 4 rather than left as a difference nobody wrote down.
 """
 
 from __future__ import annotations
