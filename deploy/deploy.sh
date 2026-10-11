@@ -42,6 +42,9 @@ rsync -az --delete --chmod=D755,F644 ${SSH_OPTS[@]+"${SSH_OPTS[@]}"} \
     --exclude '.venv/' --exclude '.venv-dev/' --exclude '.pixi/' \
     --exclude '__pycache__/' --exclude '*.pyc' --exclude '.git/' \
     --exclude '.env' --exclude 'web_scratch/' --exclude '.pytest_cache/' \
+    --exclude 'data/md/' --exclude 'data/cache/' --exclude 'data/refs/' \
+    --exclude 'examples/*/run/' --exclude 'examples/*/terminal.log' \
+    --exclude 'examples/*/analyse.log' \
     ./ "${DROPLET_SSH}:${DROPLET_PATH}/"
 
 echo "==> Installing dependencies and restarting on the droplet"
@@ -55,6 +58,23 @@ if [[ ! -x .venv/bin/python ]]; then
     echo "No virtual environment yet -- run deploy/provision.sh as root first."
     exit 1
 fi
+
+# The working data stays here. `data/md/` is the raw simulation output and it
+# is already 565 MB with one row a sixth of the way through its 50 ns; four
+# finished rows are several gigabytes of trajectory, checkpoint and system XML.
+# `data/cache/` and `data/refs/` are downloaded structures, which exist so a
+# rebuild does not hit KLIFS and GPCRdb again. The web app reads none of the
+# three: it reads `data/refstates.db`, `data/analysis/` and `data/systems/`,
+# which together are under 5 MB and are not excluded. The example run's
+# untracked output is the same story, 183 MB of trajectory and terminal log
+# that nothing serves.
+#
+# Explicit excludes rather than `--filter=':- .gitignore'`, which would be
+# tidier and would be wrong: `data/refstates.db` is itself gitignored, so the
+# filter would quietly ship a droplet with no explorer database. The app treats
+# an absent database as an empty section rather than an error, by design, so
+# the page would come up looking fine with the reference-states tab showing
+# nothing at all.
 
 # Ownership before pip, not after it. rsync runs as root, so every file it wrote
 # is root-owned, and the service user then hits PermissionError at RUNTIME rather

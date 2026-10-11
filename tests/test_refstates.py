@@ -1532,6 +1532,32 @@ def test_a_figure_with_no_data_is_skipped_rather_than_drawn_empty(tmp_path: Path
     assert "no membrane chunks" in done.stdout, done.stdout
 
 
+def test_the_deploy_leaves_the_working_data_behind_and_takes_the_database():
+    """What the droplet needs, and nothing that only this machine needs.
+
+    `data/md/` is the raw simulation output: 565 MB with one row a sixth of the
+    way through, several gigabytes once four rows have finished. The web app
+    reads none of it. The database it does read is gitignored, so this cannot
+    be done with an rsync gitignore filter without shipping a droplet whose
+    reference-states tab is silently empty, and an explicit list is a thing
+    that can rot. Hence a test.
+    """
+    deploy = (Path(__file__).resolve().parents[1] / "deploy" / "deploy.sh").read_text()
+    rsync = deploy[deploy.index("rsync "):]
+    rsync = rsync[:rsync.index("DROPLET_SSH")]
+
+    for path in ("data/md/", "data/cache/", "data/refs/"):
+        assert f"--exclude '{path}'" in rsync, (
+            f"{path} is working data the app never reads and would be synced")
+    for needed in ("data/refstates.db", "data/analysis", "data/systems"):
+        assert f"--exclude '{needed}" not in rsync, (
+            f"{needed} is read at runtime and must not be excluded")
+    # The filter that would have been tidier and wrong, kept out deliberately.
+    assert ".gitignore" not in rsync, (
+        "a gitignore filter would exclude data/refstates.db, which is "
+        "gitignored and is exactly what the explorer reads")
+
+
 # ===========================================================================
 #  Resuming without duplicating frames
 # ===========================================================================

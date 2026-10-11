@@ -1549,6 +1549,40 @@ distinguishes the two, and on the Dror timescale nothing at 50 ns will either.
 The 50 ns rows will show whether the drift continues or settles, which is a
 different and answerable question.
 
+## 4o. The deploy would have shipped a gigabyte of trajectory
+
+G3 has not been run, so this was found by reading rather than by failing.
+`deploy/deploy.sh` rsyncs the project root with excludes for the virtual
+environments, the scratch directories and the secrets, and no exclude for
+`data/`. That was harmless while `data/` was manifests and a small database. It
+is not harmless now: `data/md/` is 565 MB with one row a sixth of the way
+through its 50 ns, and four finished rows are several gigabytes of trajectory,
+checkpoint and system XML. `data/cache/` and `data/refs/` add another 92 MB of
+structures downloaded so a rebuild does not hit KLIFS and GPCRdb again. The web
+app reads none of the three.
+
+Measured on a dry run, the deploy sends **1.08 GB today and 193 MB with the
+excludes**, and the difference grows with every hour of production.
+
+The tidier fix would have been `--filter=':- .gitignore'`, which would make the
+deploy send what the repository considers source. It would also have been
+wrong, and quietly so. `data/refstates.db` is gitignored, and it is exactly
+what the explorer reads. The app treats an absent database as an empty section
+rather than an error, deliberately, because the feature is additive and a
+deployment without it should not 500. So the filter would have produced a
+droplet that came up perfectly, with the reference-states tab showing nothing,
+and nothing anywhere saying why. The explicit list is less elegant and says
+what it means.
+
+A test asserts both halves: that the three working directories are excluded,
+and that the three runtime paths are not. Verified against a dry run rather
+than by reading the flags, after a first check that found every file missing
+because `rsync -n` without `-v` prints no file list at all, so the list being
+grepped was empty. That is the same shape as reading `tail`'s exit code instead
+of pytest's, which section 4h records: the check ran, the check said nothing,
+and nothing is easy to read as a pass.
+
+
 ---
 
 ## 6. The positive controls
