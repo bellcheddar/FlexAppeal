@@ -1894,6 +1894,48 @@ would get from them is in the reference state map and the new nearest-reference
 column.
 
 
+## 4v. The DSSP ribbon was missing the half that makes it a comparison
+
+Section 6.2 asks for a "DSSP ribbon: residues x time heatmap with motif bands
+marked, plus active/inactive reference consensus rows above it". The heatmap
+was there. The reference consensus was not, which leaves a chart that says what
+the trajectory's secondary structure is and nothing about whether that is what
+an active receptor looks like. The comparison is the point.
+
+The data had been computed all along. `report.sse_profiles` holds, per state,
+per motif, per position within that motif, a count of DSSP codes across the
+whole reference ensemble: `{"H": 70, "T": 2, "E": 1}` and so on. Two steps were
+missing. Pick the modal code, and resolve the motif position to a residue
+number through `motif_residues`, which is the same index space. Both are cheap,
+and neither had been done.
+
+It is drawn as two columns to the left of t = 0 rather than as a separate
+chart. A separate chart would mean the browser keeping two residue axes in
+step, and they would come apart the moment either scrolled. Three things had to
+be got right for the columns to be readable rather than merely present:
+
+- **Width.** A heatmap takes each cell's width from the gaps between
+  neighbouring x values, so at one frame step apart the consensus columns came
+  out as 0.1 ns slivers against an axis tens of nanoseconds long. The width is
+  now a fraction of the run, which makes it constant in pixels whether the run
+  is 10 ns or 50, and the tick labels always have room. A fixed multiple of the
+  frame step does not: it shrinks as the run grows.
+- **Separation.** An empty column sits between the consensus and the first
+  frame, with a rule drawn through it, so that two kinds of column that mean
+  different things do not touch. Without it the consensus reads as the opening
+  frames of the run.
+- **Honest gaps.** Only the motif residues have a consensus, because the
+  ensembles are built per motif. The other 220 residues of the construct are
+  null and draw as blank. Filling them with anything would be inventing a
+  reference the build does not have.
+
+Each cell reports how many of the references agree, because a residue where 70
+of 72 agree and one where 38 do are not the same claim. The test asserts that
+a 50/50 split still reports, with `agreement` of 0.5, rather than being
+discarded as indecisive: a reference set that disagrees with itself about a
+residue is a result about that residue.
+
+
 ---
 
 ## 6. The positive controls

@@ -1807,6 +1807,58 @@ def test_the_thumbnail_centres_the_bilayer_before_drawing_it(tmp_path: Path):
     assert "unitcell_lengths" in thumb
 
 
+def test_the_dssp_ribbon_carries_the_reference_consensus(tmp_path: Path):
+    """Section 6.2 asks for "active/inactive reference consensus rows".
+
+    The data was already in the analysis payload as a count of DSSP codes per
+    state, per motif, per position within that motif. What was missing was
+    picking the modal code and resolving the motif position to a residue
+    number, which is what puts it on the ribbon's own axis.
+    """
+    from flexappeal.refstates import web
+
+    payload = {
+        "motif_residues": {"TM6": [270, 271, 272]},
+        "report": {"sse_profiles": {
+            "active": {"TM6": {"0": {"H": 70, "T": 2},
+                               "1": {"H": 36, "T": 36},
+                               "2": {}}},
+            "inactive": {"TM6": {"0": {"T": 20, "H": 8}}},
+        }},
+    }
+    found = web.sse_consensus(payload, [269, 270, 271, 272])
+
+    # Residue 269 is in no motif, so it has no consensus and says so.
+    assert found["active"][0] is None
+    assert found["active"][1] == {"code": "H", "agreement": 0.972}
+    # A residue the references disagree on still reports, with the number that
+    # says they disagree: a 50/50 split is a result, not a missing value.
+    assert found["active"][2]["agreement"] == 0.5
+    # An empty histogram is not a consensus of anything.
+    assert found["active"][3] is None
+    assert found["inactive"][1] == {"code": "T", "agreement": 0.714}
+    # The rows line up with the ribbon's residues, so the browser does not
+    # have to join them.
+    assert len(found["active"]) == 4
+
+
+def test_the_dssp_endpoint_serves_the_consensus_beside_the_frames(tmp_path: Path):
+    """And it reaches the page, not just the helper."""
+    from flexappeal.webapp import create_app
+
+    app = create_app()
+    client = app.test_client()
+    response = client.get("/refstates/run/b2ar_apo/dssp.json")
+    if response.status_code == 404:
+        pytest.skip("no analysed b2ar_apo on this machine")
+    body = response.get_json()
+    assert "consensus" in body, sorted(body)
+    assert set(body["consensus"]) == {"active", "inactive"}
+    for state, row in body["consensus"].items():
+        assert len(row) == len(body["residues"]), state
+        assert any(cell for cell in row), f"{state} consensus is entirely empty"
+
+
 # ===========================================================================
 #  Resuming without duplicating frames
 # ===========================================================================

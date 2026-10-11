@@ -590,6 +590,49 @@ def frame_measurements(run_id: str) -> list[dict[str, Any]]:
     return rows
 
 
+def sse_consensus(payload: dict, residues: list[int]) -> dict[str, list]:
+    """The reference ensembles' secondary structure, on the ribbon's own axis.
+
+    Section 6.2 asks the DSSP ribbon for "active/inactive reference consensus
+    rows above it", so that a reader can see whether the trajectory's secondary
+    structure looks like the active references or the inactive ones rather than
+    only what it is.
+
+    `report.sse_profiles` already holds the data, as a count of DSSP codes per
+    state, per motif, per position within that motif. Two things have to happen
+    to put it on the ribbon: the modal code has to be picked, and the motif
+    position has to be resolved to a residue number through `motif_residues`,
+    which is the same index space.
+
+    The agreement fraction comes back with the code. A residue where 70 of 72
+    references agree and one where 38 do are not the same claim, and the
+    difference is the reader's to judge.
+    """
+    profiles = (payload.get("report") or {}).get("sse_profiles") or {}
+    motif_residues = payload.get("motif_residues") or {}
+    out: dict[str, list] = {}
+    for state, by_motif in profiles.items():
+        found: dict[int, dict] = {}
+        for motif, positions in (by_motif or {}).items():
+            numbers = motif_residues.get(motif) or []
+            for index, counts in (positions or {}).items():
+                try:
+                    residue = numbers[int(index)]
+                except (ValueError, IndexError):
+                    continue
+                if not counts:
+                    continue
+                code, best = max(counts.items(), key=lambda kv: kv[1])
+                total = sum(counts.values())
+                found[residue] = {"code": code.strip() or "C",
+                                  "agreement": round(best / total, 3)
+                                  if total else None}
+        # Over the ribbon's residues, so the two rows line up with the heatmap
+        # rather than needing the browser to join them.
+        out[state] = [found.get(residue) for residue in residues]
+    return out
+
+
 @refstates_bp.get("/run/<run_id>/dssp.json")
 def dssp(run_id: str):
     """Per-frame secondary structure, for the ribbon in section 6.2.
@@ -608,9 +651,10 @@ def dssp(run_id: str):
     if not path.is_file():
         abort(404)
     try:
-        payload = json.loads(path.read_text()).get("dssp") or {}
+        whole = json.loads(path.read_text())
     except json.JSONDecodeError:
         abort(404)
+    payload = whole.get("dssp") or {}
     if not payload.get("frames"):
         abort(404)
 
@@ -623,6 +667,7 @@ def dssp(run_id: str):
         "stride": stride,
         "n_frames_total": payload.get("n_frames"),
         "motifs": payload.get("motifs", {}),
+        "consensus": sse_consensus(whole, payload.get("residues", [])),
     })
 
 

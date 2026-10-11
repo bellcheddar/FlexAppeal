@@ -492,3 +492,10 @@ Timestamped, one line per meaningful event, for the reference-state build
   wrote it without checking. Column added, reading the payload the view already
   opens, both references shown rather than the nearer one. Also recorded that
   the motif timelines are not the chart section 6.2 describes.
+- `02:2x` Built section 6.2's reference consensus rows on the DSSP ribbon. The
+  data was in the analysis payload the whole time; what was missing was taking
+  the modal code and resolving the motif position to a residue number. Drawn as
+  two columns left of t = 0 so they share the residue axis exactly. Took three
+  goes to be readable: at one frame step the columns were 0.1 ns slivers, and
+  the tick labels printed over each other. Width is now a fraction of the run,
+  which is constant in pixels at any run length.
