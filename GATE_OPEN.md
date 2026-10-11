@@ -8,14 +8,15 @@ below needs an answer before those complete.
 
 ## G4 Publish — waiting
 
-**What it blocks.** Any `git push`. `main` is **57 commits ahead of
+**What it blocks.** Any `git push`. `main` is **74 commits ahead of
 `origin/main`** and none has left this machine. That is the whole
 reference-states build, from `phase 0: vendor BoltzMaker` onwards: nothing from
 it has ever been pushed, because G4 has been closed since it started.
 
-The figure in this file said 23 twice. It was wrong and I had written it from
-memory rather than from `git`, in the one file whose purpose is to carry numbers
-you can act on. Measured with `git log --oneline origin/main..HEAD`.
+This figure is measured with `git rev-list --count origin/main..HEAD` on each
+update, because it has been wrong before: it said 23 twice, written from memory
+rather than from `git`, in the one file whose purpose is to carry numbers you
+can act on. It was 57 earlier in this build and is 74 now.
 
 **What is done.** Phases 0 to 4 and 6 are complete, Phase 5 is running, Phase 7
 is drafted. The spec's own acceptance criteria are met for every finished phase:
@@ -28,7 +29,7 @@ is drafted. The spec's own acceptance criteria are met for every finished phase:
 | P4 each start scores as its own state | 4 / 4 |
 | P5, P6 | pending the Tier 2 rows |
 | Manifests re-derived from source | ABL1 20/20, β2AR 116/116, 0 changed |
-| Test suite | 871 pass, 0 fail (`pixi run test`) |
+| Test suite | 873 pass, 0 fail (`pixi run test`) |
 | axe-core, 8 pages | zero serious or critical |
 | Playwright, 8 pages x 2 viewports | no console errors |
 | First paint | 396 ms median against a 2 s budget |
@@ -38,7 +39,7 @@ is drafted. The spec's own acceptance criteria are met for every finished phase:
 
 The test figure in this file has now been wrong twice, at 833 and at 837, both
 times because I wrote it from memory or from arithmetic rather than from a run.
-871 is measured. A bare `pytest` from the repository root also used to collect
+873 is measured, and it moves as tests are added. A bare `pytest` from the repository root also used to collect
 the vendored BoltzMaker suite, whose 17 environment failures I briefly read as a
 regression of this project; `pytest.ini` now scopes collection so that the plain
 command and `pixi run test` agree.
@@ -46,7 +47,7 @@ command and `pixi run test` agree.
 **What unblocks it.** One of:
 
 ```
-# everything, as 57 commits
+# everything, as 74 commits
 git -C /Users/dellboy/Documents/Vibe_Coding/FlexAppeal push origin main
 ```
 

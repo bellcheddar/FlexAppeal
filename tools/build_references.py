@@ -207,28 +207,44 @@ def rspine_separation() -> dict:
             widest.setdefault(which, []).append(max(pairs))
             states.setdefault(which, []).append(state["state"])
 
-    out: dict = {"threshold_a": R_SPINE_CONTACT_A,
-                 "published_a": R_SPINE_CONTACT_CRYSTAL_A}
+    out = spine_verdict(widest, R_SPINE_CONTACT_A, R_SPINE_CONTACT_CRYSTAL_A)
     for which, values in widest.items():
         out[which] = {"n": len(values), "min": round(min(values), 2),
                       "max": round(max(values), 2),
                       "states": sorted(set(states[which]))}
+    return out
 
-    # The empty region is between the top of the active cluster and the bottom
-    # of the inactive one. Any threshold inside it classifies every crystal
-    # correctly, which is what makes the choice of 7.7 a position in a gap
-    # rather than a tuned number.
+
+def spine_verdict(widest: dict[str, list[float]], threshold: float,
+                  published: float) -> dict:
+    """The gap arithmetic, separated so it can be tested without the network.
+
+    Kept apart from the measurement above because this is the part that decides
+    whether the run passes, and a verdict that silently inverted would read as a
+    clean result. The measurement needs 20 structures and a catalogue; this
+    needs two lists of numbers.
+
+    The empty region runs from the top of the active cluster to the bottom of
+    the inactive one. Any threshold inside it classifies every crystal
+    correctly, which is what makes 7.7 a position in a gap rather than a tuned
+    number.
+    """
+    out: dict = {"threshold_a": threshold, "published_a": published}
     active, inactive = widest.get("active"), widest.get("inactive")
-    if active and inactive:
-        low, high = max(active), min(inactive)
-        out["gap_a"] = [round(low, 2), round(high, 2)]
-        out["gap_width_a"] = round(high - low, 2)
-        out["threshold_in_gap"] = low < R_SPINE_CONTACT_A < high
-        out["published_in_gap"] = low < R_SPINE_CONTACT_CRYSTAL_A < high
-        out["published_margin_a"] = round(R_SPINE_CONTACT_CRYSTAL_A - low, 2)
-        out["correct"] = (all(v < R_SPINE_CONTACT_A for v in active)
-                          and all(v >= R_SPINE_CONTACT_A for v in inactive))
-        out["n_classified"] = len(active) + len(inactive)
+    if not active or not inactive:
+        return out
+    low, high = max(active), min(inactive)
+    out["gap_a"] = [round(low, 2), round(high, 2)]
+    out["gap_width_a"] = round(high - low, 2)
+    out["threshold_in_gap"] = low < threshold < high
+    out["published_in_gap"] = low < published < high
+    out["published_margin_a"] = round(published - low, 2)
+    # `assembled` needs every pair under the threshold, so an active reference
+    # is correct when its widest pair is under and an inactive one when its
+    # widest pair is not.
+    out["correct"] = (all(v < threshold for v in active)
+                      and all(v >= threshold for v in inactive))
+    out["n_classified"] = len(active) + len(inactive)
     return out
 
 

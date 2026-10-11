@@ -917,6 +917,33 @@ The production run directory does have its `solvated.pdb`, so this pass will
 find its topology when `b2ar_apo` lands rather than silently returning nothing.
 That was the specific failure I went looking for and it is not there.
 
+**A loop that could never stop, found by reading its own guard.** The streaming
+analysis re-analyses and re-ingests every row every half hour, and then runs one
+final pass with the bilayer QC once production ends. Its condition was
+`while pgrep -f "tools/run_md.py"`. That can never go false. The script's own
+text contains the pattern, so the shell that launched it carried
+`tools/run_md.py` in its command line and matched: the loop was kept alive by
+its own parent, and the condition was true because the loop was running.
+
+Checked rather than reasoned about, by listing every process the guard matched:
+three, of which one was PID 78508, the loop's own grandparent.
+
+The symptom would have been the worst available. The streaming passes work, so
+the explorer would have filled in correctly and nothing would have looked
+wrong. Only the pass *after* the loop, the one that computes the bilayer QC and
+G6 on the finished trajectory, would never have run, and the `membrane` table
+would have stayed empty with no error anywhere to say why.
+
+Replaced with two conditions on state rather than on a pattern that matches us:
+the queue's own `queue done` marker, and a process check that excludes the
+script's ancestors by PID. Both paths tested before the swap, including the case
+where the marker is present and the case where no log exists at all.
+
+**What the fix immediately produced.** Restarting the loop populated the
+receptor half of the database for the first time: 2 systems rather than 1, and
+136 reference structures rather than 20. Everything above about the receptor
+ingest path having never run was fixed by the act of running it.
+
 **And a false alarm I raised myself.** Running `pytest -q` from the repository
 root reported 17 failures. They are all in `vendor/boltzmaker/tests`, which
 shells out to `vendor/boltzmaker/.venv/bin/python3`, an interpreter that does not

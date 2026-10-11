@@ -1908,3 +1908,46 @@ def test_row_adapter_exposes_what_agreement_reads():
             {"status": "ok", "dfg_agrees": False, "alphac_agrees": True}]
     control = refs.agreement([module._Row(r) for r in rows], "dfg")
     assert control["compared"] == 2 and control["agreed"] == 1
+
+
+def test_rspine_verdict_reads_the_gap_the_way_the_state_rule_does():
+    """D015's threshold check, on numbers rather than on 20 structures.
+
+    This is the half of `rspine_separation` that decides whether the kinase
+    verify passes, so it is the half worth testing directly: a verdict that
+    inverted would still print a tidy table.
+    """
+    module = _build_references()
+
+    # The real measurement: active tops out at 5.96, inactive starts at 10.35.
+    measured = {"active": [5.33, 5.61, 5.66, 5.92, 5.96],
+                "inactive": [10.35, 10.72, 11.11, 12.92]}
+    out = module.spine_verdict(measured, 7.7, 6.0)
+    assert out["gap_a"] == [5.96, 10.35]
+    assert out["gap_width_a"] == 4.39
+    assert out["threshold_in_gap"] and out["correct"]
+    assert out["n_classified"] == 9
+    # The published value also classifies these crystals, by four hundredths,
+    # which is the whole argument of D015 rather than an incidental number.
+    assert out["published_in_gap"]
+    assert out["published_margin_a"] == 0.04
+
+    # A threshold below the active cluster calls an active reference broken.
+    low = module.spine_verdict(measured, 5.5, 6.0)
+    assert not low["threshold_in_gap"] and not low["correct"]
+
+    # And one above the inactive cluster calls an inactive reference assembled.
+    high = module.spine_verdict(measured, 11.0, 6.0)
+    assert not high["threshold_in_gap"] and not high["correct"]
+
+
+def test_rspine_verdict_stays_silent_without_both_clusters():
+    """No opinion rather than a default one.
+
+    A run where the structures failed to load must not report a gap it did not
+    measure, for the same reason the manifests omit a key they cannot produce.
+    """
+    module = _build_references()
+    out = module.spine_verdict({"active": [5.3, 5.9]}, 7.7, 6.0)
+    assert "gap_a" not in out and "correct" not in out
+    assert out["threshold_a"] == 7.7

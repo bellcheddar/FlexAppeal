@@ -231,3 +231,21 @@ Timestamped, one line per meaningful event, for the reference-state build
   code through a pipe. And the test count in `GATE_OPEN.md` had been wrong
   twice, 833 then 837, written from memory and then from arithmetic. Measured it
   is 871.
+- `21:2x` The streaming analysis loop could never stop. Its guard was
+  `while pgrep -f "tools/run_md.py"`, and the script's own text contains that
+  pattern, so the shell that launched it matched: the loop was held open by its
+  own parent. Verified by listing every matching PID, one of which was the
+  loop's grandparent. The streaming passes would have gone on working, and only
+  the final pass after the loop, the one that computes the bilayer QC and G6 on
+  the finished trajectory, would never have run. Replaced with the queue's own
+  `queue done` marker plus a process check that excludes this script's
+  ancestors by PID, both paths tested before the swap.
+- `21:2x` Restarting that loop populated the receptor half of the database for
+  the first time: 2 systems and 136 reference structures, against 1 and 20
+  before. The receptor ingest path is no longer merely implemented.
+- `21:2x` b2ar_apo production started at 21:22:36, 50 ns over 12,500,000 steps,
+  within a minute of the 21:22 the restraint ladder projected.
+- `21:2x` Extracted `spine_verdict` from the R-spine control so the half that
+  decides pass or fail can be tested on numbers rather than on 20 structures
+  and a catalogue. A verdict that inverted would otherwise still print a tidy
+  table. Both manifests verify clean in one run: 20 of 20, 116 of 116.
