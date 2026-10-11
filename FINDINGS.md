@@ -944,6 +944,23 @@ receptor half of the database for the first time: 2 systems rather than 1, and
 136 reference structures rather than 20. Everything above about the receptor
 ingest path having never run was fixed by the act of running it.
 
+**P6 is no longer a control that exists only in fixtures.** Both P5 and P6 were
+implemented with tests for the passing, failing and empty cases, and neither had
+ever seen a real trajectory. Feeding the smoke run's bilayer through ingest into
+a scratch database and running the controls command gives P6 a real verdict:
+`1 chunks, APL 68.9 A^2 (68.9 to 68.9), 37.6 A  PASS`.
+
+Worth being exact about why that passes when the chunk itself reads `outside
+expected`. Section 5.8 says "expect roughly 60 to 68 A^2 ... outside 55 to 75
+A^2 is G6", so the advisory window and the gate are two different things in the
+spec and the code encodes both. P6 is the gate, and 68.9 is inside it.
+
+That leaves **P5 as the only control still genuinely waiting**, and not for want
+of code: it needs an inactive-start run, which means `b2ar_carazolol` or
+`abl1_imatinib`, third and fourth in the queue. P4 is 4 of 4 on the start
+structures, and the controls command reports P5 as `pending` rather than
+omitting it, because a control nobody mentions reads as a control that passed.
+
 **And a false alarm I raised myself.** Running `pytest -q` from the repository
 root reported 17 failures. They are all in `vendor/boltzmaker/tests`, which
 shells out to `vendor/boltzmaker/.venv/bin/python3`, an interpreter that does not

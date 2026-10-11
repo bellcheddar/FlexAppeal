@@ -249,3 +249,9 @@ Timestamped, one line per meaningful event, for the reference-state build
   decides pass or fail can be tested on numbers rather than on 20 structures
   and a catalogue. A verdict that inverted would otherwise still print a tidy
   table. Both manifests verify clean in one run: 20 of 20, 116 of 116.
+- `21:2x` P6 evaluated on a real bilayer rather than on fixtures: the smoke
+  run's chunk through ingest into a scratch database, then the controls command,
+  gives `APL 68.9 A^2, 37.6 A  PASS`. The chunk reads `outside expected` and
+  still passes because section 5.8 names two different windows, an advisory 60
+  to 68 and a G6 gate at 55 to 75, and P6 is the gate. P5 is now the only
+  control still genuinely waiting, and it needs an inactive-start row.
