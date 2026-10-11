@@ -110,8 +110,13 @@
             <tr>
               <th scope="row">
                 <a href="{{ url_for('refstates.run', run_id=run.run_id) }}">{{ run.run_id }}</a>
-                {% if run.status != 'complete' %}
-                  <span class="md-tag">{{ run.status }}</span>
+                {% if run.status and run.status != 'complete' %}
+                  {# A row that failed or stopped short is a caveat on every
+                     number below it, not a stage it is passing through, so it
+                     is marked as one. "running" stays quiet: it is a stage. #}
+                  <span class="md-tag{% if run.status.startswith('failed:')
+                    or run.status.startswith('short:') %} md-tag-bad{% endif %}"
+                    >{{ run.status }}</span>
                 {% endif %}
               </th>
               <td>{{ run.start_state }}{% if run.start_model %} ({{ run.start_model }}){% endif %}</td>

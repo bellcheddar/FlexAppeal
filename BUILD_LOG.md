@@ -734,3 +734,19 @@ post-truncation frames coherently: b2ar_apo at 177 frames against production at
 17.7 ns.
 
 FINDINGS 4ai. Four tests added, 948 passed, 1 skipped.
+
+### 11 October, 05:40 to 06:20
+
+Giving the new `short:` status a colour found that its class, `md-tag`, was
+defined in no stylesheet. Scanning every template for `md-*` tokens and
+differencing against brand.css found five more: `md-stats`, `md-scrub`,
+`md-readmore`, `md-sub`, `md-viewer`. `md-stats` is the figures block at the top
+of every index card and every run page, rendering as a browser-default
+description list instead of a row of labelled figures. All six defined, and the
+difference is now a test with five named exceptions, one of them a genuine
+JavaScript hook. Confirmed by screenshot at desktop and phone width.
+
+Also checked and ruled out: disk headroom. 1.3 TiB free against 2.4 GB of
+trajectory still to be written across the four rows.
+
+FINDINGS 4aj. Three tests added, 951 passed, 1 skipped.

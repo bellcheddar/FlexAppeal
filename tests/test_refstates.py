@@ -3947,3 +3947,91 @@ def test_a_live_production_process_keeps_the_streaming_going(tmp_path: Path):
     stub = '#!/bin/bash\necho 4242\nexit 0\n'
     assert _stream_producing(tmp_path, queue_log="[21:22] producing\n",
                              pgrep_script=stub) == 0
+
+
+# Classes used in a template and deliberately not defined in brand.css.
+#
+# `md-reanalyse` is a JavaScript hook: `analysis.js` selects on it and nothing
+# styles it, which is a legitimate use of a class. The other four are dangling
+# the way `md-stats` was, but they belong to pages outside the reference-state
+# work (the analysis, prepare, run-detail and example-intro templates), so they
+# are recorded here rather than fixed in passing. Anything new that dangles
+# fails this test.
+TEMPLATE_CLASSES_WITHOUT_CSS = {
+    "md-reanalyse",
+    "md-example-terminal", "md-run-sub", "md-source-form", "md-tile-note",
+}
+
+
+def test_every_class_a_template_uses_is_defined_in_the_stylesheet():
+    """`md-tag` and five others were used in templates and defined nowhere.
+
+    brand.css is the only stylesheet the pages load, and none of these
+    templates carries a `<style>` block, so an undefined class is simply
+    unstyled markup. It was not cosmetic: `md-stats` is the figures block at the
+    top of every index card and every run page, and as an undefined `<dl>` it
+    rendered as a default indented list rather than a row of labelled numbers.
+    The Mol* container escaped only because its height is an inline style.
+
+    Nothing was going to notice. The pages render, the page tests pass, and the
+    difference is only visible against the design it was meant to have.
+    """
+    import re
+
+    root = Path(__file__).resolve().parents[1]
+    css = (root / "flexappeal" / "static" / "brand.css").read_text()
+    defined = set(re.findall(r"\.(md-[a-z0-9-]+)", css))
+    assert "md-stats" in defined and "md-tag" in defined, (
+        "the two this test was written for")
+
+    undefined: dict[str, set[str]] = {}
+    for template in sorted((root / "flexappeal" / "templates").rglob("*.html")):
+        body = template.read_text()
+        for attribute in re.finditer(r'class="([^"]*)"', body, re.S):
+            for token in re.findall(r"\bmd-[a-z0-9-]+\b", attribute.group(1)):
+                if (token not in defined
+                        and token not in TEMPLATE_CLASSES_WITHOUT_CSS):
+                    undefined.setdefault(token, set()).add(template.name)
+
+    assert not undefined, (
+        "used in a template and defined in no stylesheet: "
+        + "; ".join(f"{k} ({', '.join(sorted(v))})"
+                    for k, v in sorted(undefined.items())))
+
+
+def test_the_allowed_undefined_classes_are_all_still_used():
+    """An allow-list that outlives its entries starts hiding things.
+
+    If one of these is deleted from the templates, the entry should go too, so
+    that it cannot quietly cover a future class of the same name.
+    """
+    root = Path(__file__).resolve().parents[1]
+    bodies = "".join(p.read_text() for p in
+                     (root / "flexappeal" / "templates").rglob("*.html"))
+    stale = sorted(c for c in TEMPLATE_CLASSES_WITHOUT_CSS
+                   if c not in bodies)
+    assert not stale, f"no longer used in any template: {stale}"
+
+
+def test_a_short_or_failed_run_is_marked_on_the_index(tmp_path: Path):
+    """A caveat on every number below it should not look like a stage.
+
+    `running` is a stage and stays quiet. `failed:` and `short:` are not: they
+    say the row does not describe what the page says it describes.
+    """
+    import re
+
+    root = Path(__file__).resolve().parents[1]
+    body = (root / "flexappeal" / "templates"
+            / "refstates_index.html").read_text()
+    marker = re.search(r'<span class="md-tag.*?</span>', body, re.S)
+    assert marker, "the status marker should still be there"
+    assert "md-tag-bad" in marker.group(0)
+    assert "short:" in marker.group(0) and "failed:" in marker.group(0), (
+        "both of the statuses that are caveats rather than stages")
+    css = (root / "flexappeal" / "static" / "brand.css").read_text()
+    assert ".md-tag-bad" in css
+    # One definition of the colour, shared with the verdict badge, rather than
+    # a second copy of the same two hex values.
+    assert css.count("#fbd5d6") == 1, (
+        "the bad-status red should have one definition")

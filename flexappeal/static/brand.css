@@ -235,7 +235,26 @@ a { color: var(--md-primary); }
   padding: 2px 7px; border-radius: 10px; font-weight: 700;
 }
 .md-badge-warn { background: var(--md-accent-amber); color: #4a3800; }
-.md-badge-bad { background: #fbd5d6; color: #7a1012; }
+/* Shared so the colour has one definition. `.md-tag-bad` is the same red on a
+   label rather than a verdict badge. */
+.md-badge-bad,
+.md-tag-bad { background: #fbd5d6; color: #7a1012; }
+
+/* A small label beside a heading: a run's status on the index, a motif's state
+   on a run page. It was used in both templates and defined in neither
+   stylesheet, so it rendered as bare inline text running into the heading next
+   to it. Quieter than `.md-badge`, which carries a verdict: this one labels.
+   */
+.md-tag {
+  font-size: 11px; font-weight: 500; color: var(--md-text-muted);
+  background: var(--md-bg-alt); border-radius: 4px; padding: 1px 6px;
+  margin-left: 6px; white-space: nowrap;
+}
+/* A status that is a caveat on the science rather than a stage of it. A row
+   that failed, or stopped short of its target, still has a page full of
+   numbers, and those numbers describe less run than the target says. The label
+   has to carry that where the numbers are read. */
+.md-tag-bad { font-weight: 700; }
 
 /* The Examples card thumbnail. Width-capped rather than stretched: it is a
    line drawing of real coordinates, and scaling it up past its own resolution
@@ -1072,3 +1091,67 @@ a { color: var(--md-primary); }
   background: var(--md-primary); color: #fff; font-size: 12px; font-weight: 700;
 }
 .md-example-phase code { font-size: 13px; }
+
+/* --------------------------------- reference-state pages: the unstyled five */
+
+/* Five classes the refstates templates used and no stylesheet defined. Not
+   harmless: `.md-stats` is the figures block at the top of every index card and
+   every run page, and as an undefined `<dl>` it rendered as a default indented
+   list rather than a row of labelled numbers. The Mol* container escaped only
+   because its height is an inline style on the element. Found by scanning the
+   templates for `md-*` classes and differencing against this file, which is now
+   a test rather than something I thought to do once. */
+
+/* Labelled figures in a row, wrapping when there is no room. The markup is a
+   `<dl>` of `<div><dt>/<dd>` pairs, which is what keeps each label tied to its
+   own figure for a screen reader while letting the pair be one flex item. */
+.md-stats {
+  display: flex; flex-wrap: wrap; gap: 8px 28px; margin: 14px 0 0;
+}
+.md-stats > div { min-width: 0; }
+.md-stats dt {
+  font-size: 11px; text-transform: uppercase; letter-spacing: 0.05em;
+  color: var(--md-text-muted); font-weight: 600;
+}
+.md-stats dd {
+  margin: 2px 0 0; font-size: 15px; font-weight: 600; color: var(--md-text);
+  font-variant-numeric: tabular-nums;
+}
+
+/* A card's one-line subtitle, under its heading. */
+.md-sub {
+  margin: 2px 0 14px; font-size: 13px; color: var(--md-text-muted);
+  max-width: 70ch;
+}
+
+/* The trajectory scrubber: Play, the range and the time readout on one line.
+   The range takes the slack, being the control actually being used. */
+.md-scrub { display: flex; align-items: center; gap: 12px; margin-top: 12px; }
+.md-scrub input[type=range] { flex: 1 1 auto; min-width: 120px; }
+/* Given room for its longest value with fixed-width digits, because otherwise
+   the readout changes width as it counts and shifts the slider under the
+   pointer that is dragging it. */
+.md-scrub output {
+  flex: 0 0 auto; min-width: 7ch; font-variant-numeric: tabular-nums;
+}
+/* The readout carries `.md-note` to get its type size, but `.md-note`'s amber
+   panel is for a caveat and this is a number, so the panel comes back off. */
+.md-scrub output.md-note {
+  background: none; border-left: 0; padding: 0; margin: 0;
+}
+
+/* A `<details>` holding the long version of something: the summary reads as a
+   control, and an open one sets its body apart from it. */
+.md-readmore > summary {
+  cursor: pointer; font-size: 13px; font-weight: 600; color: var(--md-primary);
+}
+.md-readmore > summary:hover { text-decoration: underline; }
+.md-readmore[open] > summary { margin-bottom: 8px; }
+
+/* The Mol* container. Its height stays an inline style on the element, because
+   the viewer measures it on load and that must not depend on this file having
+   arrived; this gives it the surface the rest of the page is drawn on. */
+.md-viewer {
+  background: var(--md-bg-alt); border: 1px solid var(--md-border);
+  border-radius: var(--md-radius); overflow: hidden;
+}

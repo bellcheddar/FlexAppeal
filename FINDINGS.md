@@ -2538,6 +2538,50 @@ is two environment variables so the test for a real stop does not take a minute
 to decide nothing is there. Run against the gap case with the grace set to one
 look, which is the old behaviour, `producing` returns false; with two, true.
 
+## 4aj. Six classes the pages used and the stylesheet never defined
+
+Giving the new `short:` status a colour meant finding the class the status
+already used, `md-tag`. It is used in two templates. It is defined in none.
+
+`brand.css` is the only stylesheet these pages load, and not one of the
+reference-state templates carries a `<style>` block, so a class that is not in
+that file is simply unstyled markup. Scanning the templates for `md-*` tokens
+and differencing against the stylesheet found five more:
+
+    md-stats      index cards and every run page: the figures block
+    md-scrub      the trajectory scrubber under the viewer
+    md-readmore   the "how to read this" disclosures, eight of them
+    md-sub        a card's one-line subtitle
+    md-viewer     the Mol* container
+
+`md-stats` is the one that mattered. It is the `<dl>` of `<div><dt>/<dd>` pairs
+carrying start state, length, speed and status at the top of every card and
+every run page, and undefined it rendered as a browser-default description
+list: each label on its own line with its value indented under it, where the
+design is a row of labelled figures. `md-viewer` escaped visibly only because
+the element carries `min-height:460px` as an inline style.
+
+Nothing was ever going to catch this. The pages return 200, the console is
+clean, the page tests pass, and the markup is valid. The only way to see it is
+to compare the page against the design it was meant to have, which is to say by
+looking, and the thing about a page that renders is that it does not ask to be
+looked at.
+
+So the difference is now a test. It reads every template, collects the `md-*`
+tokens out of `class` attributes and asserts each one is a selector in
+`brand.css`. Five exceptions are named and explained rather than skipped:
+`md-reanalyse` is a JavaScript hook that `analysis.js` selects on, which is a
+real use of a class with no style attached, and four others belong to pages
+outside this work and are recorded instead of fixed in passing. A second test
+asserts the allow-list has no stale entries, so an exception cannot outlive the
+markup that earned it and quietly cover a later class of the same name.
+
+The six are defined now, in the stylesheet's own idiom and from its tokens.
+`md-tag-bad` is a status that is a caveat rather than a stage: `running` is a
+stage and stays quiet, while `failed:` and `short:` say the numbers below
+describe less run than the page claims, and they take the same red as the bad
+verdict badge from one shared declaration rather than a second copy of the hex.
+
 ## 5. Production runs
 
 Tier 2 started at 17:04 on 10 October, in section 5.3's priority order: β2AR
