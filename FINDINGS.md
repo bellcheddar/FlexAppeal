@@ -265,7 +265,7 @@ Whole-protein score +0.593, active, no conflicts. The system was built from
 
 The inactive system is the other half of the control, and it is the stronger
 one. Built from 5D5A, it scores **−0.934, inactive**, every motif inactive, with
-5D5A itself as the nearest inactive reference at **0.00 Å** — which is what it
+5D5A itself as the nearest inactive reference at **0.00 Å**, which is what it
 must be, since that is the structure the system was built from. The active
 distances are 2 to 4 Å. Secondary structure agrees independently: every TM helix
 comes out 92 to 97 per cent helical and NPxxY 100 per cent.
@@ -1630,6 +1630,268 @@ section 5.2 records before equilibration pulls it to 68.4, and the rehearsal
 trajectory is the built system. The measurement agreeing with a number taken
 independently a day earlier is evidence the fabricated frames are being read
 correctly.
+
+
+## 4q. A row that died would have shown as running until somebody looked
+
+Section 0's fallback ladder ends with degrading gracefully and recording
+`status = "failed:<reason>"`. For references that happens: `refs.py` writes
+`failed:no_motifs`, `failed:missing_motifs` and `failed:<ExceptionName>`. For
+runs, nothing wrote it at all.
+
+`run_md.py` writes `run.json` when it finishes and not otherwise.
+`tools/ingest.py` reads an absent `run.json` as a row still in flight, which is
+right while a row is in flight and wrong once it has stopped:
+
+```python
+else:
+    # A run still in flight is recorded as such rather than left out
+    fields["status"] = "running"
+```
+
+So a row that died at three in the morning would be ingested as `running`, and
+the explorer would show it as `running` for as long as anyone cared to look.
+The partial trajectory beside it would make that look entirely plausible: the
+streaming analysis would keep re-reading the same frames and reporting the same
+motif counts every half hour, because mdtraj reads whatever is on disk and
+nothing on disk says the writer has gone.
+
+The record is now written by the queue rather than by the runner. The queue is
+what survives the failure, which is the point: a runner killed by the OOM
+reaper or by a segfault inside the platform layer gets no chance to write
+anything, and those are the failures most worth recording. The reason is taken
+from the last line of the row log that looks like an error, so a NaN
+coordinate is recorded as `failed:Particle coordinate is NaN` rather than as
+`failed:exit 1`. A row whose runner did write its own `run.json` keeps it,
+because the runner's record is the better one.
+
+Found by asking what the explorer would show if a row failed overnight, which
+is a question with an obvious answer and no test behind it. There is now a test
+for the recording and a second for the rendering, because a failed row also has
+to render rather than 500 or disappear.
+
+
+## 4r. Section 6.2's viewer asks for four things and had one
+
+The run page's Mol* viewer is specified in one line of section 6.2: "cartoon
+coloured by motif tokens; the GPCR shows the membrane as transparent phosphate
+spheres (toggle); frame scrubber; reference overlay toggle (nearest active and
+nearest inactive reference superposed on the core, ghosted)."
+
+The frame scrubber is there. The cartoon colouring is not, and the page says so
+in its own read-more, which is the right way to be missing something:
+
+> Colouring the cartoon by motif is not wired up yet; the table is the honest
+> version of it rather than a half-working theme.
+
+The other two were missing with nothing anywhere saying so, which is the part
+worth recording. A deliberate omission that is disclosed is a decision; an
+undisclosed one is just absent.
+
+**The membrane toggle is now built**, because the reason it was not turned out
+not to survive checking. The viewer bundle drops the solvent and the bilayer on
+load and explains why: a 190,000-atom membrane system is mostly water and none
+of it is drawn. That is right for the water. It is not right for the
+phosphorus. A POPC bilayer around β2AR is 476 lipids, so one atom each is 476
+atoms against roughly 2,600 for the protein, and measured rather than
+estimated the pair comes to **38 KB of PDB and 26 KB of XTC** beside a 0.6 MB
+protein bundle. The gigabyte the comment is defending against is the water, and
+the phosphorus was never part of it.
+
+It is written as its own structure rather than merged into the viewer bundle.
+Merging would put non-protein atoms into the topology every downstream
+selection runs against, and that path is currently producing correct numbers
+for a live run; a second structure the viewer loads beside the first cannot
+affect any measurement. It is loaded on demand and deleted again rather than
+loaded and hidden, which also avoids Mol*'s visibility API, the part of its
+surface most likely to move between versions: `loadTrajectory` returns the
+model's state ref, and deleting that subtree is enough.
+
+Verified in a real browser rather than by reading the code. Both files serve
+200, the load resolves, the delete commits, the control reports what it did,
+and there are no console or page errors on either transition. What could not be
+verified here is that the spheres are actually drawn: this Chromium has no
+WebGL, so Mol* renders its "WebGL does not seem to be available" notice and a
+screenshot proves nothing either way. The structure reaching the plugin's state
+is as far as this environment can take it, and that is stated rather than
+dressed up as a visual check.
+
+**The reference overlay is still missing**, and is now written down as missing
+rather than merely absent. It needs the nearest active and nearest inactive
+reference superposed on the core and ghosted, which is more than a file to
+serve: the superposition exists in the analysis, but the overlay needs those
+coordinates written out per frame and a second representation style, and doing
+it badly would put a structure on the screen that is not where the analysis
+says it is. The honest position is the one the cartoon colouring already takes.
+
+
+---
+
+## 4s. Three columns of section 7's schema were never written
+
+`systems` is specified in section 7 as
+
+```sql
+CREATE TABLE systems (system_id TEXT PRIMARY KEY, family TEXT, uniprot TEXT,
+                      name TEXT, environment TEXT, n_atoms INTEGER,
+                      forcefield TEXT, notes TEXT);
+```
+
+and the store creates all eight columns. `ingest_analysis` wrote four of them.
+`uniprot`, `n_atoms` and `forcefield` were NULL for both systems and always had
+been, because nothing passed them.
+
+The consequence was visible on the page and read as a design choice. Section
+6.2 asks the Examples cards for a thumbnail, an atom count, a simulated time
+and a generated finding. The card template already had the atom count in it,
+behind `{% if card.system.n_atoms %}`, so it rendered nothing and looked like a
+card that was never meant to show one. The markup was right and the data was
+absent, which is the harder of the two to notice.
+
+All three are now written, and none of them is guessed:
+
+| system | uniprot | n_atoms | forcefield |
+|---|---|---|---|
+| `abl1` | P00519 | 46,721 | not recorded for this build |
+| `b2ar` | P07550 | 194,032 | amber14-all.xml, amber14/tip3p.xml |
+
+The accessions come from the catalogues the build already queries, not from
+memory: KLIFS `kinase_information?kinase_ID=392` returns `"uniprot": "P00519"`
+and GPCRdb `protein/adrb2_human/` returns `"accession": "P07550"`. They are
+pinned in `tools/ingest.py` rather than fetched on every ingest, because an
+accession does not change and the ingest should not need the network, with the
+endpoint named beside each so the value can be rechecked.
+
+The atom counts are measured. For the receptor they come from `build.json`,
+which `tools/build_membrane.py` writes; the water builder writes no manifest,
+so ABL1's is counted from the solvated topology, where counting coordinate
+records is exact even above 99,999 atoms because the record name does not
+change. Both agree with section 5.1's independently recorded figures, 46,721
+and 194,032, which is a cross-check rather than a coincidence.
+
+ABL1's force field stays null, because this build has no record of it that is
+not a guess. `run_md.py` now writes the list it actually loaded into
+`run.json`, so the next finished water row fills the column by itself. A null
+rather than a plausible string is the point: section 0 says to omit a key that
+cannot be produced instead of writing a stand-in.
+
+**And that change nearly cost a run.** The force field list is chosen inside
+`build` and recorded inside `main`, which are different scopes, so
+`"forcefield": forcefield_files` parsed cleanly and would have raised
+`NameError` at the one moment it costs most: after the production loop had
+finished and before anything was written down. A seventeen-hour row would have
+completed and recorded nothing, and `record_failure` from section 4q would then
+have marked a successful run as failed. It is a module constant now, and there
+is a test that reads `main` with `ast` and asserts every name it uses is one it
+binds, a module-level name, or a builtin. The test was checked against the bug
+rather than only against the fix: reintroducing the local makes it fail.
+
+### The card wanted a thumbnail too
+
+Section 6.2 asks each Examples card for "a thumbnail, atom count, simulated
+time, and a one-line finding generated from the data". The finding was there
+and is the hard one. The atom count was markup waiting for data, above. The
+thumbnail was missing outright.
+
+There is no GPU in this pipeline, so a cartoon render is not available, and a
+stock picture of a kinase would be the opposite of "filled from SQLite, never
+written by hand". So the thumbnail is a line drawing of the coordinates that
+were actually built: the Calpha trace in order, and for the receptor the 476
+lipid phosphorus atoms as well, projected looking along the membrane. 32 and 36
+KB. β2AR comes out immediately recognisable, seven helices crossing a bilayer
+with the intracellular loops hanging below it.
+
+The first version was wrong in a way worth recording, because it looked fine.
+The receptor appeared to sit mostly above the upper leaflet, half out of the
+membrane. These are wrapped coordinates, and under a membrane barostat the
+bilayer drifts until it straddles the periodic boundary, so the two leaflets
+had been drawn at opposite ends of the box. That is the same fault section 2
+records `centre_bilayer` being written for, and `centre_bilayer` already
+returns its shift so that a caller can move other atoms into the same frame.
+The protein is now shifted with the lipids, and any Calpha still more than half
+a box from the bilayer centre is moved the short way round, because that is
+what periodicity means. A picture is as capable of being confidently wrong as a
+number, and harder to check.
+
+## 4t. Checking the About page against the nine things section 6.2 names
+
+Section 6.2's About item asks for a "software and data table (OpenMM, PDBFixer,
+MDTraj, MDAnalysis, gemmi, KLIFS, GPCRdb, OPM, BoltzMaker's `sse_comparison`
+with commit SHA), references verified at build time". That is a checklist, so
+it was checked rather than assumed. Seven of the nine were there, the
+references do verify through Crossref at build time, and the vendored SHA
+`da939b1be54a` is on the page as asked.
+
+**PDBFixer was missing**, and it is not a small omission. PDBFixer is what
+`tools/run_md.py`, `tools/build_membrane.py` and `tools/verify_references.py`
+use to add missing atoms and replace nonstandard residues, and replacing
+nonstandard residues is the whole of D018: it is the reason both ABL1 rows
+simulate an unphosphorylated kinase. The About page already carries that
+limitation and did not name the tool that causes it. PDBFixer has no paper of
+its own, being part of the OpenMM project, so it is named on the row that
+already cites OpenMM rather than repeating the same reference: "Simulation
+engine, and structure preparation through PDBFixer".
+
+**MDAnalysis is not there because it is not used.** It appears once in this
+repository, in `flexappeal/runtime/pixi.toml.j2`, which is the environment for
+the run bundle a user downloads and executes on their own machine, not for the
+reference-states module. Nothing in `flexappeal/refstates/` or in `tools/`
+imports it: the trajectory work is mdtraj and the structure reading is gemmi.
+Section 6.2 names it in an expected list, and the honest response to a list
+naming a library this build does not use is to not list it as though it were
+used. Recorded here instead, which is the difference between a gap and a
+decision.
+
+
+## 4u. The motif table was missing the column my own decision relied on
+
+Section 6.2 specifies the motif table as "per motif, start value, final 10 %
+mean, nearest reference PDB at end, `s`, label". The page had five of the six.
+The nearest reference was not there.
+
+That matters more than a missing column usually would, because D023 had just
+been written, declining to build the viewer's reference overlay on the grounds
+that
+
+> The motif table below gives the nearest reference and the distance to it, per
+> motif, which is the same comparison in numbers.
+
+It did not. The justification for not building one thing rested on another
+thing that was also absent, and I wrote it without checking. A decision is only
+as good as the claim it is resting on, and this one was resting on a column
+that had never existed.
+
+The data was there the whole time: every frame in the analysis payload carries
+`nearest_active`, `nearest_inactive`, `d_act_a` and `d_inact_a` per motif.
+`motif_frames` has no column for it, and should not: section 7 does not give it
+one, and the nearest reference is a property of a frame rather than of a run.
+So the view reads it from the payload it already opens for the viewer bundle
+and merges it into the summary rows, which is the same shape as the membrane
+verdicts in section 4n.
+
+Both references are shown, not the nearer one. The score is a comparison of two
+distances, and naming only the winner would hide the case the comparison exists
+for. β2AR's H8 at the end of the run reads 0.63 Å from 8GE1 and 0.85 Å from
+6PS0, which is what `intermediate` means; NPxxY reads 0.48 Å from 3P0G against
+3.30 Å from 8W1V, which is what `active` means. One column, and the label stops
+being something you have to take on trust.
+
+### And the timelines are not the chart the spec describes
+
+Section 6.2 asks for "one small panel per motif metric, shaded bands for the
+active and inactive reference ranges (5th to 95th percentile of each
+ensemble)". What is on the page is one panel for all motifs, plotting the state
+score `s` against time, with bands at ±0.2 marking where the label changes.
+
+That is a defensible chart and arguably the better one for this build, because
+`s` is the single comparable quantity across motifs whose metrics are in
+different units, and the ±0.2 bands are where the label actually changes. But
+it is a different chart from the one specified, and until now nothing said so.
+It is recorded here rather than rebuilt: the per-metric panels with ensemble
+percentile bands would need the ensembles' per-metric distributions carried to
+the page, which is a larger change than this pass, and the information a reader
+would get from them is in the reference state map and the new nearest-reference
+column.
 
 
 ---

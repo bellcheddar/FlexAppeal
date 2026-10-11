@@ -20,7 +20,7 @@ from pathlib import Path
 from typing import Any
 
 from flask import (Blueprint, abort, current_app, jsonify, render_template,
-                   request, send_from_directory)
+                   request, send_from_directory, url_for)
 
 from ..webapp import _RUN_ID
 
@@ -126,6 +126,7 @@ def index():
     from . import store
 
     systems = _rows("SELECT * FROM systems ORDER BY system_id")
+    figures = Path(current_app.root_path).parent / "data" / "figures"
     cards = []
     for system in systems:
         runs = _rows("SELECT * FROM runs WHERE system_id = ? ORDER BY run_id",
@@ -169,6 +170,13 @@ def index():
             "n_references": (_rows(
                 "SELECT COUNT(*) AS n FROM reference_structures WHERE "
                 "system_id = ?", (system["system_id"],)) or [{"n": 0}])[0]["n"],
+            # Offered only when the file is actually there, the same rule the
+            # viewer and the bilayer toggle follow: an <img> whose source 404s
+            # costs a console error and a broken icon on a real page.
+            "thumbnail": (
+                url_for("refstates.thumbnail", system_id=system["system_id"])
+                if (figures / f"{system['system_id']}_thumb.png").is_file()
+                else None),
         })
     return render_template("refstates_index.html", cards=cards, active="refstates",
                            have_database=_database() is not None)
@@ -223,6 +231,37 @@ def run(run_id: str):
         for row in _rows("SELECT metrics_json FROM reference_structures "
                          "WHERE system_id = ?", (detail["system_id"],)))
 
+    # Section 6.2's motif table asks for "nearest reference PDB at end". The
+    # store does not have it: section 7 gives `motif_frames` no column for it,
+    # and the nearest reference is a property of a frame rather than of the
+    # run. It is in the analysis payload, which this view already opens for the
+    # viewer bundle, so it is read from there and merged into the summary rows
+    # rather than the schema growing a column the spec does not have.
+    #
+    # Both are given, not one. The score is a comparison of two distances, and
+    # a table that named only the nearer of them would hide exactly the case
+    # the comparison exists for: a motif sitting between the two states.
+    nearest: dict[str, dict[str, Any]] = {}
+    analysis_path = analysis_file(run_id)
+    if analysis_path.is_file():
+        try:
+            frames = json.loads(analysis_path.read_text()).get("frames") or []
+        except json.JSONDecodeError:
+            frames = []
+        for motif in (frames[-1].get("motifs") if frames else []) or []:
+            name = motif.get("motif")
+            if not name:
+                continue
+            found = {key: motif.get(key) for key in
+                     ("nearest_active", "nearest_inactive",
+                      "d_act_a", "d_inact_a")
+                     if motif.get(key) is not None}
+            if found:
+                nearest[f"{detail['system_id']}:{name}"] = found
+    for key, found in nearest.items():
+        if summary.get("motifs", {}).get(key) is not None:
+            summary["motifs"][key].update(found)
+
     viewer: dict[str, Any] = {}
     analysis = analysis_file(run_id)
     if analysis.is_file():
@@ -236,6 +275,12 @@ def run(run_id: str):
     if not all((directory / f"{run_id}.{kind}").is_file()
                for kind in ("pdb", "xtc")):
         viewer = {}
+    # Same rule for the bilayer: offered only when both of its files are
+    # actually there, so the toggle cannot produce a failed request. A water
+    # run has none, and the template simply does not draw the control.
+    elif not all((directory / f"{run_id}.lipids.{kind}").is_file()
+                 for kind in ("pdb", "xtc")):
+        viewer.pop("lipids", None)
     return render_template(
         "refstates_run.html", run=detail, system=system, motifs=motifs,
         viewer=viewer, has_map=has_map,
@@ -581,8 +626,33 @@ def dssp(run_id: str):
     })
 
 
-# The only two things the viewer may fetch out of the analysis directory.
-VIEWER_SUFFIXES = {"pdb": "chemical/x-pdb", "xtc": "application/octet-stream"}
+# The only things the viewer may fetch out of the analysis directory.
+# The lipid pair is listed explicitly rather than matched by pattern. The whole
+# point of this allowlist is that the route cannot be talked into serving
+# something else out of that directory, and a pattern is how that protection
+# gets lost later.
+VIEWER_SUFFIXES = {"pdb": "chemical/x-pdb", "xtc": "application/octet-stream",
+                   "lipids.pdb": "chemical/x-pdb",
+                   "lipids.xtc": "application/octet-stream"}
+
+
+# Section 6.2 asks the Examples cards for a thumbnail. They live in
+# `data/figures` with the rest of the generated figures rather than in the
+# static tree, because they are output and not an asset, so they need a route.
+# Same discipline as `viewer_file`: a fixed set of names, not a pattern.
+THUMBNAILS = {"abl1", "b2ar"}
+
+
+@refstates_bp.get("/thumbnail/<system_id>.png")
+def thumbnail(system_id: str):
+    """One system's card thumbnail, drawn by `tools/make_figures.py`."""
+    if system_id not in THUMBNAILS:
+        abort(404)
+    directory = Path(current_app.root_path).parent / "data" / "figures"
+    name = f"{system_id}_thumb.png"
+    if not (directory / name).is_file():
+        abort(404)
+    return send_from_directory(directory, name, mimetype="image/png")
 
 
 @refstates_bp.get("/run/<run_id>/viewer.<kind>")

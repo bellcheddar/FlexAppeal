@@ -190,7 +190,8 @@ def put_membrane(connection, run_id: str, chunks: list[dict[str, Any]]) -> int:
 def ingest_analysis(path: Path, analysis: dict[str, Any], *,
                     system_id: str, run_id: str,
                     family: str, environment: str,
-                    run_fields: dict[str, Any] | None = None) -> dict[str, int]:
+                    run_fields: dict[str, Any] | None = None,
+                    system_fields: dict[str, Any] | None = None) -> dict[str, int]:
     """Load one `tools/analyse_run.py` payload into the store.
 
     Returns the row counts, which is what the caller reports: an ingest that
@@ -202,8 +203,18 @@ def ingest_analysis(path: Path, analysis: dict[str, Any], *,
 
     with connect(path) as connection:
         connection.executescript(SCHEMA)
-        put_system(connection, system_id, family=family, name=analysis.get("name", ""),
+        # `system_fields` carries section 7's `uniprot`, `n_atoms` and
+        # `forcefield`, which the schema has had from the start and which
+        # nothing had ever written: all three were NULL for both systems, and
+        # that is why section 6.2's card could not show an atom count. Only
+        # keys the caller could actually produce are passed, so a system whose
+        # build manifest is missing leaves the column null rather than carrying
+        # a zero that reads like a measurement.
+        put_system(connection, system_id, family=family,
+                   name=analysis.get("name", ""),
                    environment=environment,
+                   **{k: v for k, v in (system_fields or {}).items()
+                      if v is not None},
                    notes=json.dumps({"core": analysis.get("core", {}),
                                      "notes": analysis.get("notes", [])}))
         # The caller's fields win, so a run still in flight keeps its own

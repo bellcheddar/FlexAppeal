@@ -749,3 +749,40 @@ Two consequences recorded deliberately:
 The tilt is also now derived inside `analyse_chunk` rather than required from
 the caller. It was an optional argument that nothing passed, so every chunk this
 build could have written had no tilt at all.
+
+## D023: the membrane toggle is built, the reference overlay is declared missing
+
+Section 6.2 specifies the viewer in one line and asks for four things: cartoon
+coloured by motif tokens, the bilayer as transparent phosphate spheres on a
+toggle, a frame scrubber, and a reference overlay with the nearest active and
+nearest inactive structures superposed on the core and ghosted. The scrubber
+was built. The cartoon colouring was not, and the page says so in its own
+read-more. The other two were absent with nothing saying so.
+
+**The bilayer toggle is built.** The reason it was missing did not survive
+checking: the viewer bundle drops the solvent and the lipids on load, with a
+comment explaining that a 190,000-atom membrane system is mostly water and none
+of it is drawn. True of the water, not of the phosphorus. 476 lipids at one
+phosphorus each is 476 atoms against about 2,600 for the protein, and measured,
+38 KB of PDB and 26 KB of XTC beside a 0.6 MB protein bundle.
+
+Written as a separate structure the viewer loads beside the protein, not merged
+into the bundle, so that the topology every measurement is taken against does
+not grow non-protein atoms. Loaded on demand and deleted again by the state ref
+`loadTrajectory` returns, rather than loaded and hidden, which keeps it off
+Mol*'s visibility API.
+
+**The reference overlay is not built, and that is a decision.** It needs the
+nearest active and nearest inactive reference superposed onto the run's own
+frame, which is five steps: choose the reference, read its gzipped mmCIF,
+resolve its core by deposited numbering, map the run's numbering onto it,
+superpose and write the transformed structure. Each of those is a place to be
+subtly wrong, and the failure mode is a structure drawn on screen in a position
+the analysis does not agree with. An overlay that is a little bit wrong is
+worse than no overlay, because the whole point of it is to let someone judge by
+eye whether a frame looks like its nearest reference.
+
+So it takes the position the cartoon colouring already takes: not built, said
+out loud, and the numbers it would illustrate are on the page in the motif
+table, which gives the nearest reference PDB and the distance to it for every
+motif. That is the same information without the opportunity to mislead.

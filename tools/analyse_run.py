@@ -427,6 +427,50 @@ def write_viewer_bundle(loaded, name: str, out_dir: Path,
     }
 
 
+def write_lipid_bundle(solvated: Path, trajectory: Path, name: str,
+                       out_dir: Path, stride: int) -> dict:
+    """The bilayer phosphorus, for section 6.2's membrane toggle.
+
+    The viewer bundle drops the solvent and the lipids on load, and says so, on
+    the grounds that a 190,000-atom membrane system is mostly water and none of
+    it is drawn. That reasoning is right for the water and wrong for the
+    phosphorus: a POPC bilayer around beta2AR is about 476 lipids, so one atom
+    each is 476 atoms against roughly 2,600 for the protein. Section 6.2 asks
+    for the membrane as transparent phosphate spheres on a toggle, and the
+    cost of being able to draw it is a few per cent.
+
+    Written as its own pair of files rather than merged into the viewer bundle.
+    Merging would put non-protein atoms into the topology every downstream
+    selection runs against, and that path is currently producing correct
+    numbers for a live run; a separate structure the viewer loads beside the
+    first cannot affect any measurement.
+
+    Returns an empty dict for a system with no bilayer, which is what the
+    template tests before offering the toggle.
+    """
+    import mdtraj as md
+
+    from flexappeal.refstates import membrane
+
+    first = md.load(str(solvated))
+    phosphorus = membrane.phosphorus_indices(first.topology)
+    if not phosphorus:
+        return {}
+
+    lipids = md.load(str(trajectory), top=str(solvated), stride=stride,
+                     atom_indices=phosphorus)
+    topology = out_dir / f"{name}.lipids.pdb"
+    coords = out_dir / f"{name}.lipids.xtc"
+    lipids[0].save_pdb(str(topology))
+    lipids.save_xtc(str(coords))
+    size = topology.stat().st_size + coords.stat().st_size
+    log(f"lipid bundle: {len(phosphorus)} phosphorus over "
+        f"{lipids.n_frames} frames, {size / 1e6:.1f} MB")
+    return {"topology": topology.name, "trajectory": coords.name,
+            "n_atoms": len(phosphorus), "n_frames": int(lipids.n_frames),
+            "bytes": size}
+
+
 def secondary_structure(loaded, motif_residues: dict[str, list[int]],
                         profiles: dict | None = None) -> dict:
     """Per-frame DSSP, and each motif's helix and strand content (section 5.6).
@@ -650,6 +694,21 @@ def main() -> int:
     out_dir = Path(args.out)
     out_dir.mkdir(parents=True, exist_ok=True)
     viewer = write_viewer_bundle(loaded, args.name, out_dir)
+    # The bilayer, if there is one, as its own structure beside the protein.
+    viewer["lipids"] = write_lipid_bundle(
+        solvated, trajectory, args.name, out_dir,
+        stride=max(1, int(round(VIEWER_STRIDE_NS * 1000.0 / 100.0)))
+        * max(1, args.stride))
+    # The two structures are stepped by one slider, which drives the protein,
+    # so a bilayer with a different number of frames would sit at the wrong
+    # one. They agree whenever `--stride` is 1, which is every run here, but a
+    # disagreement should say so rather than show a bilayer a nanosecond out.
+    if (viewer["lipids"]
+            and viewer["lipids"]["n_frames"] != viewer["n_frames"]):
+        log(f"  bilayer has {viewer['lipids']['n_frames']} frames against the "
+            f"protein's {viewer['n_frames']}; the viewer steps them together, "
+            f"so the toggle is withheld")
+        viewer["lipids"] = {}
     log(f"viewer bundle: {viewer['n_frames']} frames at "
         f"{viewer['frame_ns']:.1f} ns, {viewer['bytes'] / 1e6:.1f} MB")
     payload = run.as_row()

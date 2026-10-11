@@ -37,6 +37,64 @@ SYSTEMS = {
 }
 
 
+# Section 7's `systems` table has had `uniprot` from the start and nothing ever
+# wrote it. These are not remembered: KLIFS `kinase_information?kinase_ID=392`
+# returns `"uniprot": "P00519"` for ABL1, and GPCRdb `protein/adrb2_human/`
+# returns `"accession": "P07550"`. They are pinned here rather than fetched on
+# every ingest because an accession does not change and the ingest should not
+# need the network, but the endpoint that gives each one is named so the value
+# can be rechecked.
+UNIPROT = {"abl1": "P00519", "b2ar": "P07550"}
+
+
+def system_facts(run_dir: Path, system_id: str) -> dict:
+    """Section 7's `uniprot`, `n_atoms` and `forcefield` for one system.
+
+    Every key here is omitted rather than guessed when it cannot be produced,
+    which is why this returns a dict to merge instead of a fixed record: a zero
+    atom count reads like a measurement.
+
+    The atom count and the force field come from the build manifest where there
+    is one. `tools/build_membrane.py` writes `build.json`; the water builder
+    does not, so for those rows the count is taken from the finished run's
+    `run.json`, and failing that from the solvated topology, where counting the
+    coordinate records is exact even above 99,999 atoms because the record name
+    does not change.
+    """
+    facts: dict = {}
+    if system_id in UNIPROT:
+        facts["uniprot"] = UNIPROT[system_id]
+
+    for manifest in ("build.json", "run.json"):
+        path = run_dir / manifest
+        if not path.is_file():
+            continue
+        try:
+            built = json.loads(path.read_text())
+        except json.JSONDecodeError:
+            continue
+        if built.get("atoms"):
+            facts["n_atoms"] = int(built["atoms"])
+        loaded_ff = built.get("forcefield")
+        if loaded_ff:
+            # Both writers emit a list. Joining a string would silently give
+            # "a, m, b, e, r", which is the kind of wrong that renders.
+            facts["forcefield"] = (", ".join(loaded_ff)
+                                   if isinstance(loaded_ff, (list, tuple))
+                                   else str(loaded_ff))
+        if "n_atoms" in facts and "forcefield" in facts:
+            break
+
+    if "n_atoms" not in facts:
+        topology = run_dir / "solvated.pdb"
+        if topology.is_file():
+            with topology.open() as handle:
+                facts["n_atoms"] = sum(
+                    1 for line in handle
+                    if line.startswith(("ATOM  ", "HETATM")))
+    return facts
+
+
 # The phase 1 manifests, which carry each reference's catalogue state beside the
 # one this build computed. That comparison is what section 6.2's reference
 # browser exists to show, and it is the positive control P1 and P2 measure.
@@ -217,10 +275,15 @@ def main() -> int:
             fields["status"] = "running"
 
         manifest = reference_rows(meta["system_id"])
+        facts = system_facts(run_dir, meta["system_id"])
         counts = store.ingest_analysis(
             Path(args.db), analysis, system_id=meta["system_id"], run_id=name,
             family=meta["family"], environment=meta["environment"],
-            run_fields=fields)
+            run_fields=fields, system_fields=facts)
+        if facts.get("n_atoms"):
+            log(f"  system {meta['system_id']}: {facts['n_atoms']:,} atoms"
+                + (f", {facts['forcefield']}" if facts.get("forcefield") else "")
+                + (f", UniProt {facts['uniprot']}" if facts.get("uniprot") else ""))
         log(f"{name}: {counts['motifs']} motifs, {counts['references']} "
             f"references, {counts['frames']} frame rows ({fields['status']})")
 

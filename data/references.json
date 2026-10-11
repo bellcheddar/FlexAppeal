@@ -136,7 +136,7 @@
   {
     "key": "openmm",
     "expect_year": 2024,
-    "role": "Simulation engine",
+    "role": "Simulation engine, and structure preparation through PDBFixer",
     "title": "OpenMM 8: Molecular Dynamics Simulation with Machine Learning Potentials",
     "venue_hint": "Journal of Physical Chemistry B",
     "author": "Eastman",

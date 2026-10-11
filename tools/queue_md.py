@@ -133,8 +133,10 @@ def run_row(row: dict, *, out_dir: Path, production_ns: float,
 
     if returncode != 0:
         log(f"{name} FAILED after {elapsed / 60:.1f} min; see {row_log}")
-        for line in row_log.read_text().strip().splitlines()[-8:]:
+        tail = row_log.read_text().strip().splitlines()[-8:]
+        for line in tail:
             print(f"    {line}", flush=True)
+        record_failure(out_dir / name, name, returncode, elapsed, tail)
     else:
         log(f"{name} finished in {elapsed / 60:.1f} min")
 
@@ -147,6 +149,50 @@ def run_row(row: dict, *, out_dir: Path, production_ns: float,
             pass
     return {"name": name, "ok": returncode == 0,
             "minutes": round(elapsed / 60, 1), "ns_per_day": speed}
+
+
+def record_failure(run_dir: Path, name: str, returncode: int,
+                   elapsed: float, tail: list[str]) -> None:
+    """Write the `run.json` the runner did not get to write.
+
+    Section 0's fallback ladder ends with degrading gracefully and recording
+    `status = "failed:<reason>"`. Nothing did. `run_md.py` writes `run.json`
+    only when it finishes, and `tools/ingest.py` reads an absent `run.json` as
+    a row still in flight, so a row that died at three in the morning showed as
+    `running` on the explorer for as long as anyone cared to look, next to a
+    partial trajectory that made it look plausible.
+
+    Written here rather than in the runner because the queue is what survives
+    the failure. A runner killed by the OOM reaper or by a segfault in the
+    platform layer gets no chance to write anything, and those are exactly the
+    failures worth recording.
+
+    The reason comes from the last line of the row log that looks like an
+    error, falling back to the exit code, and is kept short because it is shown
+    in a table cell.
+    """
+    reason = f"exit {returncode}"
+    for line in reversed(tail):
+        stripped = line.strip()
+        if any(mark in stripped for mark in
+               ("Error", "error", "Exception", "NaN", "nan", "Killed",
+                "Traceback", "assert")):
+            # The log line is timestamped; the message is what is wanted.
+            reason = stripped.split("] ", 1)[-1][:80]
+            break
+
+    existing = run_dir / "run.json"
+    if existing.is_file():
+        # The runner did finish and then something else failed. Its own record
+        # is the better one, so it is left alone rather than overwritten with
+        # a worse summary of the same run.
+        return
+    run_dir.mkdir(parents=True, exist_ok=True)
+    existing.write_text(json.dumps({
+        "name": name, "status": f"failed:{reason}",
+        "wall_hours": round(elapsed / 3600, 2), "returncode": returncode,
+    }, indent=2) + "\n")
+    log(f"  recorded {name} as failed:{reason}")
 
 
 def main() -> int:

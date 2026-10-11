@@ -291,6 +291,106 @@ def bilayer_figure(connection, run_id: str, out: Path) -> bool:
     return True
 
 
+# Which run's structure stands in for each system's card. Any run of that system
+# would do, so the first alphabetically is chosen for stability rather than for
+# meaning: the thumbnail is of the system, not of the run.
+def thumbnail(analysis_dir: Path, run_id: str, system_id: str,
+              out: Path) -> bool:
+    """Section 6.2's card thumbnail, drawn from the system that was built.
+
+    A Calpha trace and, where there is one, the bilayer phosphorus, projected
+    onto the plane that shows them. Not a rendering: there is no GPU in this
+    pipeline and a cartoon render would need one, so this is an honest line
+    drawing of real coordinates rather than a picture of something else.
+
+    The receptor is drawn looking along the membrane, x against z, because that
+    is the view in which a 7TM bundle sitting in a bilayer looks like one. The
+    kinase has no preferred direction, so it is drawn in its own widest plane.
+    """
+    import matplotlib
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+    import mdtraj as md
+    import numpy as np
+
+    structure = analysis_dir / f"{run_id}.pdb"
+    if not structure.is_file():
+        log(f"  {system_id}: no viewer structure, so no thumbnail")
+        return False
+
+    frame = md.load(str(structure))
+    ca = frame.topology.select("protein and name CA")
+    if len(ca) < 3:
+        log(f"  {system_id}: too few Calpha for a thumbnail")
+        return False
+    protein = frame.xyz[0, ca, :] * 10.0
+
+    lipid_file = analysis_dir / f"{run_id}.lipids.pdb"
+    lipids = None
+    if lipid_file.is_file():
+        from flexappeal.refstates import membrane
+
+        loaded = md.load(str(lipid_file))
+        lipids = loaded.xyz[0] * 10.0
+        # Centred before drawing, and the protein moved by the same amount.
+        # These are wrapped coordinates, and under a membrane barostat the
+        # bilayer drifts until it straddles the periodic boundary: drawn raw,
+        # the two leaflets land at opposite ends of the box and the receptor
+        # appears to be sitting half out of the membrane. That is the fault
+        # `centre_bilayer` exists for, and it returns its shift precisely so a
+        # caller can put other atoms into the same frame.
+        box_z = (float(loaded.unitcell_lengths[0][2]) * 10.0
+                 if loaded.unitcell_lengths is not None else 0.0)
+        if box_z:
+            centred, shift = membrane.centre_bilayer(lipids[:, 2], box_z)
+            lipids = lipids.copy()
+            lipids[:, 2] = centred
+            protein = protein.copy()
+            protein[:, 2] = np.mod(protein[:, 2] + shift, box_z)
+            # The protein can still land the long way round after the shift:
+            # anything more than half a box from the bilayer centre is nearer
+            # the other way, which is what the periodicity means.
+            centre = float(np.median(centred))
+            far = protein[:, 2] - centre > 0.5 * box_z
+            protein[far, 2] -= box_z
+            near = centre - protein[:, 2] > 0.5 * box_z
+            protein[near, 2] += box_z
+
+    if lipids is not None:
+        # Looking along the bilayer: x across, z through.
+        axes = (0, 2)
+    else:
+        # The two widest directions of the molecule, so it fills the frame.
+        spread = protein.std(axis=0)
+        axes = tuple(int(i) for i in np.argsort(spread)[::-1][:2])
+
+    figure, axis = plt.subplots(figsize=(2.6, 2.0), dpi=150)
+    if lipids is not None:
+        axis.scatter(lipids[:, axes[0]], lipids[:, axes[1]], s=5,
+                     color=AMBER, alpha=0.55, linewidth=0, zorder=1)
+    # The backbone in order, so it reads as a chain rather than a cloud.
+    axis.plot(protein[:, axes[0]], protein[:, axes[1]],
+              color=PURPLE, linewidth=0.9, alpha=0.9, zorder=2)
+    axis.set_aspect("equal")
+    axis.axis("off")
+    if lipids is not None:
+        # Framed on the receptor. The bilayer is a periodic slab several times
+        # wider than the protein, so letting it set the extent puts the subject
+        # in a corner of its own thumbnail.
+        centre_x = float(np.mean(protein[:, axes[0]]))
+        half = max(float(np.ptp(protein[:, axes[0]])),
+                   float(np.ptp(protein[:, axes[1]]))) * 0.75
+        axis.set_xlim(centre_x - half, centre_x + half)
+    figure.tight_layout(pad=0.1)
+    figure.savefig(out, bbox_inches="tight", facecolor="white",
+                   transparent=False)
+    plt.close(figure)
+    log(f"  wrote {shown(out)} ({len(ca)} Calpha"
+        + (f", {len(lipids)} lipid phosphorus" if lipids is not None else "")
+        + ")")
+    return True
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--db", type=Path, default=ROOT / "data" / "refstates.db")
@@ -335,6 +435,8 @@ def main() -> int:
             first = next(r["run_id"] for r in runs if r["system_id"] == system)
             written += map_figure(client, system,
                                   args.out / f"{system}_map.png", run_id=first)
+            written += thumbnail(ROOT / "data" / "analysis", first, system,
+                                 args.out / f"{system}_thumb.png")
 
     log(f"{written} figures in {shown(args.out)}")
     return 0

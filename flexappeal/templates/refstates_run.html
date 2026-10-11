@@ -45,6 +45,20 @@
         <output id="scrub-readout" class="md-note">0.0 ns</output>
       </div>
     {% endif %}
+    {% if viewer.lipids %}
+      {# Section 6.2 asks for the bilayer as phosphate spheres on a toggle. Off
+         by default: the receptor is what the page is about, and 476 spheres
+         around it is a lot to meet first. #}
+      <div class="md-checkgroup">
+        <label class="md-check">
+          <input type="checkbox" id="lipid-toggle"
+                 data-structure="{{ url_for('refstates.viewer_file', run_id=run.run_id, kind='lipids.pdb') }}"
+                 data-trajectory="{{ url_for('refstates.viewer_file', run_id=run.run_id, kind='lipids.xtc') }}">
+          <span>Show the bilayer
+            <em>{{ viewer.lipids.n_atoms }} lipid phosphorus atoms</em></span>
+        </label>
+      </div>
+    {% endif %}
     <p id="viewer-status" class="md-note"></p>
     <h4>Where the motifs are</h4>
     <table class="md-table">
@@ -77,6 +91,15 @@
         cartoon by motif is not wired up yet; the table is the honest version of
         it rather than a half-working theme.
       </p>
+      <p>
+        There is no reference overlay either, for the same reason. Superposing
+        the nearest active and inactive structures on this one and ghosting
+        them would need the reference re-read, re-numbered and re-fitted, and
+        an overlay that lands slightly wrong is worse than none: judging by eye
+        whether a frame resembles its nearest reference is the only thing it
+        would be for. The motif table below gives the nearest reference and the
+        distance to it, per motif, which is the same comparison in numbers.
+      </p>
     </details>
   </section>
 {% endif %}
@@ -91,6 +114,7 @@
         <th scope="col">Start <abbr title="state score: +1 active-like, -1 inactive-like">s</abbr></th>
         <th scope="col">Final s</th>
         <th scope="col">Final tenth mean</th>
+        <th scope="col">Nearest at end</th>
         <th scope="col">Label</th>
       </tr>
     </thead>
@@ -106,13 +130,25 @@
             <td>{{ "%+.3f"|format(row.final_s) }}</td>
             <td>{{ "%+.3f"|format(row.final_tenth_mean_s) }}</td>
             <td>
+              {%- if row.nearest_active or row.nearest_inactive -%}
+                {%- if row.nearest_active %}
+                  {{ row.nearest_active }}
+                  {%- if row.d_act_a %} <em class="md-note">{{ "%.2f"|format(row.d_act_a) }} &#8491; active</em>{% endif %}
+                {%- endif %}
+                {%- if row.nearest_inactive %}<br>
+                  {{ row.nearest_inactive }}
+                  {%- if row.d_inact_a %} <em class="md-note">{{ "%.2f"|format(row.d_inact_a) }} &#8491; inactive</em>{% endif %}
+                {%- endif %}
+              {%- else %}&mdash;{% endif -%}
+            </td>
+            <td>
               <span class="md-state md-state-{{ row.final_label }}"
                     data-shape="{{ shapes.get(row.final_label, 'circle') }}">
                 {{ row.final_label }}
               </span>
             </td>
           {% else %}
-            <td colspan="4" class="md-note">not scored</td>
+            <td colspan="5" class="md-note">not scored</td>
           {% endif %}
         </tr>
       {% endfor %}

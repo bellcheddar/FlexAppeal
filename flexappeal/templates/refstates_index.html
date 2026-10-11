@@ -40,6 +40,15 @@
   <section class="md-card md-panel is-wide">
     <h3>{{ card.title }}</h3>
     <p class="md-sub">{{ card.subtitle }}</p>
+    {% if card.thumbnail %}
+      {# Drawn from the built system's own coordinates, not a stock picture:
+         the receptor is a Calpha trace between its two phosphate leaflets,
+         the kinase its own fold. Decorative in the sense that the numbers
+         beside it say everything it says, so it is marked as such for a
+         screen reader rather than described twice. #}
+      <img class="md-thumb" src="{{ card.thumbnail }}" alt=""
+           width="390" height="300" loading="lazy">
+    {% endif %}
     <dl class="md-stats">
       <div><dt>Environment</dt><dd>{{ card.system.environment or "unknown" }}</dd></div>
       {% if card.system.n_atoms %}

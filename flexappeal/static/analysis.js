@@ -403,6 +403,66 @@
     })();
   }
 
+  /* Section 6.2's membrane toggle. The bilayer is a second structure loaded
+   * beside the receptor rather than part of it: the viewer bundle holds
+   * protein and ligand only, and merging 476 phosphorus atoms into the
+   * topology every measurement is taken against is not worth the convenience.
+   *
+   * Loaded on demand and deleted again, rather than loaded and hidden. The
+   * files are small, so there is nothing to save by keeping them resident, and
+   * deleting the subtree by the ref `loadTrajectory` returns needs no
+   * visibility API, which is the part of Mol*'s surface most likely to move
+   * between versions. */
+  function wireLipidToggle(viewer, say) {
+    const toggle = document.getElementById('lipid-toggle');
+    if (!toggle) return;
+    let loaded = null;
+    let busy = false;
+
+    toggle.addEventListener('change', async function () {
+      if (busy) return;
+      busy = true;
+      toggle.disabled = true;
+      try {
+        if (toggle.checked) {
+          loaded = await viewer.loadTrajectory({
+            model: { kind: 'model-url', url: toggle.dataset.structure,
+                     format: 'pdb' },
+            coordinates: { kind: 'coordinates-url',
+                           url: toggle.dataset.trajectory,
+                           format: 'xtc', isBinary: true },
+            preset: 'default'
+          });
+          /* Said out loud. A control that does something invisible from this
+           * camera angle, which the bilayer is until you rotate, reads as a
+           * control that did nothing. The attribute is the same fact in a
+           * form a test can assert on without reaching into Mol*. */
+          toggle.dataset.loaded = 'yes';
+          if (say) say('Bilayer shown as phosphate spheres. '
+                       + 'Rotate to see it edge on.');
+        } else if (loaded && loaded.model) {
+          await viewer.plugin.state.data.build()
+            .delete(loaded.model.ref).commit();
+          loaded = null;
+          toggle.dataset.loaded = 'no';
+          if (say) say('Bilayer hidden.');
+        }
+      } catch (err) {
+        /* A toggle that silently does nothing is worse than one that says it
+         * could not. The control is left off and disabled rather than
+         * inviting a second click that will fail the same way. */
+        toggle.checked = false;
+        toggle.disabled = true;
+        if (say) say('The bilayer could not be drawn: ' + err, true);
+        return;
+      } finally {
+        busy = false;
+        if (!toggle.disabled) toggle.disabled = false;
+      }
+      toggle.disabled = false;
+    });
+  }
+
   function initViewer() {
     const host = document.getElementById('molstar-viewer');
     const status = document.getElementById('viewer-status');
@@ -458,6 +518,7 @@
          * Mol*'s animation stays as the fallback for a page without the slider,
          * which is any single-frame structure. */
         applyNeon(viewer);
+        wireLipidToggle(viewer, say);
         const scrubbing = wireSlider(viewer, frames, duration);
         const playing = scrubbing || (frames > 1 && autoplay(viewer));
         say(frames

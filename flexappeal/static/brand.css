@@ -210,6 +210,16 @@ a { color: var(--md-primary); }
 }
 .md-badge-warn { background: var(--md-accent-amber); color: #4a3800; }
 .md-badge-bad { background: #fbd5d6; color: #7a1012; }
+
+/* The Examples card thumbnail. Width-capped rather than stretched: it is a
+   line drawing of real coordinates, and scaling it up past its own resolution
+   makes it look like a mistake. `height: auto` with the intrinsic width and
+   height on the element keeps the space reserved, so the card does not jump
+   when the image arrives. */
+.md-thumb {
+  display: block; max-width: 260px; width: 100%; height: auto;
+  margin: 4px 0 12px; border-radius: 6px;
+}
 /* The quiet end of the three. A panel whose every row carries a filled badge
    reads as noise and the exception stops standing out, but an unbadged row
    cannot be told apart from one with nothing measured, so this says

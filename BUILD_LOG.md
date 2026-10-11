@@ -438,3 +438,57 @@ Timestamped, one line per meaningful event, for the reference-state build
   already below the 11.39 A threshold. A single-cut classifier would call that
   frame inactive on a receptor that is active-like on every other motif, which
   is the clearest argument yet for scoring against ensembles rather than lines.
+- `01:0x` Asked what the explorer would show if a row died overnight. It would
+  show `running`, indefinitely: `run_md.py` writes `run.json` only on success
+  and the ingest reads an absent one as a row still in flight. Section 0's
+  ladder ends in `status = "failed:<reason>"` and nothing wrote it for a run.
+  The queue now writes it, because the queue is what survives an OOM kill.
+- `01:0x` Rehearsed the two rows that have never produced a frame, by writing a
+  twelve-frame trajectory from each built system into the scratch directory.
+  Both analyse first time, `abl1_imatinib` at -0.281 and `b2ar_carazolol` at
+  -0.662, and P5 printed a result for the first time in the build. Nothing
+  about the physics, everything about whether 24 GPU-hours were about to be
+  spent discovering a crash.
+- `01:1x` Checked section 6.2's viewer line against the page. Four features
+  asked for, one present. The cartoon colouring is absent and the page says so.
+  The membrane toggle and the reference overlay were absent with nothing saying
+  so. Built the membrane toggle: the reason it was missing was that the viewer
+  bundle drops the bilayer on size grounds, and the bilayer phosphorus is 476
+  atoms, 38 KB, against 0.6 MB of protein. The size argument was about the
+  water. Verified in a browser; the spheres themselves could not be confirmed
+  because this Chromium has no WebGL, and that is recorded rather than glossed.
+- `01:2x` Section 7's `systems` table has `uniprot`, `n_atoms` and `forcefield`
+  and nothing had ever written any of them. The Examples card already had the
+  atom count in its markup behind a truth test, so it rendered nothing and read
+  as a card that was never meant to have one. Accessions taken from the
+  catalogues the build already queries rather than from memory, atom counts
+  measured and agreeing with section 5.1's independent figures. Adding the
+  force field to `run.json` nearly cost a run: the list is chosen in `build`
+  and written in `main`, different scopes, so it would have raised NameError
+  after the production loop finished and before anything was recorded. Module
+  constant now, with an `ast` test that was checked against the bug.
+- `01:3x` Built section 6.2's thumbnail: a Calpha trace from the built system's
+  own coordinates, with the 476 lipid phosphorus for the receptor. The first
+  one looked fine and was wrong, with the receptor apparently half out of the
+  membrane, because the coordinates are wrapped and the bilayer straddles the
+  periodic boundary. Centred with `centre_bilayer`, which returns its shift for
+  exactly that. A picture can be confidently wrong too, and is harder to check.
+- `01:3x` The bilayer toggle used `md-check` without the span the pattern needs.
+  The house CSS hides the real input and styles the span, so the control was
+  invisible, had no checked state and no focus ring, and read as a line of
+  prose that happened to respond to a click. Corrected and then clicked in a
+  browser, which is the user path, rather than driven through the DOM.
+- `01:4x` Checked the About page against the nine items section 6.2 names for
+  the software table. Seven present, the SHA present, the references verifying
+  through Crossref. PDBFixer was missing, which matters because it is the tool
+  behind D018's dephosphorylation and the page carries that limitation without
+  naming what causes it. MDAnalysis is absent because this build does not use
+  it: it appears only in the downloadable run bundle's environment, and listing
+  a library that is not used would be worse than the gap.
+- `01:4x` Checked section 6.2's motif table columns. Five of six: the nearest
+  reference PDB at the end was missing, which is the column D023 had just cited
+  as the reason not to build the viewer's reference overlay. The justification
+  for declining one thing rested on another thing that was also absent, and I
+  wrote it without checking. Column added, reading the payload the view already
+  opens, both references shown rather than the nearer one. Also recorded that
+  the motif timelines are not the chart section 6.2 describes.

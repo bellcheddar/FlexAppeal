@@ -73,6 +73,12 @@ MEMBRANE_HEAT_TIMESTEP_FS = 1.0
 MEMBRANE_GENTLE_NS = 0.1
 MEMBRANE_HEAT_STAGES = 6
 MEMBRANE_EQUIL_NS = 10.0
+
+# Section 5.1 names "Amber ff14SB + Lipid17 + TIP3P". OpenMM's amber14-all.xml
+# already contains lipid17, so loading it again fails. Named once here because
+# `build` loads it and `main` records it in run.json, and those are different
+# scopes.
+FORCEFIELD_FILES = ["amber14-all.xml", "amber14/tip3p.xml"]
 # Six steps, 10 down to zero, as section 5.2 lists them. The last is zero rather
 # than a small number so production starts from a genuinely unrestrained system.
 RESTRAINT_LADDER_KCAL = (10.0, 5.0, 2.0, 1.0, 0.5, 0.0)
@@ -137,7 +143,7 @@ def build(start_pdb: Path, out_dir: Path, ligand_code: str | None,
         log(f"replacing nonstandard residues: {swaps}")
     fixer.replaceNonstandardResidues()
 
-    forcefield_files = ["amber14-all.xml", "amber14/tip3p.xml"]
+    forcefield_files = list(FORCEFIELD_FILES)
     generator = None
     ligand = None
     if ligand_code:
@@ -656,6 +662,7 @@ def main() -> int:
         "platform": plat.getName(), "ns_per_day": round(ns_per_day, 1),
         "wall_hours": round(elapsed / 3600, 2),
         "atoms": topology.getNumAtoms(), "status": "complete",
+        "forcefield": FORCEFIELD_FILES,
         "temperature_k": temperature, "membrane": bool(args.membrane),
         "equil_ns": args.equil_ns if args.equil_ns is not None
                     else (MEMBRANE_EQUIL_NS if args.membrane else EQUIL_NS),

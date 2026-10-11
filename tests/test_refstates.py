@@ -1558,6 +1558,255 @@ def test_the_deploy_leaves_the_working_data_behind_and_takes_the_database():
         "gitignored and is exactly what the explorer reads")
 
 
+def test_a_dead_row_is_recorded_as_failed_and_not_left_running(tmp_path: Path):
+    """Section 0's ladder ends in `status = "failed:<reason>"`. Nothing wrote it.
+
+    `run_md.py` writes `run.json` on success only, and `tools/ingest.py` reads
+    an absent `run.json` as a row still in flight. A row that died therefore
+    showed as `running` on the explorer indefinitely, beside a partial
+    trajectory that made it look plausible.
+    """
+    import importlib.util
+
+    root = Path(__file__).resolve().parents[1]
+    spec = importlib.util.spec_from_file_location(
+        "queue_md", root / "tools" / "queue_md.py")
+    queue = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(queue)
+
+    run_dir = tmp_path / "abl1_apo"
+    queue.record_failure(run_dir, "abl1_apo", 1, 3600.0,
+                         ["[03:14:00] step 1200000",
+                          "[03:15:00] Particle coordinate is NaN"])
+    written = json.loads((run_dir / "run.json").read_text())
+    assert written["status"].startswith("failed:"), written
+    assert "NaN" in written["status"], "the reason should name what happened"
+    assert written["wall_hours"] == 1.0
+
+    # And a row that did finish keeps its own record, which is the better one.
+    good = tmp_path / "b2ar_apo"
+    good.mkdir()
+    (good / "run.json").write_text(json.dumps({"status": "complete",
+                                               "ns_per_day": 59.7}))
+    queue.record_failure(good, "b2ar_apo", 1, 10.0, ["[03:00:00] Error"])
+    assert json.loads((good / "run.json").read_text())["status"] == "complete"
+
+
+def test_a_failed_row_still_renders(tmp_path: Path):
+    """A failed row has to show up as failed, not 500 and not vanish."""
+    from flexappeal.webapp import create_app
+
+    database = tmp_path / "t.db"
+    store.ingest_analysis(database, _analysis_payload(), system_id="b2ar",
+                          run_id="b2ar_apo", family="gpcr", environment="POPC",
+                          run_fields={"status": "failed:Particle coordinate is NaN",
+                                      "start_state": "active",
+                                      "start_model": "4LDE"})
+    app = create_app()
+    app.config["REFSTATES_DB"] = str(database)
+    client = app.test_client()
+    for url in ("/refstates/", "/refstates/run/b2ar_apo"):
+        response = client.get(url)
+        assert response.status_code == 200, f"{url} returned {response.status_code}"
+    page = client.get("/refstates/run/b2ar_apo").get_data(as_text=True)
+    assert "failed" in page, "the failure is not shown on the run page"
+
+
+def _tiny_bilayer(tmp_path: Path, n_frames: int = 4, lipids: bool = True):
+    """A POPC slab and a couple of protein residues, written as pdb plus dcd.
+
+    Built here rather than committed, and not a real structure: two planes of
+    phosphorus in POPC residues is all `phosphorus_indices` looks for. Returns
+    the topology and trajectory paths.
+    """
+    import mdtraj as md
+    import numpy as np
+
+    topology = md.Topology()
+    if lipids:
+        chain = topology.add_chain()
+        for _ in range(8):
+            residue = topology.add_residue("POPC", chain)
+            topology.add_atom("P", md.element.phosphorus, residue)
+    protein = topology.add_chain()
+    for _ in range(3):
+        residue = topology.add_residue("ALA", protein)
+        topology.add_atom("CA", md.element.carbon, residue)
+
+    rng = np.random.default_rng(3)
+    xyz = rng.uniform(0, 4.0, size=(n_frames, topology.n_atoms, 3))
+    traj = md.Trajectory(xyz, topology)
+    traj.unitcell_lengths = np.full((n_frames, 3), 4.0)
+    traj.unitcell_angles = np.full((n_frames, 3), 90.0)
+    pdb = tmp_path / "solvated.pdb"
+    dcd = tmp_path / "trajectory.dcd"
+    traj[0].save_pdb(str(pdb))
+    traj.save_dcd(str(dcd))
+    return pdb, dcd
+
+
+def _analyse_run_module():
+    import importlib.util
+
+    root = Path(__file__).resolve().parents[1]
+    spec = importlib.util.spec_from_file_location(
+        "analyse_run", root / "tools" / "analyse_run.py")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def test_the_bilayer_is_written_as_its_own_small_viewer_structure(tmp_path: Path):
+    """Section 6.2 asks for the membrane as phosphate spheres on a toggle.
+
+    The viewer bundle drops the solvent and the lipids on load, correctly, on
+    the grounds that a 190,000-atom system is mostly water. That reasoning does
+    not extend to the phosphorus: beta2AR's bilayer is 476 lipids, so one atom
+    each is 476 atoms against about 2,600 for the protein. Written as a
+    separate structure rather than merged, so the topology every measurement is
+    taken against does not grow non-protein atoms.
+    """
+    pdb, dcd = _tiny_bilayer(tmp_path)
+    out = tmp_path / "analysis"
+    out.mkdir()
+    bundle = _analyse_run_module().write_lipid_bundle(
+        pdb, dcd, "b2ar_apo", out, stride=1)
+
+    assert bundle["n_atoms"] == 8, bundle
+    assert (out / "b2ar_apo.lipids.pdb").is_file()
+    assert (out / "b2ar_apo.lipids.xtc").is_file()
+    # Small enough that the size objection to drawing it does not apply.
+    assert bundle["bytes"] < 200_000, bundle
+
+
+def test_a_water_run_gets_no_lipid_bundle(tmp_path: Path):
+    """A system with no bilayer returns nothing, and the toggle is not drawn."""
+    pdb, dcd = _tiny_bilayer(tmp_path, lipids=False)
+    out = tmp_path / "analysis"
+    out.mkdir()
+    assert _analyse_run_module().write_lipid_bundle(
+        pdb, dcd, "abl1_apo", out, stride=1) == {}
+    assert not list(out.glob("*.lipids.*"))
+
+
+def test_the_viewer_route_serves_the_lipid_pair_and_nothing_else():
+    """The allowlist is what stops this route serving the database.
+
+    The lipid suffixes are added explicitly rather than by relaxing the match,
+    because the protection is the list.
+    """
+    from flexappeal.refstates import web
+
+    assert "lipids.pdb" in web.VIEWER_SUFFIXES
+    assert "lipids.xtc" in web.VIEWER_SUFFIXES
+    for forbidden in ("db", "json", "sqlite", "lipids.json", "pdb.db"):
+        assert forbidden not in web.VIEWER_SUFFIXES
+
+
+def test_the_run_record_only_names_things_that_exist_where_it_is_written():
+    """`run.json` is written at the end of `main`, not inside `build`.
+
+    The force field list is chosen in `build` and recorded in `run.json` by
+    `main`, which are different scopes. Referencing `build`'s local from `main`
+    parses fine and raises `NameError` at the one moment it costs most: after
+    the production loop has finished, before anything is written down. A
+    seventeen-hour run would complete and then record nothing.
+
+    Checked by reading the source rather than by running it, because running it
+    means running the simulation.
+    """
+    import ast
+
+    root = Path(__file__).resolve().parents[1]
+    tree = ast.parse((root / "tools" / "run_md.py").read_text())
+    module_level = set()
+    for node in tree.body:
+        if isinstance(node, ast.Assign):
+            # Walked rather than read directly: several of these are tuple
+            # unpackings, `HEAT_NS, EQUIL_NS, PRODUCTION_NS = ...`, whose
+            # target is a Tuple and not a Name.
+            module_level |= {inner.id for t in node.targets
+                             for inner in ast.walk(t)
+                             if isinstance(inner, ast.Name)}
+        elif isinstance(node, ast.AnnAssign) and isinstance(node.target, ast.Name):
+            module_level.add(node.target.id)
+        elif isinstance(node, (ast.Import, ast.ImportFrom)):
+            module_level |= {(a.asname or a.name).split(".")[0]
+                             for a in node.names}
+    functions = {node.name: node for node in tree.body
+                 if isinstance(node, ast.FunctionDef)}
+    main = functions["main"]
+
+    # Every bare name `main` reads that it does not bind itself must come from
+    # the module, from a builtin, or from an import.
+    bound = {node.id for node in ast.walk(main)
+             if isinstance(node, ast.Name) and isinstance(node.ctx, ast.Store)}
+    bound |= {a.arg for a in main.args.args}
+    for node in ast.walk(main):
+        if isinstance(node, ast.alias):
+            bound.add((node.asname or node.name).split(".")[0])
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            bound.add(node.name)
+        if isinstance(node, ast.ExceptHandler) and node.name:
+            bound.add(node.name)
+    import builtins
+
+    free = {node.id for node in ast.walk(main)
+            if isinstance(node, ast.Name) and isinstance(node.ctx, ast.Load)}
+    unexplained = (free - bound - module_level - set(functions)
+                   - set(dir(builtins)))
+    assert not unexplained, (
+        f"`main` reads names that are not module level, not its own, and not "
+        f"builtins, so they would raise NameError at run time: "
+        f"{sorted(unexplained)}")
+    assert "FORCEFIELD_FILES" in module_level
+
+
+def test_the_thumbnail_route_serves_only_the_two_systems():
+    """Section 6.2 asks the cards for a thumbnail; the figures are not static.
+
+    They are generated output, so they live in `data/figures` and need a route,
+    and the route uses a fixed set of names for the same reason `viewer_file`
+    does: the protection is the list, not the pattern.
+    """
+    from flexappeal.refstates import web
+
+    assert web.THUMBNAILS == {"abl1", "b2ar"}
+
+
+def test_a_card_offers_no_thumbnail_when_the_file_is_absent(tmp_path: Path):
+    """An <img> whose source 404s is a console error on a real page."""
+    from flexappeal.webapp import create_app
+
+    database = tmp_path / "t.db"
+    store.ingest_analysis(database, _analysis_payload(), system_id="b2ar",
+                          run_id="b2ar_apo", family="gpcr", environment="POPC")
+    app = create_app()
+    app.config["REFSTATES_DB"] = str(database)
+    # The real figures directory is beside the app, so this asserts on the
+    # route rather than on the card: an unknown system is refused outright.
+    client = app.test_client()
+    assert client.get("/refstates/thumbnail/nope.png").status_code == 404
+    assert client.get("/refstates/thumbnail/b2ar.png").status_code in (200, 404)
+
+
+def test_the_thumbnail_centres_the_bilayer_before_drawing_it(tmp_path: Path):
+    """Wrapped coordinates put the two leaflets at opposite ends of the box.
+
+    Drawn raw, the receptor appears to be sitting half out of the membrane,
+    which is exactly the fault `centre_bilayer` exists for and exactly the kind
+    of picture that looks plausible enough not to be questioned. The source is
+    checked rather than the pixels: asserting on a PNG would be asserting on
+    matplotlib.
+    """
+    root = Path(__file__).resolve().parents[1]
+    source = (root / "tools" / "make_figures.py").read_text()
+    thumb = source[source.index("def thumbnail("):source.index("def main(")]
+    assert "centre_bilayer" in thumb, (
+        "the thumbnail draws wrapped coordinates without centring them")
+    assert "unitcell_lengths" in thumb
+
+
 # ===========================================================================
 #  Resuming without duplicating frames
 # ===========================================================================
