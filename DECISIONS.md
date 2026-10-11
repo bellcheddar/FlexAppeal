@@ -7,7 +7,7 @@ rather than stopping.
 
 ---
 
-## D001 - The build happens inside the existing FlexAppeal repository
+## D001: The build happens inside the existing FlexAppeal repository
 
 **2026-10-10, phase 0.** The spec names
 `/Users/dellboy/Documents/Vibe_Coding/FlexAppeal/` as the project root and says to
@@ -34,7 +34,7 @@ deployment.
 
 ---
 
-## D002 - The spec's CLAUDE.md is added as a section, not as the whole file
+## D002: The spec's CLAUDE.md is added as a section, not as the whole file
 
 **2026-10-10, phase 0.** Appendix 12.2 gives a `CLAUDE.md` for a project whose
 only job is this build. Written over the top it would drop whatever the repository
@@ -50,7 +50,7 @@ the appendix's set, which omits tools this repository already uses.
 
 ---
 
-## D003 - BoltzMaker is vendored from GitHub at `da939b1`, not symlinked locally
+## D003: BoltzMaker is vendored from GitHub at `da939b1`, not symlinked locally
 
 **2026-10-10, phase 0.** `sse_comparison` also sits at
 `~/Documents/Vibe_Coding/BoltzMaker`, which would have saved the clone. The spec
@@ -67,7 +67,7 @@ and is logged here as a candidate upstream change.
 
 ---
 
-## D004 - Five dependencies added, four of the spec's left out
+## D004: Five dependencies added, four of the spec's left out
 
 **2026-10-10, phase 0.** Section 3 lists the packages. Most were already here
 (openmm, pdbfixer, mdtraj, gemmi, biopython, pandas, scipy, numpy, rdkit, parmed).
@@ -137,7 +137,7 @@ estimate that turned out to be wrong" rather than a purpose they serve.
 
 ---
 
-## D005 - The vendored clone is given back its gitignored test data
+## D005: The vendored clone is given back its gitignored test data
 
 **2026-10-10, phase 0.** Four of BoltzMaker's 50 `sse_comparison` tests failed in
 the fresh clone with `FileNotFoundError` on
@@ -160,7 +160,7 @@ fail again with a clear file-not-found.
 
 ---
 
-## D006 - One replica per row, not three
+## D006: One replica per row, not three
 
 **2026-10-10, phase 0.** Ruled by Marc after the first compute projection. Tier 2
 goes from fifteen runs to **five**, and from 1,500 ns to 500: ABL1 active-like
@@ -203,7 +203,7 @@ as extra rows rather than needing anything rebuilt.
 
 ---
 
-## D007 - One ligand-bound run and one apo run per system, in opposite states
+## D007: One ligand-bound run and one apo run per system, in opposite states
 
 **2026-10-10, phase 1.** Ruled by Marc: "1 ligand should be included for each
 system, the other apo partner should be in the opposite state so we can see the
@@ -259,7 +259,7 @@ and 4.3.
 
 ---
 
-## D008 - Two pairs, and imatinib is the ABL1 ligand
+## D008: Two pairs, and imatinib is the ABL1 ligand
 
 **2026-10-10, phase 1.** Marc: "Let's just do 2 pairs for each, choose which is
 mostly likely to hold for abl." This amends **D007** by dropping the protonation
@@ -301,7 +301,7 @@ matrix.
 
 ---
 
-## D009 - Tier 2 is 50 ns a run, not 100
+## D009: Tier 2 is 50 ns a run, not 100
 
 **2026-10-10, phase 1.** Ruled by Marc. Four runs of 50 ns, 200 ns in total,
 about **46 GPU-hours or 1.9 days**.
@@ -337,7 +337,7 @@ row rather than replacing anything.
 
 ---
 
-## D010 - Two deviations forced by the hardware and by the data
+## D010: Two deviations forced by the hardware and by the data
 
 **2026-10-10, phase 1 and 3.** Both are departures from the spec, both measured
 rather than assumed, and both are wrapped rather than edited into the vendored
@@ -401,7 +401,7 @@ to 64.7% and fails.
 
 ---
 
-## D011 - The β2AR starts, and the transplant D007 planned for is not needed
+## D011: The β2AR starts, and the transplant D007 planned for is not needed
 
 **2026-10-10, phase 2.** The fallback ladder in section 4.3 was walked rather
 than assumed, and it stopped on the top rung for both states.
@@ -877,3 +877,76 @@ already uniform, and every ABL1 and beta2AR ensemble here is uniform. Verified
 rather than argued: ABL1 aligns 19 of 19 onto 2F4J at 0.568 A mean and 0.989 A
 max, beta2AR 100 onto 3P0G at 0.829 and 1.289, and P4 reads +0.305, -0.368,
 +0.593, -0.934, all unchanged.
+
+---
+
+## D026: a row is judged on what it produced, not on the target it was asked for
+
+`run.json` recorded `production_ns` as the target, and `queue_md.complete`
+checked that number against the same target, which cannot fail. A row that
+stopped at 40 ns of 50 wrote 50 and was certified by it.
+
+It now records `produced_ns`, read off the context at the end, and completeness
+is judged on that. A row more than 50 ps short records
+`status = "short:40.00_of_50ns"` rather than `complete`, and the queue resumes
+it on the next pass.
+
+**Why 50 ps and not zero.** The step count is an integer and frames are 100 ps,
+so an honest finish lands sub-picosecond off its target. A zero tolerance would
+mark every row short and resume rows that were done.
+
+**Why the target is kept as well.** It is what the row was asked for, which is
+not recoverable from what it did, and a row that legitimately stopped early
+should say both numbers rather than quietly redefine the target as whatever it
+reached.
+
+**Rows written before the field existed** carry only the target and are taken
+at their word. The alternative, treating them as unfinished, would have
+restarted the row in flight when this landed.
+
+---
+
+## D027: the platform fallback ladder is turned off on hardware you rent
+
+`run_md.platform()` tries CUDA, then OpenCL mixed, then OpenCL single, then
+CPU, and returns the first that builds a context. That is right on a machine
+you own: section 2.2 measured the last rung at 29.5 ns/day against 206, and the
+cost of taking it is time you already have.
+
+On a pod billed by the hour it is a trap. A CUDA device that fails to
+initialise drops a 1 µs row to a fiftieth of the speed and the pod goes on
+billing, with one line in a log nobody is reading at the time to say so.
+
+So `--require-platform NAME` turns the ladder off and refuses rather than
+descending it, and `deploy/runpod/job.sh` passes `CUDA`. The default is
+unchanged, because the ladder is correct where it was written for.
+
+**Why refuse rather than warn.** A warning on a 24-hour unattended run is a
+message to nobody. The failure has to stop the row, and section 4q's machinery
+then records it as failed with the reason attached.
+
+---
+
+## D028: the periodic-image correction is for the picture, and the bilayer is imaged rather than shifted
+
+β2AR sits on a periodic boundary, so ten of its twenty-four viewer frames were
+written into the other image and the viewer fitted its camera to a 187 Å
+bounding box.
+
+**The analysis is left alone.** The protein is whole in every frame, largest
+y span 58.3 Å against a 131.2 Å box, and every metric here is measured within a
+frame, so the tilt, the thickness, the area per lipid and every motif distance
+are unaffected. Correcting the trajectory the metrics are taken from would have
+meant re-deriving numbers that were already right, during a production run, to
+fix a picture.
+
+**The two structures need opposite corrections**, which the first attempt got
+wrong. The protein is in one piece and in the wrong image, so it is shifted by
+whole box vectors. The bilayer is in the right image and in several pieces, so
+shifting it by the protein's vector broke it, taking its y span from 145 Å to
+269. It is imaged around the receptor's centre instead, which also resolves
+lipids wrapped through the top of the box that a shift never touched.
+
+**A non-orthorhombic box is left alone.** A whole-box translation is not the
+right correction for a triclinic cell, and section 0.3's rule is to do nothing
+rather than apply something that merely looks like a fix.

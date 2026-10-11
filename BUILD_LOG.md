@@ -886,3 +886,24 @@ now; the regression test makes 3,000 draws, because one draw passes 31 times in
 32.
 
 FINDINGS 4ao. Six tests added, 977 passed, 1 skipped.
+
+### 11 October, 08:22 to 08:50
+
+Confirmed the resolutions landed: 136 of 136 in the database, ABL1 1.53 to
+2.80 A and beta2AR 2.40 to 3.60 A, which are exactly the two filter cuts, and
+the column renders on the live page.
+
+DECISIONS.md had fallen behind: three of tonight's choices were in FINDINGS and
+not there. D026 (a row is judged on what it produced), D027 (the platform
+fallback is turned off on rented hardware), D028 (the periodic correction is
+for the picture, and the bilayer is imaged rather than shifted).
+
+Three documentation guards added, two of them for faults already hit. FINDINGS
+section ordering, which I broke three times tonight by anchoring an insert on
+the wrong heading. Decision numbers in sequence with no gaps or repeats. And
+every D0NN cited in FINDINGS existing, which immediately found that D001 to
+D011 were written `## D001 - Title` and everything after `## D012: title`, so a
+check written against one form reported three real decisions as missing. All
+eleven normalised to the colon form.
+
+980 passed, 1 skipped.

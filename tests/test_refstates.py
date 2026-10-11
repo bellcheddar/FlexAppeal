@@ -4586,3 +4586,76 @@ def test_the_ingest_omits_a_resolution_it_does_not_have():
     source = (Path(__file__).resolve().parents[1]
               / "tools" / "ingest.py").read_text()
     assert 'if row.get("resolution") is not None else {}' in source
+
+
+def _section_key(number: str, suffix: str) -> tuple:
+    """Sort key for a FINDINGS heading like `4`, `4b`, `4z`, `4aa`.
+
+    Shorter suffixes come first, so `4z` precedes `4aa` the way the sections
+    were actually written, and an empty suffix precedes them all.
+    """
+    return (int(number), len(suffix), suffix)
+
+
+def test_the_findings_sections_are_in_order():
+    """Three sections landed in the wrong place tonight before this existed.
+
+    New sections are inserted by anchoring on the heading that should follow
+    them, and the anchor was wrong three times running: 4o through 4af were
+    written after section 5 and had to be moved back each time. The document is
+    long enough that nobody reads it end to end to notice, and a section in the
+    wrong place is invisible from inside the section.
+    """
+    import re
+
+    root = Path(__file__).resolve().parents[1]
+    headings = re.findall(r"^## (\d+)([a-z]*)\.",
+                          (root / "FINDINGS.md").read_text(), re.M)
+    assert len(headings) > 40, f"only found {len(headings)} sections"
+
+    keys = [_section_key(n, s) for n, s in headings]
+    for before, after, (n, s) in zip(keys, keys[1:], headings[1:]):
+        assert before < after, (
+            f"section {n}{s} follows "
+            f"{headings[keys.index(before)][0]}{headings[keys.index(before)][1]}")
+    assert len(set(keys)) == len(keys), "a section number is used twice"
+
+
+def test_the_decision_numbers_run_in_order_without_gaps():
+    """A document that is only ever appended to still drifts.
+
+    Two decisions sharing a number, or a number skipped, both make a reference
+    from `FINDINGS.md` or a code comment point at the wrong thing, and both are
+    invisible unless something counts.
+    """
+    import re
+
+    root = Path(__file__).resolve().parents[1]
+    numbers = [int(n) for n in re.findall(
+        r"^## D0*(\d+):", (root / "DECISIONS.md").read_text(), re.M)]
+    assert numbers, "no decisions found"
+    assert numbers == sorted(numbers), f"out of order: {numbers}"
+    assert len(set(numbers)) == len(numbers), (
+        f"a number is used twice: "
+        f"{[n for n in numbers if numbers.count(n) > 1]}")
+    assert numbers == list(range(numbers[0], numbers[0] + len(numbers))), (
+        f"a number is missing between {numbers[0]} and {numbers[-1]}")
+
+
+def test_every_decision_referred_to_in_the_findings_exists():
+    """A reference to D0NN that names nothing is worse than no reference."""
+    import re
+
+    root = Path(__file__).resolve().parents[1]
+    body = (root / "DECISIONS.md").read_text()
+    decisions = set(re.findall(r"^## (D0*\d+):", body, re.M))
+    # One heading form. D001 to D011 were written `## D001 - Title` and
+    # everything after `## D012: title`, which is invisible until something
+    # tries to find them all: a reference check written against the colon form
+    # reported D004, D009 and D010 as decisions that did not exist.
+    assert not re.search(r"^## D\d+ - ", body, re.M), (
+        "a decision heading still uses the old separator")
+    cited = set(re.findall(r"\b(D0\d\d)\b",
+                           (root / "FINDINGS.md").read_text()))
+    missing = sorted(cited - decisions)
+    assert not missing, f"FINDINGS cites decisions that do not exist: {missing}"
