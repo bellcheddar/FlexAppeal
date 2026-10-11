@@ -278,6 +278,65 @@ def _truncate_state_data(path: Path, keep: int) -> int:
     return len(rows) - keep
 
 
+def barostat(membrane: bool, temperature_k: float):
+    """The pressure control for this run type.
+
+    One function because there are two places that need it and they had drifted
+    apart. The equilibration branches each built their own, and the resume path
+    built none at all, so a resumed run continued at constant volume: OpenMM
+    restores `MonteCarloPressure` from the checkpoint whether or not a force
+    consumes it, so a resumed context reported the barostat's parameters while
+    having no barostat in it. Nothing in the output said so, and the only
+    symptom would have been a density that stopped responding.
+
+    The membrane rows get `MonteCarloMembraneBarostat` at zero surface tension
+    with XY isotropic and Z free, which is section 5.1's choice: the bilayer
+    sets its own area rather than being held at one.
+    """
+    import openmm as mm
+    from openmm import unit
+
+    if membrane:
+        return mm.MonteCarloMembraneBarostat(
+            PRESSURE_BAR * unit.bar,
+            SURFACE_TENSION_BAR_NM * unit.bar * unit.nanometer,
+            temperature_k * unit.kelvin,
+            mm.MonteCarloMembraneBarostat.XYIsotropic,
+            mm.MonteCarloMembraneBarostat.ZFree)
+    return mm.MonteCarloBarostat(PRESSURE_BAR * unit.bar,
+                                 temperature_k * unit.kelvin)
+
+
+def checkpoint_phase(out_dir: Path) -> str:
+    """Whether `state.chk` was written during equilibration or production.
+
+    Needed because the two are resumed differently and look identical on disk.
+    A checkpoint saved part way down the restraint ladder carries a non-zero
+    simulation time and a non-zero `k_restraint`, so treating it as production
+    would start the run with the protein still held, count the equilibration
+    time as production and produce a short row. Absent means production, which
+    is what every checkpoint written before this file existed was.
+    """
+    marker = out_dir / "checkpoint_phase.json"
+    if not marker.is_file():
+        return "production"
+    try:
+        return str(json.loads(marker.read_text()).get("phase") or "production")
+    except (json.JSONDecodeError, OSError):
+        return "production"
+
+
+def save_checkpoint(simulation, out_dir: Path, phase: str,
+                    rung: int | None = None) -> None:
+    """Save the checkpoint and record which phase it belongs to."""
+    simulation.saveCheckpoint(str(out_dir / "state.chk"))
+    payload = {"phase": phase}
+    if rung is not None:
+        payload["rung"] = rung
+    (out_dir / "checkpoint_phase.json").write_text(
+        json.dumps(payload) + "\n")
+
+
 def platform(system=None):
     """The fastest platform that will actually build a context here.
 
@@ -365,17 +424,47 @@ def main() -> int:
             system, topology, positions, RESTRAINT_LADDER_KCAL[0])
         log(f"membrane protocol: {temperature} K, {len(restrained):,} restrained "
             f"protein heavy atoms, {n_lipid_p} lipid P held in z")
+    checkpoint = out_dir / "state.chk"
+    phase = checkpoint_phase(out_dir)
+    # An equilibration checkpoint is not a production one. Resuming from one as
+    # though it were would start production with the protein still restrained,
+    # count equilibration time against the production target and write a short
+    # row, all without a word. Equilibration is cheap next to the row, so it is
+    # repeated rather than guessed at.
+    resuming = checkpoint.is_file() and phase != "equil"
+    if checkpoint.is_file() and phase == "equil":
+        log("the checkpoint on disk was written during equilibration, not "
+            "production; repeating the equilibration rather than resuming "
+            "into it")
+
+    if resuming:
+        # The branch that adds the barostat is the branch a resume skips, so
+        # without this the run continues at constant volume. The force has to
+        # be on the System before the Context is built, which is why this sits
+        # above the Simulation rather than beside the loadCheckpoint.
+        system.addForce(barostat(bool(args.membrane), temperature))
+        log("barostat re-added for the resumed run")
+
     plat, props = platform(system)
     simulation = app.Simulation(topology, system, integrator, plat, props)
     log(f"platform: {plat.getName()} {props}")
 
-    checkpoint = out_dir / "state.chk"
     steps_per_ns = int(1000 / (TIMESTEP_FS / 1000))
     done_ns = 0.0
-    if checkpoint.is_file():
+    if resuming:
         simulation.loadCheckpoint(str(checkpoint))
         done_ns = simulation.context.getState().getTime().value_in_unit(unit.nanoseconds)
         log(f"resumed from checkpoint at {done_ns:.3f} ns")
+        # Production is unrestrained. The last ladder rung sets both to zero,
+        # so a checkpoint from a finished equilibration already has them there;
+        # set them anyway, because inheriting a restraint from a checkpoint is
+        # not a thing that should depend on the ladder ending at zero.
+        for name, value in (("k_restraint", 0.0), ("k_lipid", 0.0)):
+            try:
+                simulation.context.setParameter(
+                    name, value * unit.kilocalorie_per_mole / unit.angstrom**2)
+            except Exception:                                   # noqa: BLE001
+                pass    # the water rows have neither restraint
         # Anything written after that checkpoint would otherwise be written a
         # second time, and frame time here is the frame index times the
         # interval, so duplicates shift every later timestamp.
@@ -420,12 +509,7 @@ def main() -> int:
             log(f"warm; remaining {remaining_ns:.2f} ns of NVT at {TIMESTEP_FS} fs")
             simulation.step(int(remaining_ns * 1e6 / TIMESTEP_FS))
         log("barostat on, NPT ladder starts")
-        simulation.system.addForce(mm.MonteCarloMembraneBarostat(
-            PRESSURE_BAR * unit.bar,
-            SURFACE_TENSION_BAR_NM * unit.bar * unit.nanometer,
-            temperature * unit.kelvin,
-            mm.MonteCarloMembraneBarostat.XYIsotropic,
-            mm.MonteCarloMembraneBarostat.ZFree))
+        simulation.system.addForce(barostat(True, temperature))
         simulation.context.reinitialize(preserveState=True)
 
         # Section 5.2: 10 ns NPT, restraints down the ladder, and the lipid z
@@ -443,11 +527,14 @@ def main() -> int:
                 log("  lipid z restraint released")
             log(f"  NPT {per_step_ns:.2f} ns at {strength} kcal/mol/A^2")
             simulation.step(int(per_step_ns * steps_per_ns))
-            simulation.saveCheckpoint(str(checkpoint))
+            save_checkpoint(simulation, out_dir, "equil", rung=index)
 
+        # The clock is reset before the checkpoint is marked as production, so
+        # the first production checkpoint reads zero rather than carrying the
+        # equilibration time into the production target.
         simulation.context.setTime(0.0 * unit.picoseconds)
         simulation.currentStep = 0
-        simulation.saveCheckpoint(str(checkpoint))
+        save_checkpoint(simulation, out_dir, "production")
         log("equilibration done, production starts unrestrained")
     else:
         simulation.context.setPositions(positions)
@@ -457,13 +544,12 @@ def main() -> int:
         simulation.context.setVelocitiesToTemperature(temperature * unit.kelvin)
         simulation.step(int(HEAT_NS * steps_per_ns))
         log(f"equilibrating {EQUIL_NS} ns (NPT)")
-        system.addForce(mm.MonteCarloBarostat(PRESSURE_BAR * unit.bar,
-                                              temperature * unit.kelvin))
+        system.addForce(barostat(False, temperature))
         simulation.context.reinitialize(preserveState=True)
         simulation.step(int(EQUIL_NS * steps_per_ns))
-        simulation.saveCheckpoint(str(checkpoint))
         simulation.context.setTime(0.0 * unit.picoseconds)
         simulation.currentStep = 0
+        save_checkpoint(simulation, out_dir, "production")
         log("equilibration done, production starts")
 
     target_ns = args.production_ns

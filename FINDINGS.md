@@ -975,6 +975,71 @@ And the count in `GATE_OPEN.md` has now been wrong twice, at 833 and 837,
 because I wrote it from memory and then from arithmetic instead of from a run.
 It is 871, measured.
 
+## 4i. A resumed run lost its barostat, and nothing said so
+
+This is the most consequential thing the readiness audit found, and it was
+about to matter: `abl1_apo` is queued to resume from 4.0 ns.
+
+`run_md.py` builds its System, creates the Context, and then branches. If a
+checkpoint exists it loads it; otherwise it equilibrates. The barostat was added
+inside the equilibration branches, which is the branch a resume skips, so a
+resumed run never got one.
+
+What makes it a silent fault rather than a loud one is how OpenMM behaves.
+Checked rather than assumed, by loading the real `abl1_apo` checkpoint into a
+freshly built Context:
+
+    context built with 5 forces, OpenCL
+    loadCheckpoint SUCCEEDED, time = 4.0000 ns
+    params: {'MonteCarloPressure': 1.0, 'MonteCarloTemperature': 300.0}
+
+The load succeeds, and the restored parameters include the barostat's own, from
+a System that has no barostat in it. OpenMM restores context parameters whether
+or not a force consumes them. So a resumed run would report `MonteCarloPressure`
+while producing at constant volume, and the only symptom would have been a
+density that stopped responding, in a column nobody reads row by row.
+
+For `abl1_apo` that would have been 46 of its 50 ns as NVT. For a membrane row
+it is worse, because the bilayer could not then relax its area and the area per
+lipid that P6 checks would be whatever the box was fixed at.
+
+Three things were wrong and all three are fixed:
+
+1. **The barostat is now added on the resume path**, before the Context is
+   built, because a Context cannot gain a force afterwards without being
+   rebuilt. Both equilibration branches and the resume now call one `barostat()`
+   helper: they had each built their own, which is how they drifted apart, and
+   the comment above the Simulation already claimed "the barostat goes on
+   before the Simulation is built" while no code did it.
+2. **An equilibration checkpoint is no longer mistaken for a production one.**
+   The membrane ladder saves after every rung, so a run killed part way down it
+   left a checkpoint carrying a non-zero clock and a non-zero `k_restraint`.
+   Resuming that as production would have started with the protein still held,
+   counted the equilibration time against the 50 ns target and written a short
+   row. `checkpoint_phase.json` now records which phase each checkpoint belongs
+   to, absent meaning production so older checkpoints still resume, and an
+   equilibration one makes the run repeat the equilibration rather than guess.
+3. **The water branch saved its checkpoint before resetting the clock**, so a
+   kill in that window left a checkpoint holding the equilibration time as
+   though it were production progress. The reset now comes first.
+
+The resume also sets `k_restraint` and `k_lipid` to zero explicitly. The last
+ladder rung is already zero so a finished equilibration needs it, but whether
+production is unrestrained should not depend on the ladder happening to end
+there.
+
+Verified after the change on the real checkpoint: six forces including
+`MonteCarloBarostat`, loaded at 4.0000 ns, barostat present in the resumed
+context. The running `b2ar_apo` is untouched, because its process holds the old
+code in memory and the next row is the one that picks this up.
+
+**The general shape, since this is the third time this session.** All three
+faults were a precondition quietly not met: a loop guard that matched its own
+parent, a bilayer pass that could not find its topology, and a branch that
+skipped the force it needed. None of them raised, none of them logged, and each
+produced output that looked entirely normal. The ones left to find are the ones
+that still look normal.
+
 ## 5. Production runs
 
 Tier 2 started at 17:04 on 10 October, in section 5.3's priority order: β2AR

@@ -575,3 +575,34 @@ one copy, and P2 would still pass at 16/17 had that copy been listed first.
 This is deliberately not applied to the receptor manifest, which is keyed on
 `(pdb, chain)` because GPCRdb lists a preferred chain per entry and the 116 rows
 are already one per structure.
+
+## D017: one barostat helper, and checkpoints that say which phase they are
+
+A resumed run had no barostat. The force was added inside the equilibration
+branches, and a resume skips those, so production continued at constant volume.
+OpenMM restores context parameters whether or not a force consumes them, so the
+resumed context reported `MonteCarloPressure` from a System with no barostat in
+it and the load succeeded without complaint.
+
+**Both call sites now go through `barostat(membrane, temperature_k)`.** They had
+each constructed their own, which is how the resume path came to have none, and
+it is also where the membrane choice lives: `MonteCarloMembraneBarostat` at zero
+surface tension, XY isotropic, Z free, so the bilayer sets its own area. A plain
+isotropic barostat would scale z with xy and squeeze it.
+
+**Checkpoints now record their phase in `checkpoint_phase.json`.** The membrane
+ladder saves after every rung, and those checkpoints carry a non-zero clock and
+a non-zero `k_restraint`, so they are not production checkpoints even though
+they are the same file. An absent marker means production, which keeps every
+checkpoint written before this existed resumable, and an equilibration marker
+makes the run repeat its equilibration rather than resume into production with
+the protein still held.
+
+Repeating equilibration costs 10 ns on a membrane row, about four hours. That is
+the right trade against a 50 ns row that is restrained, short and labelled
+complete, because the second failure is one nobody would catch by looking.
+
+The alternative was resuming the ladder at the recorded rung. Rejected for now:
+it needs the heating stages and the barostat to be reconstructed in exactly the
+state the rung expects, and a resume path that is itself hard to verify is not
+an improvement on one that starts again from a known point.

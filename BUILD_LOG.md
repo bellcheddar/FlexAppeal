@@ -262,3 +262,23 @@ Timestamped, one line per meaningful event, for the reference-state build
   the trajectory path, both runs serve frames, DSSP and a viewer bundle, and the
   refusals still refuse (an unknown run, an unknown system and a `viewer.exe`
   all 404). Two of my own URLs were wrong in the first pass, not the routes.
+- `21:4x` A resumed run had no barostat, and `abl1_apo` is queued to resume from
+  4.0 ns. The force was added inside the equilibration branches, which a resume
+  skips. Proved by loading the real checkpoint into a freshly built context:
+  the load succeeds, reports `MonteCarloPressure` and has no barostat among its
+  five forces, so 46 of abl1_apo's 50 ns would have been NVT with only a
+  flat density to show it. Both call sites now share one `barostat()` helper
+  and the resume adds it before the context is built (D017).
+- `21:4x` Two smaller faults in the same place. The membrane ladder saves a
+  checkpoint after every rung, so a kill part way down it left one that a
+  resume would have treated as production: restrained, with the equilibration
+  time counted against the 50 ns target. And the water branch saved before
+  resetting the clock, with the same effect in a narrower window.
+  `checkpoint_phase.json` now records the phase, absent meaning production.
+- `21:4x` Verified after the change on the real abl1_apo checkpoint: six forces
+  including MonteCarloBarostat, loaded at 4.0000 ns, barostat present. The
+  running b2ar_apo is unaffected, since its process holds the old code.
+- `21:4x` Made three silent-empty paths audible in ingest: a membrane row whose
+  topology is not beside its trajectory, a membrane row whose topology has no
+  lipid phosphorus, and a missing manifest. Each now says so, and a water row
+  stays quiet so the warning keeps its meaning. All four cases tested.

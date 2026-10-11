@@ -75,7 +75,15 @@ def reference_rows(system_id: str) -> dict[str, dict]:
     and there is nothing of ours to disagree with it.
     """
     path = MANIFESTS.get(system_id)
-    if path is None or not path.is_file():
+    if path is None:
+        log(f"  {system_id}: no manifest is registered for this system")
+        return {}
+    if not path.is_file():
+        # Said out loud rather than returned empty. The caller only logs its
+        # reference count when the manifest produced rows, so a manifest that
+        # had moved would drop every reference from the explorer and print
+        # nothing at all about it.
+        log(f"  {system_id}: no manifest at {path}; no references annotated")
         return {}
     out: dict[str, dict] = {}
     for line in path.read_text().splitlines():
@@ -98,11 +106,19 @@ def log(message: str) -> None:
     print(f"[{time.strftime('%H:%M:%S')}] {message}", flush=True)
 
 
-def membrane_chunks(run_dir: Path, name: str) -> list[dict]:
+def membrane_chunks(run_dir: Path, name: str,
+                    expect_bilayer: bool = False) -> list[dict]:
     """Section 5.8's per-chunk bilayer health, from the full-system trajectory.
 
     Returns an empty list rather than raising when the run is not a membrane
     one, so the caller does not have to know which rows have a bilayer.
+
+    `expect_bilayer` is what keeps that convenience from hiding a fault. For a
+    water run an empty list is the right answer and silence is correct. For a
+    POPC run it never is: it means the topology was not beside the trajectory or
+    the trajectory holds no lipid, and P6 would then read `pending` on a
+    finished membrane row with nothing anywhere saying why. `SYSTEMS` already
+    records which environment each row is in, so the caller knows.
     """
     import mdtraj as md
 
@@ -110,11 +126,22 @@ def membrane_chunks(run_dir: Path, name: str) -> list[dict]:
 
     trajectory = run_dir / "trajectory.dcd"
     topology = run_dir / "solvated.pdb"
-    if not trajectory.is_file() or not topology.is_file():
+    if not trajectory.is_file():
+        if expect_bilayer:
+            log(f"  {name}: no trajectory yet, so no bilayer QC")
+        return []
+    if not topology.is_file():
+        if expect_bilayer:
+            log(f"  {name}: REFUSING the bilayer QC: {topology.name} is not "
+                f"beside the trajectory in {run_dir}, so the full system "
+                f"cannot be loaded")
         return []
 
     loaded = md.load(str(trajectory), top=str(topology))
     if not membrane.phosphorus_indices(loaded.topology):
+        if expect_bilayer:
+            log(f"  {name}: REFUSING the bilayer QC: this row is a membrane "
+                f"row but its topology has no lipid phosphorus")
         return []
 
     frame_ns = 0.1          # section 5.2 saves every 100 ps
@@ -228,11 +255,18 @@ def main() -> int:
                 f"{agreed} of {comparable} agreeing with the catalogue")
 
         if not args.skip_membrane:
-            chunks = membrane_chunks(run_dir, name)
+            # The row's environment is already known here, so the bilayer pass
+            # can be told whether an empty result is expected or a fault.
+            expect_bilayer = meta["environment"] != "water"
+            chunks = membrane_chunks(run_dir, name,
+                                     expect_bilayer=expect_bilayer)
             if chunks:
                 with store.connect(Path(args.db)) as connection:
                     written = store.put_membrane(connection, name, chunks)
                 log(f"  {written} membrane rows")
+            elif expect_bilayer:
+                log(f"  {name}: no membrane rows written for a "
+                    f"{meta['environment']} row; P6 will read as pending")
 
     log(f"wrote {args.db}")
     return 0

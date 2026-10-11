@@ -719,11 +719,29 @@ def test_the_runner_treats_a_checkpoint_as_the_resume_point(tmp_path: Path):
     equilibration branch, so a resumed run does not heat an already-warm system.
     """
     source = (Path(__file__).resolve().parents[1] / "tools" / "run_md.py").read_text()
-    resume = source.index("if checkpoint.is_file():")
+    resume = source.index("resuming = checkpoint.is_file()")
     heating = source.index("heating to")
     assert resume < heating, "equilibration is reached before the resume check"
     assert "loadCheckpoint" in source
     assert "already at" in source, "a completed run must report and stop"
+
+
+def test_a_resumed_run_adds_the_barostat_before_the_context_is_built():
+    """The branch that adds the barostat is the branch a resume skips.
+
+    This is read from the source because the fault was an ordering one and the
+    cost of getting it wrong is invisible: OpenMM restores `MonteCarloPressure`
+    from the checkpoint whether or not a force consumes it, so a resumed run
+    reported the barostat's parameters while having none, and produced at
+    constant volume. The force has to be on the System before the Context
+    exists, so what matters is that the `addForce` precedes the `Simulation`.
+    """
+    source = (Path(__file__).resolve().parents[1] / "tools" / "run_md.py").read_text()
+    added = source.index("system.addForce(barostat(bool(args.membrane)")
+    built = source.index("simulation = app.Simulation(")
+    loaded = source.index("simulation.loadCheckpoint(")
+    assert added < built, "the barostat is added after the context is built"
+    assert built < loaded, "the checkpoint is loaded before the context exists"
 
 
 # ===========================================================================
@@ -1951,3 +1969,158 @@ def test_rspine_verdict_stays_silent_without_both_clusters():
     out = module.spine_verdict({"active": [5.3, 5.9]}, 7.7, 6.0)
     assert "gap_a" not in out and "correct" not in out
     assert out["threshold_a"] == 7.7
+
+
+# --- an empty result that is a fault, told apart from one that is not --------
+#
+# Two faults this build hit were the same shape: a function returned an empty
+# result because a precondition was missing, and the caller could not tell that
+# from "there was nothing to do". The bilayer QC is the case that matters, since
+# it decides whether P6 has anything to say.
+
+def _ingest_module():
+    import importlib.util
+    from pathlib import Path
+
+    root = Path(__file__).resolve().parents[1]
+    spec = importlib.util.spec_from_file_location(
+        "_ingest_for_tests", root / "tools" / "ingest.py")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def test_bilayer_qc_refuses_audibly_when_a_membrane_row_lacks_its_topology(
+        tmp_path: Path, capsys):
+    """A POPC row with no `solvated.pdb` beside its trajectory is a fault.
+
+    Before this said anything, the pass returned an empty list and the only
+    visible consequence was P6 reading `pending` on a finished membrane row,
+    with nothing anywhere explaining it.
+    """
+    module = _ingest_module()
+    run_dir = tmp_path / "b2ar_apo"
+    run_dir.mkdir()
+    (run_dir / "trajectory.dcd").write_bytes(b"not really a dcd")
+
+    assert module.membrane_chunks(run_dir, "b2ar_apo",
+                                  expect_bilayer=True) == []
+    said = capsys.readouterr().out
+    assert "REFUSING" in said and "solvated.pdb" in said
+
+
+def test_bilayer_qc_stays_quiet_for_a_water_row(tmp_path: Path, capsys):
+    """And the same absence in a water run is not worth a word.
+
+    Every kinase row would otherwise print a refusal on every streaming pass,
+    which is how a real warning stops being read.
+    """
+    module = _ingest_module()
+    run_dir = tmp_path / "abl1_apo"
+    run_dir.mkdir()
+    (run_dir / "trajectory.dcd").write_bytes(b"not really a dcd")
+
+    assert module.membrane_chunks(run_dir, "abl1_apo") == []
+    assert "REFUSING" not in capsys.readouterr().out
+
+
+def test_a_missing_manifest_is_reported_rather_than_returned_empty(
+        monkeypatch, tmp_path: Path, capsys):
+    """The caller only logs its reference count when there were rows.
+
+    So a manifest that had been renamed would drop every reference from the
+    explorer and print nothing at all about having done so.
+    """
+    module = _ingest_module()
+    monkeypatch.setitem(module.MANIFESTS, "abl1", tmp_path / "gone.jsonl")
+    assert module.reference_rows("abl1") == {}
+    assert "no manifest at" in capsys.readouterr().out
+
+
+# --- resuming a run, which had been losing its barostat ---------------------
+#
+# A resumed run skips the branch that adds the barostat, and OpenMM restores
+# `MonteCarloPressure` from the checkpoint whether or not a force consumes it.
+# So a resumed context reported the barostat's own parameters while having no
+# barostat in it, and production continued at constant volume with nothing in
+# the log to say so.
+
+def _run_md():
+    import importlib.util
+    from pathlib import Path
+
+    root = Path(__file__).resolve().parents[1]
+    spec = importlib.util.spec_from_file_location(
+        "_run_md_for_tests", root / "tools" / "run_md.py")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def test_the_two_run_types_get_the_barostat_each_needs():
+    """One helper, because the two call sites had drifted apart.
+
+    The membrane rows need the membrane barostat at zero surface tension so the
+    bilayer sets its own area; a plain isotropic one would scale z with xy and
+    squeeze the bilayer.
+    """
+    import openmm as mm
+
+    module = _run_md()
+    water = module.barostat(False, 300.0)
+    membrane = module.barostat(True, 303.15)
+    assert isinstance(water, mm.MonteCarloBarostat)
+    assert isinstance(membrane, mm.MonteCarloMembraneBarostat)
+    assert not isinstance(water, mm.MonteCarloMembraneBarostat)
+    # Section 5.1: the bilayer is not held at an area.
+    assert membrane.getDefaultSurfaceTension().value_in_unit(
+        mm.unit.bar * mm.unit.nanometer) == 0.0
+
+
+def test_an_equilibration_checkpoint_is_not_mistaken_for_production(
+        tmp_path: Path):
+    """The two look identical on disk and are resumed differently.
+
+    Resuming an equilibration checkpoint as production would start with the
+    protein still restrained and count the equilibration time against the
+    production target, writing a short row without a word.
+    """
+    module = _run_md()
+    # Nothing recorded: every checkpoint written before the marker existed was
+    # a production one, so that is the backward-compatible answer.
+    assert module.checkpoint_phase(tmp_path) == "production"
+
+    (tmp_path / "checkpoint_phase.json").write_text('{"phase": "equil", "rung": 3}')
+    assert module.checkpoint_phase(tmp_path) == "equil"
+
+    (tmp_path / "checkpoint_phase.json").write_text('{"phase": "production"}')
+    assert module.checkpoint_phase(tmp_path) == "production"
+
+    # A marker that cannot be read must not be an exception in the middle of a
+    # resume; it falls back to the same default as an absent one.
+    (tmp_path / "checkpoint_phase.json").write_text("{not json")
+    assert module.checkpoint_phase(tmp_path) == "production"
+
+
+def test_saving_a_checkpoint_records_the_phase_beside_it(tmp_path: Path):
+    import json as _json
+
+    module = _run_md()
+
+    class FakeSimulation:
+        def __init__(self):
+            self.saved_to = None
+
+        def saveCheckpoint(self, path):
+            self.saved_to = path
+            Path(path).write_bytes(b"checkpoint")
+
+    simulation = FakeSimulation()
+    module.save_checkpoint(simulation, tmp_path, "equil", rung=2)
+    assert simulation.saved_to == str(tmp_path / "state.chk")
+    written = _json.loads((tmp_path / "checkpoint_phase.json").read_text())
+    assert written == {"phase": "equil", "rung": 2}
+
+    module.save_checkpoint(simulation, tmp_path, "production")
+    written = _json.loads((tmp_path / "checkpoint_phase.json").read_text())
+    assert written == {"phase": "production"}
