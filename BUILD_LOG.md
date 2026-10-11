@@ -988,3 +988,24 @@ The note under that chart wrote "+0.2" as prose beside bands drawn from
 in the sentence explaining the bands.
 
 987 passed, 1 skipped.
+
+### 11 October, 11:30 to 11:55
+
+Made the threshold-in-prose fault a check instead of finding it a fourth time
+by hand. It reads every reference-state template, strips scripts, Jinja
+comments, expressions and statements, and tags with their attributes, and
+searches what a reader sees against ten named constants.
+
+Found four more in three templates: the index giving the pass band as +/-0.2,
+About giving the R-spine contact as 7.7 A, the reference browser giving the
+KLIFS cut as 2.8 A and GPCRdb's as 3.6 A. All four correct today, all four
+would have stayed unchanged if the constant moved. All four render the constant
+now.
+
+Only forms with a decimal point are searched: IONIC_LOCK_A is 4.0 and the run
+page says "alphaC-Glu+4 Calpha", which is a residue offset, and a check that
+reported that would be turned off within a week. A second test proves the scan
+can fail, against a sample holding the same number in an attribute, a comment,
+an expression, a script and a sentence. It finds the sentence.
+
+FINDINGS 4ar. Two tests added, 989 passed, 1 skipped.

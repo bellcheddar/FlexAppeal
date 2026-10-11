@@ -78,8 +78,9 @@
         <p class="md-note">
           {% if card.pair.held %}
             Both runs stayed on the side they started: the active-start run ends
-            above +0.2 and the inactive-start run below &minus;0.2, so neither
-            crossed into the other's territory over the simulated time.
+            above {{ "%+.1f"|format(decisive_s) }} and the inactive-start run
+            below {{ "%+.1f"|format(-decisive_s) }}, so neither crossed into
+            the other's territory over the simulated time.
           {% elif card.pair.separation > 0 %}
             The two runs are still ordered the way they started, but at least
             one of them has drifted into the intermediate band rather than

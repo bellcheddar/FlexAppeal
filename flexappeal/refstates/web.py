@@ -23,6 +23,7 @@ from flask import (Blueprint, abort, current_app, jsonify, render_template,
                    request, send_from_directory, url_for)
 
 from . import membrane as membrane_mod
+from . import pocket, sources
 from .state import DECISIVE_S
 from ..webapp import _RUN_ID
 
@@ -178,6 +179,7 @@ def index():
                 else None),
         })
     return render_template("refstates_index.html", cards=cards, active="refstates",
+                           decisive_s=DECISIVE_S,
                            have_database=_database() is not None)
 
 
@@ -393,6 +395,13 @@ def references(system_id: str):
     return render_template(
         "refstates_references.html", references=rows, system_id=system_id,
         n_agree=len(agree), n_comparable=len(comparable),
+        # The cuts the two catalogues were filtered at, from the filters that
+        # applied them. Written out as prose the page could describe a set it
+        # had not been given.
+        kinase_max_resolution_a=sources.KINASE_MAX_RESOLUTION_A,
+        kinase_min_quality=sources.KINASE_MIN_QUALITY,
+        kinase_max_missing=sources.KINASE_MAX_MISSING_POCKET,
+        gpcr_max_resolution_a=sources.GPCR_MAX_RESOLUTION_A,
         n_unlabelled=len(unlabelled), active="refstates")
 
 @refstates_bp.get("/map/<system_id>.json")
@@ -503,6 +512,8 @@ def about():
 
     return render_template("refstates_about.html", references=rows,
                            n_verified=len(verified), boltzmaker_sha=vendored,
+                           r_spine_published_a=pocket.R_SPINE_CONTACT_CRYSTAL_A,
+                           r_spine_a=pocket.R_SPINE_CONTACT_A,
                            active="refstates")
 
 

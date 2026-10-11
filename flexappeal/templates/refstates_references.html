@@ -57,10 +57,13 @@
   <details class="md-readmore">
     <summary>How these were chosen</summary>
     <p>
-      Kinase references come from KLIFS, filtered to human structures at 2.8
-      &#8491; or better with a pocket quality score of at least 6 and no more
-      than five missing pocket residues. Receptor references come from GPCRdb at
-      3.6 &#8491; or better, split by the catalogue's own state assignment.
+      Kinase references come from KLIFS, filtered to human structures at
+      {{ "%.1f"|format(kinase_max_resolution_a) }} &#8491; or better with a
+      pocket quality score of at least {{ "%.0f"|format(kinase_min_quality) }}
+      and no more than {{ kinase_max_missing }} missing pocket residues.
+      Receptor references come from GPCRdb at
+      {{ "%.1f"|format(gpcr_max_resolution_a) }} &#8491; or better, split by
+      the catalogue's own state assignment.
       Nothing was hand-picked.
     </p>
   </details>

@@ -4828,3 +4828,109 @@ def test_the_chart_explanation_reads_the_threshold_from_the_context():
     note = note[:note.index("</details>")]
     assert 'format(decisive_s)' in note
     assert "+0.2 " not in note, "the threshold should not be written out"
+
+
+# The constants a page might be tempted to write out, and where they live.
+# Extend this when a new threshold appears rather than when it is found in a
+# sentence: the whole point is that the finding should be automatic.
+PAGE_THRESHOLDS = {
+    "state.DECISIVE_S": ("state", "DECISIVE_S"),
+    "membrane.APL_EXPECTED_A2": ("membrane", "APL_EXPECTED_A2"),
+    "membrane.APL_ACCEPTABLE_A2": ("membrane", "APL_ACCEPTABLE_A2"),
+    "membrane.THICKNESS_EXPECTED_A": ("membrane", "THICKNESS_EXPECTED_A"),
+    "gpcr.IONIC_LOCK_A": ("gpcr", "IONIC_LOCK_A"),
+    "kinase.ALPHAC_SALT_BRIDGE_A": ("kinase", "ALPHAC_SALT_BRIDGE_A"),
+    "pocket.R_SPINE_CONTACT_A": ("pocket", "R_SPINE_CONTACT_A"),
+    "pocket.R_SPINE_CONTACT_CRYSTAL_A": ("pocket", "R_SPINE_CONTACT_CRYSTAL_A"),
+    "sources.KINASE_MAX_RESOLUTION_A": ("sources", "KINASE_MAX_RESOLUTION_A"),
+    "sources.GPCR_MAX_RESOLUTION_A": ("sources", "GPCR_MAX_RESOLUTION_A"),
+}
+
+
+def _template_prose(path: Path) -> str:
+    """A template with everything that is not prose taken out.
+
+    Scripts, Jinja comments, Jinja expressions and statements, and tags with
+    their attributes. What is left is what a reader sees, which is the only
+    place a hard-coded threshold does damage that nothing can catch.
+    """
+    import re
+
+    body = path.read_text()
+    for pattern in (r"<script.*?</script>", r"\{#.*?#\}", r"\{\{.*?\}\}",
+                    r"\{%.*?%\}"):
+        body = re.sub(pattern, " ", body, flags=re.S)
+    return re.sub(r"<[^>]+>", " ", body)
+
+
+def test_no_page_writes_a_threshold_out_in_prose():
+    """Four instances in three templates, and the pattern had already cost three.
+
+    A threshold in prose cannot be executed, so it cannot be wrong in a way
+    anything notices: the index told a reader the pass band was +/-0.2, the
+    About page gave the R-spine contact as 7.7 A, the reference browser said
+    the kinase set was filtered at 2.8 A. All four were right. All four would
+    have stayed on the page unchanged if the constant behind them moved, and a
+    reader checking a verdict against a sentence would have been checking it
+    against a number nothing uses.
+
+    Only forms carrying a decimal point are searched. A bare integer is too
+    common in prose to tell apart from a residue offset: `alphaC-Glu+4` is not
+    `IONIC_LOCK_A`, and a check that cannot see the difference would be turned
+    off within a week.
+    """
+    import importlib
+    import re
+
+    root = Path(__file__).resolve().parents[1]
+    values: dict[str, list[float]] = {}
+    for label, (module, attribute) in PAGE_THRESHOLDS.items():
+        loaded = importlib.import_module(f"flexappeal.refstates.{module}")
+        value = getattr(loaded, attribute)
+        values[label] = list(value) if isinstance(value, tuple) else [value]
+
+    found = []
+    for path in sorted((root / "flexappeal" / "templates").glob("refstates*.html")):
+        prose = _template_prose(path)
+        for label, numbers in values.items():
+            for number in numbers:
+                form = f"{number:.1f}"
+                if "." not in form:
+                    continue
+                for match in re.finditer(
+                        r"(?<![\w.])" + re.escape(form) + r"(?![\w.])", prose):
+                    context = " ".join(
+                        prose[max(0, match.start() - 40):match.end() + 20].split())
+                    found.append(f"{path.name}: {label} as {form} ... {context}")
+
+    assert not found, (
+        "a page writes a threshold out instead of rendering the constant:\n  "
+        + "\n  ".join(sorted(set(found))))
+
+
+def test_the_threshold_scan_would_find_one_if_it_were_there():
+    """A check that cannot fail is worth nothing, and this one strips a lot out.
+
+    Written against a template of its own rather than by breaking a real one,
+    so it proves the scan sees prose and ignores the four places a number may
+    legitimately sit: a script, a Jinja expression, a Jinja comment and a tag
+    attribute.
+    """
+    import re
+
+    sample = (
+        '<div class="md-card" data-threshold="0.2">\n'
+        "{# a comment mentioning 0.2 #}\n"
+        '<p>rendered {{ "%.1f"|format(decisive_s) }} here</p>\n'
+        "<script>const DECISIVE = 0.2;</script>\n"
+        "<p>and written out as 0.2 in a sentence</p>\n")
+    import tempfile
+
+    with tempfile.TemporaryDirectory() as directory:
+        path = Path(directory) / "sample.html"
+        path.write_text(sample)
+        prose = _template_prose(path)
+    hits = re.findall(r"(?<![\w.])0\.2(?![\w.])", prose)
+    assert len(hits) == 1, (
+        f"the scan should see the sentence and nothing else, saw {len(hits)}: "
+        f"{prose!r}")

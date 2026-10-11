@@ -2985,6 +2985,44 @@ number that nothing in the code uses.
 The view passes the three windows now and the note renders them, so the
 sentence a reader checks is the sentence the badge was decided by.
 
+## 4ar. Stop finding this one by hand
+
+Three times in four sections a threshold turned out to be written somewhere as
+well as defined: `DECISIVE_S` in two modules and a template (4am), the bilayer
+windows in the membrane note (4aq), `+0.2` in the sentence explaining the bands
+(4ap's commit). Three is a pattern, and the fourth was going to be found by
+accident as well.
+
+So it is a check. It reads every reference-state template, takes out the
+scripts, the Jinja comments, expressions and statements, and the tags with
+their attributes, and searches what is left, which is what a reader sees,
+against the values of ten named constants.
+
+It found four more, in three templates I had not been looking at:
+
+    refstates_index.html       the pass band as "+0.2" and "-0.2"
+    refstates_about.html       the R-spine contact as "7.7 A"
+    refstates_references.html  the KLIFS cut as "2.8 A", GPCRdb's as "3.6 A"
+
+Every one of them is correct today. That is the whole difficulty: a threshold
+in prose cannot be executed, so it cannot be wrong in any way that something
+notices, and it stays on the page unchanged when the constant behind it moves.
+A reader checking a verdict against a sentence would then be checking it
+against a number nothing uses.
+
+### Only decimals are searched, on purpose
+
+`IONIC_LOCK_A` is 4.0, and the run page contains "αC-Glu+4 Cα", which is a
+residue offset in a name. A scan that reported that as a hard-coded ionic-lock
+distance would be turned off within a week, and rightly. So a value is searched
+in the form that carries its decimal point and not as a bare integer. The cost
+is that a threshold of 4.0 written as "4 Å" is missed; the alternative is a
+check nobody trusts.
+
+A second test proves the scan can fail, against a sample template of its own
+holding the same number five times: in an attribute, in a Jinja comment, in a
+Jinja expression, in a script, and in a sentence. It finds the sentence.
+
 ## 5. Production runs
 
 Tier 2 started at 17:04 on 10 October, in section 5.3's priority order: β2AR
