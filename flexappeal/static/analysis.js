@@ -766,8 +766,8 @@
               + (scrubbing
                   ? ', on a ' + PLAYBACK_SECONDS + ' second loop. Drag the slider to a frame and every time plot marks it.'
                   : (playing
-                      ? ', playing on a ' + PLAYBACK_SECONDS + ' second loop — the controls under the viewport pause it.'
-                      : ' loaded — use the playback controls under the viewport.'))
+                      ? ', playing on a ' + PLAYBACK_SECONDS + ' second loop. The controls under the viewport pause it.'
+                      : ' loaded. Use the playback controls under the viewport.'))
           : 'Structure loaded.');
       });
     }).catch(function (err) {

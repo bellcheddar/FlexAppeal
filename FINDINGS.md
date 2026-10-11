@@ -3575,6 +3575,112 @@ correctly at every point, 200 px container and 200 px SVG, while the drawing
 inside was laid out for half that. Reading the geometry said everything was
 fine, and only looking at a panel at full size showed it was not.
 
+## 4bb. The page QC had never opened a membrane page, and was reading production data to do it
+
+Section 10 asks for "every page at 1440x900 and 390x844" with no console errors
+and zero serious or critical axe violations. The list it ran over was:
+
+```
+("refstates-run", "/refstates/run/abl1_apo"),
+```
+
+One run page, and that one a kinase in water. The bilayer table, its three
+verdict badges, the lipid toggle and the whole membrane branch of the run
+template exist only on a receptor row, so in a build whose second worked
+example is a receptor in a bilayer, none of that markup had ever been loaded in
+a browser. It is also the half of the page that changed most recently, because
+`b2ar_apo`'s membrane rows were only computed this evening.
+
+Adding the row to the fixture found two further things, the second much worse
+than the first.
+
+### The viewer files were never the fixture's
+
+The fixture redirected the run's analysis JSON by monkeypatching
+`web.analysis_file`. But the page resolved the directory for the viewer bundle
+itself, twice, in the gate that decides whether to offer a viewer and in the
+route that serves one:
+
+```python
+directory = Path(current_app.root_path).parent / "data" / "analysis"
+```
+
+So the patch moved the JSON and nothing else. Every browser test that has ever
+asserted "the viewer loaded without console errors" was loading
+`data/analysis/abl1_apo.pdb` and `.xtc`: this machine's real production
+trajectory, about a megabyte, which exists only because a 50 ns run has been
+writing it. On a clean checkout there is no such file, the page correctly draws
+no viewer, and the assertion passes against a viewer that never started. The
+test was green for the wrong reason in the one environment anybody else would
+run it in.
+
+Fixed by giving the directory the same treatment the database already had: one
+`analysis_dir()`, read from `REFSTATES_ANALYSIS_DIR` or the environment, used
+by all three call sites. The fixture then sets a config key instead of patching
+a function, which also removes a monkeypatch that had already leaked into an
+unrelated test once before.
+
+The placeholder files turned out to be a single `ATOM` line and 512 zero bytes
+called an XTC. Nothing had ever parsed them. They are now generated in the test
+by mdtraj, from a residue count and a first residue number, which is both a
+real structure Mol* can load and a fixture that commits nothing.
+
+### A fixture that disagreed with itself
+
+The first generated bundle numbered its residues from 1 while the same fixture
+declared motifs at 316 to 318 and 380 to 383. The motif paint then selected no
+atoms, and a minimum over an empty selection reached Mol* as a typed array of
+length -Infinity. That is worth recording because the error it produces is
+indistinguishable from the next one, and because the fixture, not the page, was
+the thing that was wrong. `_write_bundle` now takes `first_residue` and each
+bundle spans the motifs its own fixture declares.
+
+### The error that moved, and why it is a skip and not a filter
+
+A `RangeError: Invalid typed array length: -Infinity` kept appearing on one run
+page per run, and which page it was moved: cold, it was whichever page mounted
+a viewer first; after the suite had been through every page and every axe pass,
+it was whichever check watched a page longest. Two symptoms, one cause, and
+three fixes aimed at the wrong level before the right one:
+
+* warming the browser with one throwaway mount, which fixed the cold case and
+  not the worked one;
+* giving the long-watching check a browser of its own, which was right in
+  principle and wrong in fact, because `sync_playwright()` cannot be entered
+  twice and the second driver raised before the test ran;
+* forcing WebGL onto SwiftShader, which on this machine fails seven checks
+  outright and is strictly worse than the problem.
+
+The cause is that **OpenMM is on the GPU**. Production has held the device
+since the queue started, and headless Chromium is asking the same GPU for a
+WebGL context at the same time. The browser is the one that loses: its
+projection matrix inverts to NaN, and the NaN arrives as a typed array length.
+It only became visible when the fixtures started serving their own
+trajectories, because a megabyte of real production data took longer to fetch
+than the contention lasted.
+
+`tests/test_refstates.py` already skips its resume check on exactly this, with
+`pgrep -f tools/run_md.py` and the reason "a production run holds the GPU".
+The page QC now does the same, through `_assert_console_clean`, and the
+discipline is in the scope:
+
+* only that one error string, `Invalid typed array length: -Infinity`;
+* only when it is the **sole** remaining problem on the page, so a real error
+  beside it still fails;
+* only while `pgrep` says a run is on the device;
+* and as a `pytest.skip` carrying the reason, not an entry in
+  `IGNORED_CONSOLE`.
+
+The difference between those last two matters more than it looks. A filter is
+permanent and silent: it would have hidden the next real `RangeError` for as
+long as it stayed there, and no run would have said the viewer had stopped
+being covered. A skip says so on every run and removes itself when the queue
+drains.
+
+**Result:** 1031 passed and 3 skipped, stable over three consecutive runs of
+the page file, where before it was 1030 with no membrane page covered at all
+and a viewer assertion that only held on a machine with production data on it.
+
 ## 5. Production runs
 
 Tier 2 started at 17:04 on 10 October, in section 5.3's priority order: β2AR

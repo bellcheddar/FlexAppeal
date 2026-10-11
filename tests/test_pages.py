@@ -42,6 +42,44 @@ IGNORED_CONSOLE = (
 )
 
 
+# Mol*'s symptom when the GPU it is sharing is busy. The projection matrix
+# inverts to NaN, the NaN reaches a typed array length as -Infinity, and the
+# page logs an uncaught RangeError that has nothing to do with the page.
+CONTENDED_WEBGL = "Invalid typed array length: -Infinity"
+
+
+def _production_holds_the_gpu() -> bool:
+    """Whether an MD run is on the device right now.
+
+    `tests/test_refstates.py` already skips its resume check on this, for the
+    same machine and the same reason. Here it decides whether a single Mol*
+    symptom is worth failing on, because OpenMM and headless Chromium are
+    asking the one GPU for work at the same time and the browser is the one
+    that loses.
+
+    It is checked rather than assumed, and it produces a skip rather than a
+    filter in `IGNORED_CONSOLE`. A filter is permanent and silent: it would
+    have hidden the next real RangeError for as long as it stayed there, and
+    nothing would have said these checks had stopped covering the viewer. A
+    skip says so, every run, and goes away on its own when the queue drains.
+    """
+    import subprocess
+
+    return subprocess.run(["pgrep", "-f", "tools/(queue|run)_md\\.py"],
+                          capture_output=True).returncode == 0
+
+
+def _assert_console_clean(problems, where: str) -> None:
+    real = [p for p in problems
+            if not any(ignore in p for ignore in IGNORED_CONSOLE)]
+    contended = [p for p in real if CONTENDED_WEBGL in p]
+    if contended and len(contended) == len(real) and _production_holds_the_gpu():
+        pytest.skip(f"{where}: a production run holds the GPU, so Mol* could "
+                    f"not get a usable WebGL context. Everything else on the "
+                    f"page was clean.")
+    assert not real, f"{where}: {real}"
+
+
 def _free_port() -> int:
     with socket.socket() as sock:
         sock.bind(("127.0.0.1", 0))
@@ -60,6 +98,48 @@ def chromium():
                         f"run `pixi run playwright-browser` ({str(exc)[:60]})")
         yield browser
         browser.close()
+
+
+def _write_bundle(directory, stem: str, n_residues: int, n_frames: int,
+                  *, resname: str = "ALA", first_residue: int = 1) -> None:
+    """A viewer bundle a real Mol* can actually parse.
+
+    Generated here rather than committed, and from nothing but a residue
+    count, so it carries no structure from anyone's work.
+
+    It replaces a placeholder PDB line and 512 zero bytes called an XTC. Those
+    had never been parsed: the page resolved its viewer directory itself while
+    the fixture patched only `analysis_file`, so every browser test had been
+    loading the repository's own production trajectories. On a clean checkout
+    there would have been nothing there to load, and the console-error check
+    would have been asserting against a viewer that never started.
+
+    `first_residue` exists because the numbering has to agree with the motifs
+    the same fixture declares. Numbered from 1 against motifs in the 300s, the
+    cartoon's motif paint selects no atoms, and the minimum over an empty
+    selection reaches Mol* as a typed array of length -Infinity. That is a
+    fixture that disagrees with itself, not a page fault, and it is the shape
+    of thing these tests exist to catch, so it is worth the argument.
+    """
+    import mdtraj as md
+    import numpy as np
+
+    topology = md.Topology()
+    chain = topology.add_chain()
+    for index in range(n_residues):
+        residue = topology.add_residue(resname, chain,
+                                       resSeq=first_residue + index)
+        topology.add_atom("CA", md.element.carbon, residue)
+    # A gentle helix, so the thing on screen is a shape rather than a line,
+    # and a small per-frame wobble so successive frames differ.
+    turn = np.arange(n_residues) * 1.745
+    base = np.stack([np.cos(turn) * 0.23,
+                     np.sin(turn) * 0.23,
+                     np.arange(n_residues) * 0.15], axis=1)
+    xyz = np.stack([base + 0.01 * frame for frame in range(n_frames)])
+    traj = md.Trajectory(xyz.astype(np.float32), topology)
+    traj[0].save_pdb(str(directory / f"{stem}.pdb"))
+    traj.save_xtc(str(directory / f"{stem}.xtc"))
 
 
 @pytest.fixture(scope="module")
@@ -98,6 +178,48 @@ def site(tmp_path_factory):
                           run_fields={"start_state": "DFG-in", "status": "complete",
                                       "ns_per_day": 213.0})
 
+    # A membrane row as well as the water one. Section 10 asks for every page
+    # at both viewports with no console errors and no serious axe violation,
+    # and until this fixture had a receptor the only run page ever opened in a
+    # browser was a kinase in water. The bilayer table, its three verdict
+    # badges and the lipid toggle are markup and script that exist only on a
+    # membrane row, so none of them had been through either check.
+    receptor = {
+        "name": "fixture-gpcr", "kind": "gpcr",
+        "core": {"n_residues": 180, "source": "fixture core"},
+        "motif_residues": {"NPxxY": [322, 323, 324, 325, 326],
+                           "TM6": [267, 268, 269, 270]},
+        "ensembles": {"active": {"codes": ["3P0G"]},
+                      "inactive": {"codes": ["2RH1"]}},
+        "frames": [
+            {"time_ns": t / 10.0, "n_conflicts": 0, "motifs": [
+                {"motif": "NPxxY", "d_act_a": 0.4, "d_inact_a": 3.1,
+                 "s": 0.77, "label": "active"},
+                {"motif": "TM6", "d_act_a": 1.5, "d_inact_a": 3.4,
+                 "s": 0.39, "label": "active"}]}
+            for t in range(12)],
+        "notes": [],
+    }
+    store.ingest_analysis(database, receptor, system_id="b2ar",
+                          run_id="b2ar_apo", family="gpcr",
+                          environment="membrane",
+                          run_fields={"start_state": "active",
+                                      "status": "complete",
+                                      "ns_per_day": 59.7})
+
+    # One chunk per verdict, so the badge macro is exercised in all three of
+    # its branches rather than only the happy one. 67.0 is inside the expected
+    # window, 69.5 is outside it but still acceptable, and 80.0 raises G6.
+    with store.connect(database) as connection:
+        store.put_membrane(connection, "b2ar_apo", [
+            {"start_ns": 0.0, "apl_a2": 67.0, "thickness_a": 38.9,
+             "tilt_deg": 13.6, "core_waters": 54.4},
+            {"start_ns": 10.0, "apl_a2": 69.5, "thickness_a": 39.4,
+             "tilt_deg": 15.4, "core_waters": 49.4},
+            {"start_ns": 20.0, "apl_a2": 80.0, "thickness_a": 42.5,
+             "tilt_deg": 9.6, "core_waters": 28.1},
+        ])
+
     # Reference geometry, so the state map has points and actually renders.
     # Without it the panel is correctly hidden, and a test that then asserts
     # the map drew is testing the fixture rather than the page.
@@ -132,26 +254,47 @@ def site(tmp_path_factory):
     }))
     # The viewer panel only renders when both files exist, and the slider only
     # when the bundle has more than one frame.
-    (analysis / "abl1_apo.pdb").write_text("ATOM      1  CA  ALA A   1"
-                                           "       0.000   0.000   0.000\nEND\n")
-    (analysis / "abl1_apo.xtc").write_bytes(b"\x00" * 512)
+    # Spanning both of this fixture's motifs, 316 to 318 and 380 to 383.
+    _write_bundle(analysis, "abl1_apo", n_residues=80, n_frames=6,
+                  first_residue=310)
+
+    # The receptor's own bundle. `viewer.lipids` is what draws the bilayer
+    # toggle, and the page only offers it when both lipid files are present,
+    # so both are written.
+    (analysis / "b2ar_apo.json").write_text(json.dumps({
+        "dssp": {"n_frames": 12, "residues": [267, 268, 322, 323, 324],
+                 "frames": ["HHHHH"] * 12, "motifs": {}},
+        "viewer": {"topology": "b2ar_apo.pdb", "trajectory": "b2ar_apo.xtc",
+                   "n_frames": 6, "stride": 10, "frame_ns": 1.0,
+                   "bytes": 1024,
+                   "lipids": {"topology": "b2ar_apo.lipids.pdb",
+                              "trajectory": "b2ar_apo.lipids.xtc",
+                              "n_atoms": 476, "n_frames": 6}},
+        "frames": [{"time_ns": t / 2.0, "measurements": {}}
+                   for t in range(12)],
+    }))
+    # Spanning this fixture's motifs, 267 to 270 and 322 to 326.
+    _write_bundle(analysis, "b2ar_apo", n_residues=75, n_frames=6,
+                  first_residue=260)
+    # The lipid bundle is phosphorus atoms, which is what the real one holds
+    # and what the bilayer toggle draws as spheres.
+    _write_bundle(analysis, "b2ar_apo.lipids", n_residues=24, n_frames=6,
+                  resname="POP")
 
     app = create_app()
     app.config["REFSTATES_DB"] = str(database)
-
-    import flexappeal.refstates.web as web
-
-    # Restored in teardown. Left patched, it leaked into every other test file
-    # in the same session and made an unrelated assertion about a missing
-    # viewer fail, which is a test-isolation bug rather than a product one.
-    original_analysis_file = web.analysis_file
-    web.analysis_file = lambda run_id: analysis / f"{run_id}.json"
+    # Configuration rather than a monkeypatch. Patching `web.analysis_file`
+    # redirected the run's JSON and nothing else, because the two routes that
+    # serve a viewer bundle resolved the directory themselves, so a fixture
+    # run's viewer was always looked for in the repository's own data and a
+    # patch left behind leaked into every later test in the session. One key,
+    # read the same way `REFSTATES_DB` is, covers all three.
+    app.config["REFSTATES_ANALYSIS_DIR"] = str(analysis)
     port = _free_port()
     server = make_server("127.0.0.1", port, app, threaded=True)
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()
     yield f"http://127.0.0.1:{port}"
-    web.analysis_file = original_analysis_file
     server.shutdown()
     thread.join(timeout=5)
 
@@ -164,6 +307,7 @@ PAGES = [
     ("refstates", "/refstates/"),
     ("refstates-about", "/refstates/about"),
     ("refstates-run", "/refstates/run/abl1_apo"),
+    ("refstates-run-membrane", "/refstates/run/b2ar_apo"),
     ("refstates-references", "/refstates/references/abl1"),
 ]
 
@@ -190,9 +334,7 @@ def test_every_page_loads_without_console_errors(chromium, site, name, path,
     try:
         assert response is not None and response.status == 200, \
             f"{path} returned {response.status if response else 'nothing'}"
-        real = [p for p in problems
-                if not any(ignore in p for ignore in IGNORED_CONSOLE)]
-        assert not real, f"{path} at {viewport}: {real}"
+        _assert_console_clean(problems, f"{path} at {viewport}")
 
         shots = Path(tmp_path_factory.getbasetemp()) / "screenshots"
         shots.mkdir(exist_ok=True)
@@ -268,9 +410,7 @@ def test_the_reference_state_plots_actually_draw(chromium, site):
         for panel in ("#state-timeline", "#dssp-ribbon", "#state-map"):
             count = page.locator(f"{panel} .main-svg").count()
             assert count > 0, f"{panel} drew nothing"
-        real = [p for p in problems
-                if not any(ignore in p for ignore in IGNORED_CONSOLE)]
-        assert not real, real
+        _assert_console_clean(problems, "/refstates/run/abl1_apo")
     finally:
         context.close()
 

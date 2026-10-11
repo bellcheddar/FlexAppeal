@@ -44,9 +44,26 @@ SYSTEM_TITLES = {
 }
 
 
+def analysis_dir() -> Path:
+    """Where a run's analysis file, viewer bundle and lipid bundle live.
+
+    Configurable in the same way the database is, and for the same reason. The
+    database already came from `REFSTATES_DB` while these files were resolved
+    from a path fixed relative to the package, so a deployment that moved one
+    could not move the other and a test could point at a database it had built
+    but not at the files that go with it. The page QC worked around that by
+    monkeypatching `analysis_file`, which covered the run's JSON and left the
+    two routes that serve the viewer still reading the repository, so a
+    fixture run could never offer a viewer at all.
+    """
+    return Path(current_app.config.get(
+        "REFSTATES_ANALYSIS_DIR",
+        os.environ.get("FLEXAPPEAL_REFSTATES_ANALYSIS_DIR",
+                       Path(current_app.root_path).parent / "data" / "analysis")))
+
+
 def analysis_file(run_id: str) -> Path:
-    return (Path(current_app.root_path).parent / "data" / "analysis"
-            / f"{run_id}.json")
+    return analysis_dir() / f"{run_id}.json"
 
 
 def references_file() -> Path:
@@ -288,7 +305,7 @@ def run(run_id: str):
             viewer = {}
     # Only offer the panel when both files are actually there: a viewer that
     # fails to load is worse than one that is not shown.
-    directory = Path(current_app.root_path).parent / "data" / "analysis"
+    directory = analysis_dir()
     if not all((directory / f"{run_id}.{kind}").is_file()
                for kind in ("pdb", "xtc")):
         viewer = {}
@@ -823,7 +840,7 @@ def viewer_file(run_id: str, kind: str):
     """
     if not _RUN_ID.match(run_id or "") or kind not in VIEWER_SUFFIXES:
         abort(404)
-    directory = (Path(current_app.root_path).parent / "data" / "analysis")
+    directory = analysis_dir()
     name = f"{run_id}.{kind}"
     if not (directory / name).is_file():
         abort(404)
