@@ -363,3 +363,26 @@ Timestamped, one line per meaningful event, for the reference-state build
   table and the database still held the real run's ten frames. Ingesting the
   tiled analysis first gives 97.5 KB and 17.1 ms. Pointing a test at a large
   input is not the same as the code under test reading it.
+- `22:5x` G-REUSE, one of section 1's six goals, was annotating every kinase
+  against ABL1. `annotate` accepted `--protein` and then called
+  `kinase_setup(start, reference_pdb)` without it, so CDK2 resolved KLIFS
+  kinase 392 with 43 structures, which is ABL1, and reported a clean
+  `intermediate` with no conflicts. The receptor half had the same hole against
+  beta2AR. Never caught because the hook had never once been run on a third
+  protein.
+- `23:0x` Fixing it exposed the second half: with the lookup corrected, CDK2
+  failed on `--reference-pdb`, which defaulted to the ABL1 entry 2GQG and
+  raised a bare `KeyError: '2GQG'` out of a dictionary of CDK2's structures. It
+  now picks one of the kinase's own and says which, and refuses with a message
+  naming valid codes when given one that is not that kinase's.
+- `23:1x` Then the ensembles were uncapped, so CDK2 tried to fetch all 337 of
+  its active structures and was still going after fourteen minutes. Capped at 40
+  per state for the reuse path, best first by quality or resolution; the
+  production path stays uncapped so every committed number is unchanged (D020).
+  The same run now takes 90 seconds.
+- `23:1x` And of those 40, the core alignment kept 1. A score resting on one
+  reference reads exactly like one resting on forty-five, so a state below five
+  usable references now writes a note into the analysis payload and the log
+  (D021). CDK2's run says so in its own output.
+- `23:1x` Verified the production path is untouched: P4 still 4 of 4 at +0.305,
+  -0.368, +0.593 and -0.934, ABL1 still 12 active and 45 inactive.

@@ -654,3 +654,51 @@ The queue now carries a `ligand` field per row, and a test reads each start
 model and asserts that every het residue is either that row's declared ligand or
 one PDBFixer rewrites. Without it `abl1_imatinib` would have crashed at build
 time twenty hours into the queue.
+
+## D020: the reuse path caps its reference ensembles, the production path does not
+
+`flexappeal refstates annotate` is section 6.5's G-REUSE hook, and on a
+well-studied kinase it tried to download every structure the catalogue offered:
+CDK2 returns 337 that KLIFS calls active, and the first corrected run was still
+fetching after fourteen minutes.
+
+**Capped at 40 per state for `annotate`, best first.** By KLIFS's own
+`quality_score` descending for a kinase and by GPCRdb's `resolution` ascending
+for a receptor, since neither catalogue offers the other's column. An entry with
+no value for either sorts last rather than first, which needed its own fallback
+on the ascending side: a missing value read as minus infinity would have been
+the best resolution there is.
+
+The justification is what the score is. A motif's state comes from its distance
+to the *nearest* active and nearest inactive reference, so beyond a few dozen
+structures an extra one only wins if it is nearer than everything already there,
+and the cost is linear. Forty is above both worked examples' largest state (45
+inactive for ABL1 is the one exception, and the production path is uncapped so
+it keeps all 45).
+
+**The production path passes no limit.** That is deliberate and it is the whole
+reason the cap is an option rather than a constant: every committed number,
+including P1, P2, P3, P4 and both manifests, is computed over the full
+ensembles. Checked after the change: P4 still reads +0.305, -0.368, +0.593 and
+-0.934, and ABL1 still resolves 12 active and 45 inactive.
+
+`--max-references 0` turns the cap off for a user who wants the full set.
+
+## D021: a thin reference ensemble is reported, not silently used
+
+CDK2's reuse run kept 40 active references and the core alignment dropped 39 of
+them, leaving a state score computed against one structure. Without a word, that
+output is indistinguishable from one computed against forty-five.
+
+Any state whose ensemble falls below five usable references now adds a note to
+the analysis payload and the log, saying how many it rests on and that the
+scores are indicative rather than measured. Five is the smallest number that can
+show a spread rather than a pair of points, and both worked examples clear it
+several times over, so it only fires on an uploaded protein whose catalogue
+coverage is thin.
+
+The alternative was refusing to score at all below some count. Rejected: a
+one-reference comparison is still the most informative thing available for that
+protein, and a refusal would throw away a usable answer rather than qualify it.
+The spec's own rule on this (0.1 rule 3) is to degrade gracefully and flag, not
+to stop.

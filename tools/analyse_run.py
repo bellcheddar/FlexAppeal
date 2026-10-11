@@ -42,16 +42,63 @@ def log(message: str) -> None:
     print(f"[{time.strftime('%H:%M:%S')}] {message}", flush=True)
 
 
-def kinase_setup(start_pdb: Path, reference_pdb: str):
-    """Motif residues, core and reference ensembles for a kinase run."""
+def _best_entries(entries: list, limit: int | None, *, key: str,
+                  ascending: bool = False) -> list:
+    """The `limit` best catalogue rows, or all of them when there is no limit.
+
+    The worked examples need no limit: ABL1 yields 12 active and 45 inactive,
+    beta2AR 72 and 28, and every committed result is computed over all of them.
+    An arbitrary protein is a different matter. CDK2 yields 337 active, and
+    since a state score is the distance to the *nearest* reference, the three
+    hundredth structure adds a download and almost nothing else. So the reuse
+    path caps it and the production path does not, which keeps the committed
+    numbers exactly as they were.
+
+    Sorted by the catalogue's own quality column where it has one, descending,
+    and left in catalogue order where it does not, so the choice is the best
+    structures rather than the first ones.
+    """
+    if not limit or len(entries) <= limit:
+        return list(entries)
+
+    def score(row) -> float:
+        try:
+            return float(row.get(key))
+        except (TypeError, ValueError):
+            return float("-inf")
+
+    if any(row.get(key) is not None for row in entries):
+        # A missing value sorts last either way, which is why the fallback is
+        # -inf for a descending sort and +inf for an ascending one.
+        if ascending:
+            def rank(row) -> float:
+                try:
+                    return float(row.get(key))
+                except (TypeError, ValueError):
+                    return float("inf")
+            return sorted(entries, key=rank)[:limit]
+        return sorted(entries, key=score, reverse=True)[:limit]
+    return list(entries)[:limit]
+
+
+def kinase_setup(start_pdb: Path, reference_pdb: str,
+                 protein: str = "ABL1", max_references: int | None = None):
+    """Motif residues, core and reference ensembles for a kinase run.
+
+    `protein` is the name KLIFS knows the kinase by, and it has to reach the
+    lookup: this took the default and ignored its caller, so the reuse hook
+    annotated every kinase against ABL1's reference ensembles and reported a
+    confident state for it. That is section 1's G-REUSE goal failing silently,
+    which is the worst way for it to fail, because the output looks the same.
+    """
     from flexappeal.refstates import Catalogue, kinase_id, kinase_references
     from flexappeal.refstates import ensembles, pocket, refs, sse
     from flexappeal.refstates.traj import core_agreement, scaffold_core
 
     catalogue = Catalogue(KLIFS_CACHE)
-    kid = kinase_id(catalogue)
+    kid = kinase_id(catalogue, name=protein)
     ids = pocket.structure_ids(catalogue, kid)
-    log(f"KLIFS kinase {kid}, {len(ids)} structures")
+    log(f"KLIFS {protein} is kinase {kid}, {len(ids)} structures")
 
     import gemmi
 
@@ -59,7 +106,30 @@ def kinase_setup(start_pdb: Path, reference_pdb: str):
     structure.setup_entities()
     chain = structure[0][0]
 
-    own = pocket.pocket_map(catalogue, ids[reference_pdb.upper()])
+    # The reference entry whose pocket map resolves this construct's motif
+    # residues has to be one of *this* kinase's structures. The default is an
+    # ABL1 entry, so for any other kinase it is absent and this used to raise a
+    # bare KeyError naming a PDB code with no hint that the code belonged to a
+    # different protein.
+    code = (reference_pdb or "").upper()
+    if code and code in ids:
+        chosen = code
+    elif code:
+        raise SystemExit(
+            f"--reference-pdb {code} is not one of KLIFS's {len(ids)} "
+            f"structures for {protein}. Pass one of that kinase's own entries, "
+            f"for example {', '.join(sorted(ids)[:4])}, or leave it unset to "
+            f"let one be chosen.")
+    elif ids:
+        # Deterministic rather than arbitrary, and said out loud: any structure
+        # of this kinase resolves the pocket, but which one was used belongs in
+        # the log.
+        chosen = sorted(ids)[0]
+        log(f"no --reference-pdb given; resolving the pocket from {chosen}")
+    else:
+        raise SystemExit(f"KLIFS has no structures for {protein}")
+
+    own = pocket.pocket_map(catalogue, ids[chosen])
     last = max(r.seqid.num for r in chain)
     motif_residues: dict[str, list[int]] = {}
     for name in KINASE_MOTIFS:
@@ -87,8 +157,10 @@ def kinase_setup(start_pdb: Path, reference_pdb: str):
     rows: dict[str, list] = {}
     paths: dict[str, Path] = {}
     for which in ("active", "inactive"):
+        available = _best_entries(ensemble_rows[which].entries, max_references,
+                                  key="quality_score")
         entries = []
-        for entry in ensemble_rows[which].entries:
+        for entry in available:
             code = str(entry["pdb"]).upper()
             if code not in ids:
                 continue
@@ -96,7 +168,12 @@ def kinase_setup(start_pdb: Path, reference_pdb: str):
             entries.append({"pdb": code, "path": str(paths[code]),
                             "chain": entry.get("chain") or ""})
         rows[which] = entries
-        log(f"{which}: {len(entries)} references")
+        total = len(ensemble_rows[which].entries)
+        if max_references and total > len(entries):
+            log(f"{which}: {len(entries)} references, the best of {total} "
+                f"by quality")
+        else:
+            log(f"{which}: {len(entries)} references")
 
     # The activation loop runs from the DFG aspartate to the APE motif, and APE
     # is found in each structure's own sequence, so a reference needs its own
@@ -185,13 +262,18 @@ def kinase_setup(start_pdb: Path, reference_pdb: str):
                                               "sse_profiles": sse_profiles}
 
 
-def gpcr_setup(start_pdb: Path):
+def gpcr_setup(start_pdb: Path, protein: str = "adrb2_human",
+               max_references: int | None = None):
     """Motif residues, core and reference ensembles for a receptor run.
 
     Every residue comes through GPCRdb generic numbers, so the segments are the
     catalogue's own and the beta2AR numbers are never typed. NPxxY is the one
     motif that is a span of generic numbers rather than a segment, because that
     is what it is: 7.49 to 7.53.
+
+    `protein` is GPCRdb's entry name, `adrb2_human` for the worked example. Like
+    the kinase side, this ignored its caller and every receptor was annotated
+    against beta2AR.
     """
     import gemmi
 
@@ -201,7 +283,7 @@ def gpcr_setup(start_pdb: Path):
     from flexappeal.refstates.traj import core_agreement, gpcr_core
 
     catalogue = Catalogue(GPCRDB_CACHE)
-    numbering = build_numbering(receptor_residues(catalogue))
+    numbering = build_numbering(receptor_residues(catalogue, protein))
 
     structure = gemmi.read_structure(str(start_pdb))
     structure.setup_entities()
@@ -221,7 +303,7 @@ def gpcr_setup(start_pdb: Path):
             motif_residues[segment] = residues
 
     core = gpcr_core(numbering, present)
-    ensemble_rows = receptor_references(catalogue)
+    ensemble_rows = receptor_references(catalogue, protein)
 
     # One numbering for the whole receptor: unlike the kinase references, every
     # beta2AR entry here is checked by `ca_distance` against the catalogue's own
@@ -236,9 +318,12 @@ def gpcr_setup(start_pdb: Path):
     rows = {}
     for which in ("active", "inactive"):
         entries = []
+        # GPCRdb has no quality column, so a cap takes the best resolution.
+        available = _best_entries(ensemble_rows[which].entries, max_references,
+                                  key="resolution", ascending=True)
         # `receptor_references` returns Ensemble objects, not lists, and the
         # GPCRdb row names the entry `pdb_code` where KLIFS uses `pdb`.
-        for entry in ensemble_rows[which].entries:
+        for entry in available:
             code = str(entry.get("pdb_code") or "").upper()
             if not code:
                 continue
@@ -250,7 +335,12 @@ def gpcr_setup(start_pdb: Path):
             entries.append({"pdb": code, "path": str(path),
                             "chain": str(entry.get("preferred_chain") or "")[:1]})
         rows[which] = entries
-        log(f"{which}: {len(entries)} references")
+        total = len(ensemble_rows[which].entries)
+        if max_references and total > len(entries):
+            log(f"{which}: {len(entries)} references, the best of {total} "
+                f"by resolution")
+        else:
+            log(f"{which}: {len(entries)} references")
 
     # Restricted to what every reference resolves. Without this TM6, the
     # headline activation motif, went unscored: 38 residues through the most

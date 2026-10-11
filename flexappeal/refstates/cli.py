@@ -66,6 +66,13 @@ def detect_family(topology: Path) -> str:
     return "unknown"
 
 
+# Below this many reference structures in a state, the comparison is reported as
+# indicative. Five is the smallest number that can show a spread rather than a
+# pair of points, and both worked examples clear it several times over, so it
+# only ever fires on an uploaded protein whose catalogue coverage is thin.
+THIN_ENSEMBLE = 5
+
+
 def annotate(args: argparse.Namespace) -> int:
     """Run the reference-state analysis on a caller's trajectory."""
     from . import ensembles, traj
@@ -101,11 +108,21 @@ def annotate(args: argparse.Namespace) -> int:
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
 
+    # `--protein` has to reach these. It did not, so every kinase was scored
+    # against ABL1's reference ensembles and every receptor against beta2AR's,
+    # with the option accepted by the parser and then dropped. The default is
+    # per family rather than one value, because "ABL1" is not a receptor and a
+    # shared default cannot be right for both.
+    limit = args.max_references if args.max_references > 0 else None
     if family == "kinase":
         setup = module.kinase_setup(args.start or args.topology,
-                                   args.reference_pdb)
+                                    args.reference_pdb,
+                                    protein=args.protein or "ABL1",
+                                    max_references=limit)
     else:
-        setup = module.gpcr_setup(args.start or args.topology)
+        setup = module.gpcr_setup(args.start or args.topology,
+                                  protein=args.protein or "adrb2_human",
+                                  max_references=limit)
     motif_residues, core, built, own, report = setup
 
     run = traj.analyse(loaded, name=args.name or args.trajectory.stem,
@@ -116,6 +133,23 @@ def annotate(args: argparse.Namespace) -> int:
     payload: dict[str, Any] = run.as_row()
     payload["ensembles"] = {state: e.as_row() for state, e in built.items()}
     payload["report"] = report
+
+    # A score is a comparison against an ensemble, so how many structures that
+    # ensemble has is part of the result. The worked examples are comfortable
+    # (ABL1 has 12 active and 45 inactive, beta2AR 72 and 28), but an arbitrary
+    # protein need not be: CDK2 comes back with 337 active and 2 inactive, and a
+    # state score computed against two structures is a far weaker measurement
+    # than one computed against forty-five. Said in the output rather than left
+    # for a reader to infer from the ensemble sizes.
+    for state, ensemble in built.items():
+        n = len(ensemble.by_code)
+        if n and n < THIN_ENSEMBLE:
+            note = (f"the {state} ensemble has only {n} reference "
+                    f"{'structure' if n == 1 else 'structures'}, so every "
+                    f"{state} distance here rests on {n}; treat the scores as "
+                    f"indicative rather than measured")
+            payload.setdefault("notes", []).append(note)
+            log(f"  {note}")
     args.out.parent.mkdir(parents=True, exist_ok=True)
     args.out.write_text(json.dumps(payload, indent=2) + "\n")
 
@@ -145,11 +179,22 @@ def build_parser() -> argparse.ArgumentParser:
                           "annotation here addresses deposited numbers.")
     one.add_argument("--family", choices=("kinase", "gpcr", "auto"),
                      default="auto")
-    one.add_argument("--protein", default="ABL1",
-                     help="the name the catalogue knows the protein by")
-    one.add_argument("--reference-pdb", default="2GQG",
+    one.add_argument("--protein", default=None,
+                     help="the name the catalogue knows the protein by: a "
+                          "KLIFS kinase name such as CDK2, or a GPCRdb entry "
+                          "name such as adrb2_human. Defaults to the worked "
+                          "example for whichever family is detected")
+    one.add_argument("--reference-pdb", default=None,
                      help="a PDB entry whose pocket map resolves the "
                           "construct's own motif residues")
+    one.add_argument("--max-references", type=int, default=40,
+                     help="the most reference structures to use per state, "
+                          "best first by the catalogue's own quality or "
+                          "resolution. A state score is the distance to the "
+                          "nearest reference, so a well-studied kinase's three "
+                          "hundredth structure costs a download and changes "
+                          "almost nothing. 0 means no limit, which is what the "
+                          "two worked examples use")
     one.add_argument("--stride", type=int, default=1)
     one.add_argument("--frame-ps", type=float, default=100.0,
                      help="the interval the trajectory was saved at")

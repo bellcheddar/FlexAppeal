@@ -2284,3 +2284,114 @@ def test_the_bilayer_qc_streams_chunks_without_losing_frames(tmp_path: Path):
         assert row["n_lipids"] == 2 * n_per_leaflet
         assert row["leaflet_counts"] == [n_per_leaflet, n_per_leaflet]
     assert end == pytest.approx(n_frames * 0.1)
+
+
+# --- G-REUSE: the module has to work for a protein it has never seen ---------
+
+def _analyse_run():
+    import importlib.util
+    from pathlib import Path
+
+    root = Path(__file__).resolve().parents[1]
+    spec = importlib.util.spec_from_file_location(
+        "_analyse_run_for_tests", root / "tools" / "analyse_run.py")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def test_annotate_passes_the_protein_to_the_catalogue_lookup():
+    """`--protein` was accepted by the parser and then dropped.
+
+    So CDK2 was annotated against ABL1's reference ensembles and reported a
+    clean `intermediate` with no conflicts, which is what it would have looked
+    like had it worked. Checked on the source because the alternative needs
+    KLIFS, and what went wrong was an argument not being forwarded.
+    """
+    from pathlib import Path
+
+    source = (Path(__file__).resolve().parents[1]
+              / "flexappeal" / "refstates" / "cli.py").read_text()
+    block = source[source.index('if family == "kinase":'):]
+    block = block[:block.index("motif_residues, core, built")] \
+        if "motif_residues, core, built" in block else block[:600]
+    assert "protein=args.protein" in block, "the kinase setup is not given the protein"
+    assert block.count("protein=args.protein") == 2, (
+        "both families must be given the protein, not just one")
+    # One shared default cannot be right for both: ABL1 is not a receptor.
+    assert '"ABL1"' in block and '"adrb2_human"' in block
+
+    # And the setups must accept it.
+    module = _analyse_run()
+    import inspect
+
+    for function in (module.kinase_setup, module.gpcr_setup):
+        parameters = inspect.signature(function).parameters
+        assert "protein" in parameters, f"{function.__name__} takes no protein"
+        assert "max_references" in parameters
+
+
+def test_reference_cap_takes_the_best_and_leaves_the_examples_alone():
+    """A state score is the distance to the nearest reference.
+
+    CDK2 yields 337 active structures, so the three hundredth costs a download
+    and changes almost nothing. The cap applies to the reuse path only, which is
+    why no limit has to mean every entry: the committed results for both worked
+    examples are computed over all of theirs.
+    """
+    module = _analyse_run()
+    rows = [{"pdb": "AAAA", "quality_score": 4.0, "resolution": 2.5},
+            {"pdb": "BBBB", "quality_score": 8.0, "resolution": 1.5},
+            {"pdb": "CCCC", "quality_score": 6.0, "resolution": 3.0}]
+
+    # No limit is every row, in catalogue order.
+    assert module._best_entries(rows, None, key="quality_score") == rows
+    assert module._best_entries(rows, 0, key="quality_score") == rows
+    # A limit at or above the count changes nothing either.
+    assert module._best_entries(rows, 5, key="quality_score") == rows
+
+    # Quality: highest first, because a better structure scores higher.
+    best = module._best_entries(rows, 2, key="quality_score")
+    assert [r["pdb"] for r in best] == ["BBBB", "CCCC"]
+
+    # Resolution: lowest first, because a better structure resolves finer.
+    best = module._best_entries(rows, 2, key="resolution", ascending=True)
+    assert [r["pdb"] for r in best] == ["BBBB", "AAAA"]
+
+
+def test_reference_cap_puts_an_unscored_entry_last_either_way():
+    """A row with no quality or resolution must not win the sort.
+
+    It sorted last for a descending sort already; ascending needed its own
+    fallback, because a missing value read as -inf would be the best resolution
+    there is.
+    """
+    module = _analyse_run()
+    rows = [{"pdb": "GOOD", "quality_score": 7.0, "resolution": 1.8},
+            {"pdb": "BLANK"},
+            {"pdb": "ALSO", "quality_score": 5.0, "resolution": 2.2}]
+
+    kept = module._best_entries(rows, 2, key="quality_score")
+    assert "BLANK" not in [r["pdb"] for r in kept]
+    kept = module._best_entries(rows, 2, key="resolution", ascending=True)
+    assert "BLANK" not in [r["pdb"] for r in kept]
+    assert [r["pdb"] for r in kept] == ["GOOD", "ALSO"]
+
+
+def test_a_thin_reference_ensemble_is_reported_in_the_output():
+    """How many structures a score rests on is part of the score.
+
+    CDK2's reuse run came back with one usable active reference after the core
+    alignment, and without this the output looked the same as one computed
+    against forty-five.
+    """
+    from flexappeal.refstates import cli
+
+    assert cli.THIN_ENSEMBLE >= 2, "a threshold of one would never fire"
+    source = (Path(__file__).resolve().parents[1]
+              / "flexappeal" / "refstates" / "cli.py").read_text()
+    assert "THIN_ENSEMBLE" in source
+    block = source[source.index("for state, ensemble in built.items():"):]
+    block = block[:800]
+    assert 'payload.setdefault("notes"' in block, (
+        "the warning must reach the payload, not only the log")

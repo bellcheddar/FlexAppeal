@@ -1173,6 +1173,90 @@ measured twice. Ingesting the tiled analysis first gives 97.5 KB and 17.1 ms.
 Pointing a test at the big input is not the same as the code under test reading
 it, and the only thing that caught it was the payload looking too small.
 
+## 4l. G-REUSE annotated every kinase against ABL1
+
+Section 1 lists six goals and G-REUSE is one of them: the module has to work for
+any kinase or class A GPCR a user uploads, not only these two examples. Section
+6.5 makes it concrete as `flexappeal refstates annotate` with a topology, a
+trajectory, a family and a protein.
+
+The entry point existed, took all four, and was never once run on a third
+protein. Run on CDK2, with a two-frame trajectory made from the 1HCK crystal so
+no MD was needed:
+
+    family detected as kinase
+    KLIFS kinase 392, 43 structures
+    final frame: whole score +0.001 (intermediate), 0 conflicts
+
+Kinase 392 with 43 structures is **ABL1**. `--protein CDK2` was accepted by the
+parser and then dropped: `annotate` called `kinase_setup(start, reference_pdb)`
+and never passed it, so the setup took its own default. CDK2 was scored against
+ABL1's active and inactive ensembles, and the answer came back as a clean
+`intermediate` with no conflicts, which is exactly what it would look like if it
+had worked.
+
+The receptor half had the same hole, `gpcr_setup` defaulting to `adrb2_human`,
+so any uploaded class A receptor would have been scored against beta2AR.
+
+**Both halves now thread the protein through**, with the default chosen per
+family rather than shared, because "ABL1" is not a receptor and one default
+cannot be right for both.
+
+**And the fix exposed the second half of the same bug.** With the lookup
+corrected, CDK2 then failed on `--reference-pdb`, which defaulted to `2GQG`, an
+ABL1 entry, and raised a bare `KeyError: '2GQG'` from a dictionary of CDK2's
+structures. A user would have had no way to read that as "the default belongs to
+a different protein". It now picks one of the kinase's own structures when none
+is given and says which, and refuses with a message naming valid codes when the
+one given is not that kinase's.
+
+With both fixed, CDK2 resolves properly:
+
+    KLIFS CDK2 is kinase 198, 457 structures
+    no --reference-pdb given; resolving the pocket from 1AQ1
+    active: 337 references
+    inactive: 2 references
+
+So the hook works on a protein this build has never touched. Two things follow
+from the numbers, and both needed fixing rather than noting.
+
+**337 downloads where a dozen would do.** The first corrected run took over
+fourteen minutes and was still fetching when I stopped it, because CDK2 has 337
+structures KLIFS calls active and the ensembles were quality-filtered but
+uncapped. A state score is the distance to the *nearest* reference, so the three
+hundredth structure costs a download and changes almost nothing. `annotate` now
+caps at 40 per state, best first by the catalogue's own quality for KLIFS and by
+resolution for GPCRdb, and the same run takes 90 seconds. The cap is the reuse
+path's alone: the production path passes no limit, so every committed result is
+still computed over all of ABL1's 12 and 45 and beta2AR's 72 and 28, and P4
+still reads +0.305, -0.368, +0.593 and -0.934 exactly as before.
+
+**And the ensemble that survived was one structure.** Of the 40 active
+references kept, 39 were dropped at the core alignment, which needs a matching
+core length and does not get one across a structurally heterogeneous set:
+
+    active: 40 references, the best of 337 by quality
+    inactive: 2 references
+    aligned 1 references onto 1F5Q: core residual mean 0.0 A, max 0.0 A, 28 dropped
+    the active ensemble has only 1 reference structure, so every active
+    distance here rests on 1; treat the scores as indicative rather than measured
+
+That last line is new. How many structures a score rests on is part of the
+score, and without it a comparison against one reference reads exactly like a
+comparison against forty-five. It is written into the analysis payload as well
+as the log, so anything downstream can see it.
+
+The honest summary of G-REUSE after this: the plumbing works on an unseen
+kinase, resolves its own catalogue entry, caps its own downloads and says when
+its own ensemble is too thin to trust. For CDK2 specifically the answer is not
+yet worth much, because the core-based alignment keeps one reference in forty.
+Improving that means a core chosen per target rather than from one reference
+structure, which is a larger change than this pass, and it is now a stated
+limitation with a number attached rather than a silent one.
+
+Every existing caller passes these positionally and still gets the right
+default, so the four production rows are unaffected.
+
 ## 5. Production runs
 
 Tier 2 started at 17:04 on 10 October, in section 5.3's priority order: β2AR
