@@ -713,3 +713,24 @@ abl1_apo at 4.2 ns when its checkpoint is at 4.0; replaced with the measurable
 thing, how long the trajectory went on after the checkpoint was written.
 
 FINDINGS 4ah. Five tests added, 944 passed, 1 skipped.
+
+### 11 October, 05:00 to 05:40
+
+`tools/stream_analysis.sh`: the liveness check looked once, and the queue runs
+each row as a fresh subprocess, so a look taken between one runner exiting and
+the next starting would have ended the streaming after the first row and run the
+final pass, with the bilayer QC and G6 in it, against a partial trajectory. The
+04:19 restart opened the same window for a minute and the loop survived only
+because it was asleep. Now checks for the queue as well as the runner, and
+requires an absence to persist over twelve looks five seconds apart.
+
+Made testable to prove it: the script returns early when sourced, as the Python
+tools guard `__main__`, and the grace is two environment variables. Four tests
+drive `producing` against a stubbed `pgrep`. With the grace set to one look,
+which is the old behaviour, the gap case returns false; with two, true.
+
+Loop restarted on the fix at 04:38 and its first pass picked up the
+post-truncation frames coherently: b2ar_apo at 177 frames against production at
+17.7 ns.
+
+FINDINGS 4ai. Four tests added, 948 passed, 1 skipped.

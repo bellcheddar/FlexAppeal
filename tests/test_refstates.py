@@ -3867,3 +3867,83 @@ def test_preflight_reads_and_writes_nothing(tmp_path: Path, monkeypatch):
     assert queue.preflight(tmp_path, 50.0) == 0
     assert sorted(p.name for p in run_dir.iterdir()) == before, (
         "preflight must not leave anything behind in a row's directory")
+
+
+def _stream_producing(tmp_path: Path, *, queue_log: str, pgrep_script: str,
+                      grace_checks: int = 2) -> int:
+    """Run `stream_analysis.sh`'s `producing` with a stubbed `pgrep`.
+
+    The script is sourced rather than executed, which its own guard allows, so
+    the half-hour loop does not start inside the suite.
+    """
+    import subprocess
+
+    root = Path(__file__).resolve().parents[1]
+    log = tmp_path / "production.log"
+    log.write_text(queue_log)
+    stub_dir = tmp_path / "bin"
+    stub_dir.mkdir()
+    stub = stub_dir / "pgrep"
+    stub.write_text(pgrep_script)
+    stub.chmod(0o755)
+    env = {
+        "PATH": f"{stub_dir}:/usr/bin:/bin",
+        "QUEUE_LOG": str(log),
+        "GRACE_CHECKS": str(grace_checks),
+        "GRACE_SLEEP": "0",
+        "COUNTER": str(tmp_path / "calls"),
+    }
+    return subprocess.run(
+        ["bash", "-c",
+         f'source "{root}/tools/stream_analysis.sh"; producing'],
+        cwd=root, env=env, capture_output=True).returncode
+
+
+def test_a_gap_between_rows_does_not_end_the_streaming(tmp_path: Path):
+    """The queue starts each row as a fresh subprocess, so there is a gap.
+
+    At every row boundary there is a moment with no runner alive and nothing yet
+    saying the queue is done. Looking once in that window would have ended the
+    streaming for every row after the first and fired the final pass, the one
+    that computes the bilayer QC and G6, on a partial trajectory. The same
+    window opened for about a minute when the queue was restarted by hand at
+    04:19 on 11 October, and the loop survived only because it was asleep.
+    Section 4ag.
+    """
+    # Nothing on the first look, a queue process on the second.
+    stub = ('#!/bin/bash\n'
+            'n=$(cat "$COUNTER" 2>/dev/null || echo 0)\n'
+            'echo $((n + 1)) > "$COUNTER"\n'
+            '[ "$n" -ge 1 ] && echo 4242\n'
+            'exit 0\n')
+    assert _stream_producing(tmp_path, queue_log="[21:22] producing\n",
+                             pgrep_script=stub) == 0, (
+        "a transient gap is a row boundary, not the end of production")
+
+
+def test_production_really_stopping_still_ends_the_streaming(tmp_path: Path):
+    """The grace must not become a loop that cannot stop.
+
+    If an absent process never counted, the loop would stream for ever and the
+    final pass would never run, which is the fault the liveness check was
+    rewritten for in the first place.
+    """
+    stub = '#!/bin/bash\nexit 1\n'
+    assert _stream_producing(tmp_path, queue_log="[21:22] producing\n",
+                             pgrep_script=stub) == 1
+
+
+def test_the_queue_marker_ends_the_streaming_without_waiting(tmp_path: Path):
+    """The queue saying so is definitive and needs no grace at all."""
+    # A stub that would report production, so only the marker can be what
+    # ends it.
+    stub = '#!/bin/bash\necho 4242\nexit 0\n'
+    assert _stream_producing(tmp_path, grace_checks=12,
+                             queue_log="[21:22] producing\n[23:00] queue done\n",
+                             pgrep_script=stub) == 1
+
+
+def test_a_live_production_process_keeps_the_streaming_going(tmp_path: Path):
+    stub = '#!/bin/bash\necho 4242\nexit 0\n'
+    assert _stream_producing(tmp_path, queue_log="[21:22] producing\n",
+                             pgrep_script=stub) == 0

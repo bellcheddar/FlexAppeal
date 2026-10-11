@@ -2497,6 +2497,47 @@ reports now, with the exact count left to the resume, which logs it. The
 difference between the two versions is the difference between a check and a
 restatement of an assumption.
 
+## 4ai. The streaming loop would have stopped at the first row boundary
+
+Section 4af's rehearsal exercised the final pass. It did not exercise the
+condition that decides when the final pass runs, and that condition had a race
+in it that the restart in section 4ag came within a minute of triggering.
+
+`producing()` looked once:
+
+    pgrep -f "tools/run_md.py" 2>/dev/null | grep -qvE "^(${mine})$"
+
+The queue runs each row as a fresh subprocess. Between one row's runner exiting
+and the next being spawned there is a moment with no runner alive and nothing
+yet written to say the queue is done, and a single look inside that window
+returns false. The loop then leaves, runs the final pass, and exits.
+
+The consequence is the worst shape a fault can have here. Streaming would stop
+silently after the first row. The final pass, which computes the bilayer QC and
+decides G6, would run against a third of a trajectory and write its numbers as
+though they were final. Nothing would re-run it, and nothing in the output would
+say which row it had stopped at. The window is a second or two against a
+half-hour interval, so it would have happened rarely, which is worse than
+happening reliably: it would have happened on one row and not the others.
+
+The restart at 04:19 opened the same window for about a minute. The loop
+survived it only because it happened to be asleep.
+
+Two changes. The check now names the queue as well as the runner, because the
+queue is the process whose lifetime actually matches production and it lives
+straight across row boundaries. And an absence has to persist before it counts:
+twelve looks, five seconds apart, so a row boundary or a restart by hand passes
+and a real stop costs one minute of delay. The PID exclusion still does the work
+of not matching ourselves, which matters more now that the pattern names two
+scripts and both appear in this file's own text.
+
+Proved rather than asserted, which needed the script to be testable. It now
+returns early when sourced, the way the Python tools guard `__main__`, so a test
+can source it and call `producing` against a stubbed `pgrep` on PATH. The grace
+is two environment variables so the test for a real stop does not take a minute
+to decide nothing is there. Run against the gap case with the grace set to one
+look, which is the old behaviour, `producing` returns false; with two, true.
+
 ## 5. Production runs
 
 Tier 2 started at 17:04 on 10 October, in section 5.3's priority order: β2AR

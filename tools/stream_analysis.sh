@@ -22,11 +22,23 @@
 # So two conditions, both on state rather than on a pattern that matches us:
 # the queue's own "queue done" marker, and a process check that excludes this
 # script's ancestors by PID.
+#
+# **Why the process check needs a minute of patience.** It looked once. The
+# queue runs each row as a fresh subprocess, so at every row boundary there is a
+# moment with no runner alive and nothing yet saying the queue is done, and one
+# look in that window would have ended the streaming for every row after the
+# first and fired the final pass on a partial trajectory. The gap is seconds
+# against a half-hour interval, so it would have happened rarely and silently.
 set -u
 cd /Users/dellboy/Documents/Vibe_Coding/FlexAppeal
 
 INTERVAL="${INTERVAL:-1800}"
 QUEUE_LOG="${QUEUE_LOG:-data/md/production.log}"
+# A minute of grace before an absent production process counts as the end, as
+# twelve looks five seconds apart. Overridable so the test for it does not take
+# a minute to decide that nothing is there.
+GRACE_CHECKS="${GRACE_CHECKS:-12}"
+GRACE_SLEEP="${GRACE_SLEEP:-5}"
 
 # This script's own process tree, which matches any pattern naming run_md.py
 # because the pattern is written above.
@@ -38,61 +50,104 @@ ancestors() {
     done
 }
 
+# A production process that is not one of our own: either the queue, which
+# lives across row boundaries, or a runner. Both patterns, because the queue is
+# the process whose lifetime actually matches production and the runner catches
+# a queue started by hand for one row. Excluded by PID rather than by pattern
+# for the reason above: this script's own text contains both names.
+#
+# A `--preflight` run would match too. It cannot matter: it is read-only and
+# lasts under a second, and by the time the queue is genuinely finished the
+# "queue done" marker short-circuits this check before it is reached.
+production_alive() {
+    local mine
+    mine=$(ancestors | tr '\n' '|' | sed 's/|$//')
+    pgrep -f "tools/(queue|run)_md\.py" 2>/dev/null \
+        | grep -qvE "^(${mine})$"
+}
+
 producing() {
     # The queue says so itself once every row is done or has failed.
     if [ -f "$QUEUE_LOG" ] && grep -q "queue done" "$QUEUE_LOG"; then
         return 1
     fi
-    # Otherwise, a real run_md.py that is not one of our own processes. This
-    # catches a queue that died without writing its marker.
-    local mine
-    mine=$(ancestors | tr '\n' '|' | sed 's/|$//')
-    pgrep -f "tools/run_md.py" 2>/dev/null \
-        | grep -qvE "^(${mine})$"
+    # An absence has to persist before it counts as the end of production. The
+    # queue starts each row as a fresh subprocess, so there is a moment at
+    # every row boundary with no runner alive and no "queue done" written, and
+    # concluding from a single look would end the streaming for every row after
+    # the first. The symptom would be the bad kind: the final pass, which
+    # computes the bilayer QC and G6, would run on a third of a trajectory and
+    # nothing would re-run it.
+    #
+    # The same window opens when the queue is restarted by hand. That happened
+    # at 04:19 on 11 October and lasted about a minute; the loop survived it
+    # only because it was asleep. Hence a minute of grace, which costs one
+    # minute of delay on the one occasion production has really stopped.
+    local attempt
+    for attempt in $(seq "$GRACE_CHECKS"); do
+        if production_alive; then
+            return 0
+        fi
+        sleep "$GRACE_SLEEP"
+    done
+    return 1
 }
 
-while producing; do
-    echo "[$(date +%H:%M:%S)] streaming pass"
-    bash tools/analyse_all.sh --skip-membrane 2>&1 | grep -E "analysing|ingesting|motifs|rows|FAILED|no trajectory" || true
-    sleep "$INTERVAL"
-done
-
-echo "[$(date +%H:%M:%S)] production has stopped; one final pass with the bilayer QC"
-bash tools/analyse_all.sh
-
-# Section 2.2 wants the measured ns/day recorded rather than assumed, and a
-# row's real rate is only known once it has finished, so this refreshes as the
-# queue drains rather than being a one-off at the start.
-echo "[$(date +%H:%M:%S)] refreshing config/benchmarks.toml"
-pixi run python tools/hwprobe.py || echo "hwprobe failed, see above"
-
-# The figures after the analysis, because they are drawn from the database the
-# pass above has just finished filling. Section 11 wants FINDINGS "with
-# figures", and a figure drawn from a half-written run is worse than no figure,
-# so this is the one place they are regenerated rather than on every pass.
-echo "[$(date +%H:%M:%S)] redrawing the figures"
-pixi run python tools/make_figures.py || echo "figures failed, see above"
-
-# Every stored number against the analysis file it came from. The rows land
-# unattended, and a fault in the ingest produces numbers that are wrong rather
-# than missing, which nothing downstream would notice. Reported rather than
-# fatal: a disagreement is worth finding in the morning, and stopping the rest
-# of the pass over it would lose the controls below as well.
-echo "[$(date +%H:%M:%S)] verifying the stored numbers against the analyses"
-VERIFY_LOG="data/md/verify.log"
-if pixi run python -m flexappeal.refstates.cli report --verify \
-      > "$VERIFY_LOG" 2>&1; then
-    grep -E "agrees with the analysis" "$VERIFY_LOG" || true
-else
-    echo "VERIFICATION FAILED; the first lines of $VERIFY_LOG:"
-    grep -E "disagree|^    [a-z0-9_]+ " "$VERIFY_LOG" | head -20
+# Sourced rather than run, the functions above are available and nothing
+# happens. That is how `producing` is tested: a test sources this with a `pgrep`
+# stub on PATH and checks that a gap with no production process in it does not
+# end the loop. Without the guard, sourcing it would start a half-hour loop
+# inside the test suite.
+if [ "${BASH_SOURCE[0]}" != "${0}" ]; then
+    return 0 2>/dev/null || true
 fi
 
-# And the controls, which is what says whether P5 and P6 came out. They read
-# the same database and cost seconds, so there is no reason to make anyone
-# remember to run them.
-echo "[$(date +%H:%M:%S)] positive controls"
-pixi run python -m flexappeal.refstates.cli controls 2>&1 \
-  | sed -n '/^P[0-9]:/,$p' || true
+main() {
+    while producing; do
+        echo "[$(date +%H:%M:%S)] streaming pass"
+        bash tools/analyse_all.sh --skip-membrane 2>&1 | grep -E "analysing|ingesting|motifs|rows|FAILED|no trajectory" || true
+        sleep "$INTERVAL"
+    done
 
-echo "[$(date +%H:%M:%S)] final pass done"
+    echo "[$(date +%H:%M:%S)] production has stopped; one final pass with the bilayer QC"
+    bash tools/analyse_all.sh
+
+    # Section 2.2 wants the measured ns/day recorded rather than assumed, and a
+    # row's real rate is only known once it has finished, so this refreshes as the
+    # queue drains rather than being a one-off at the start.
+    echo "[$(date +%H:%M:%S)] refreshing config/benchmarks.toml"
+    pixi run python tools/hwprobe.py || echo "hwprobe failed, see above"
+
+    # The figures after the analysis, because they are drawn from the database the
+    # pass above has just finished filling. Section 11 wants FINDINGS "with
+    # figures", and a figure drawn from a half-written run is worse than no figure,
+    # so this is the one place they are regenerated rather than on every pass.
+    echo "[$(date +%H:%M:%S)] redrawing the figures"
+    pixi run python tools/make_figures.py || echo "figures failed, see above"
+
+    # Every stored number against the analysis file it came from. The rows land
+    # unattended, and a fault in the ingest produces numbers that are wrong rather
+    # than missing, which nothing downstream would notice. Reported rather than
+    # fatal: a disagreement is worth finding in the morning, and stopping the rest
+    # of the pass over it would lose the controls below as well.
+    echo "[$(date +%H:%M:%S)] verifying the stored numbers against the analyses"
+    VERIFY_LOG="data/md/verify.log"
+    if pixi run python -m flexappeal.refstates.cli report --verify \
+          > "$VERIFY_LOG" 2>&1; then
+        grep -E "agrees with the analysis" "$VERIFY_LOG" || true
+    else
+        echo "VERIFICATION FAILED; the first lines of $VERIFY_LOG:"
+        grep -E "disagree|^    [a-z0-9_]+ " "$VERIFY_LOG" | head -20
+    fi
+
+    # And the controls, which is what says whether P5 and P6 came out. They read
+    # the same database and cost seconds, so there is no reason to make anyone
+    # remember to run them.
+    echo "[$(date +%H:%M:%S)] positive controls"
+    pixi run python -m flexappeal.refstates.cli controls 2>&1 \
+      | sed -n '/^P[0-9]:/,$p' || true
+
+    echo "[$(date +%H:%M:%S)] final pass done"
+}
+
+main "$@"
