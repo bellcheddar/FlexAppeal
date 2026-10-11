@@ -255,3 +255,10 @@ Timestamped, one line per meaningful event, for the reference-state build
   still passes because section 5.8 names two different windows, an advisory 60
   to 68 and a G6 gate at 55 to 75, and P6 is the gate. P5 is now the only
   control still genuinely waiting, and it needs an inactive-start row.
+- `21:3x` Re-checked every explorer route against the newly two-system
+  database, because until the streaming loop was fixed the pages had only ever
+  been served a kinase-only one. All eight serve: the receptor reference
+  browser renders its 116 rows at 40 kB, both state maps carry their axes and
+  the trajectory path, both runs serve frames, DSSP and a viewer bundle, and the
+  refusals still refuse (an unknown run, an unknown system and a `viewer.exe`
+  all 404). Two of my own URLs were wrong in the first pass, not the routes.
