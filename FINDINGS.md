@@ -1583,6 +1583,55 @@ of pytest's, which section 4h records: the check ran, the check said nothing,
 and nothing is easy to read as a pass.
 
 
+## 4p. Half the run matrix had an analysis path nobody had ever run
+
+`abl1_apo` and `b2ar_apo` have been analysed every half hour for a day.
+`abl1_imatinib` and `b2ar_carazolol` are built, queued, and have never produced
+a frame, so nothing downstream of the simulation had ever been run on either.
+They are not the same shape as the two that have: one is a kinase with a ligand
+in the binding site, the other is the only inactive-start receptor, and between
+them they are the only rows that can satisfy P5. Finding out whether they
+analyse by waiting for the queue means finding out after about 24 GPU-hours.
+
+So they were rehearsed instead. A twelve-frame trajectory was written from each
+built system's own coordinates with a little noise on each frame, in the
+scratch directory rather than in `data/md/`, where the streaming loop would
+have ingested it into the live database. That tests the plumbing and not the
+physics, which is the question being asked: can these rows be analysed at all.
+
+Both can, first time, with no conflicts:
+
+| row | whole score | motifs |
+|---|---|---|
+| `abl1_imatinib` | **−0.281**, inactive | xDFG −0.867, A-loop −0.379, all six resolved |
+| `b2ar_carazolol` | **−0.662**, inactive | all five inactive, TM6 −0.821, NPxxY −0.758 |
+
+Those are the right answers. `abl1_imatinib` is imatinib-bound and DFG-out, and
+its xDFG motif comes out 4.27 Å from the nearest active structure and 0.31 Å
+from the nearest inactive one. `b2ar_carazolol` starts from 5D5A and sits on top
+of it, 0.35 to 0.41 Å away on four of five motifs.
+
+**And P5 produced output for the first time.** It has read `pending: no
+inactive-start run analysed yet` for the whole build, because the only two rows
+it applies to are last in the queue. Against the rehearsal database:
+
+    abl1_imatinib     12 frames, mean s -0.295, 100% below zero  PASS
+    b2ar_carazolol    12 frames, mean s -0.674, 100% below zero  PASS
+
+The numbers are from a fabricated trajectory and mean nothing about the
+science. What they establish is that the control reports rather than staying
+silent, which is the thing that could not be known until a row with
+`start_state` of `DFG-out` or `inactive` reached the database.
+
+P6 on the receptor gives an area per lipid of 71.6 Å², outside the expected 60
+to 68 and inside the acceptable 55 to 75, so it passes and is flagged. That is
+a useful cross-check rather than a result: 71.6 is exactly the as-built figure
+section 5.2 records before equilibration pulls it to 68.4, and the rehearsal
+trajectory is the built system. The measurement agreeing with a number taken
+independently a day earlier is evidence the fabricated frames are being read
+correctly.
+
+
 ---
 
 ## 6. The positive controls

@@ -17,7 +17,7 @@
       <div><dt>Analysed</dt><dd>{{ "%.1f"|format(run.length_ns) }} ns</dd></div>
     {% endif %}
     {% if run.ns_per_day %}
-      <div><dt>Speed</dt><dd>{{ "%.0f"|format(run.ns_per_day) }} ns/day</dd></div>
+      <div><dt>Speed</dt><dd>{{ "%.1f"|format(run.ns_per_day) }} ns/day</dd></div>
     {% endif %}
     <div><dt>Status</dt><dd>{{ run.status }}</dd></div>
   </dl>
