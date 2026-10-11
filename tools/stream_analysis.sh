@@ -64,6 +64,12 @@ bash tools/analyse_all.sh
 # just finished filling. Section 11 wants FINDINGS "with figures" and a figure
 # drawn from a half-written run is worse than no figure, so this is the one
 # place they are regenerated rather than on every streaming pass.
+# Section 2.2 wants the measured ns/day recorded rather than assumed, and a
+# row's real rate is only known once it has finished, so this refreshes as the
+# queue drains rather than being a one-off at the start.
+echo "[$(date +%H:%M:%S)] refreshing config/benchmarks.toml"
+pixi run python tools/hwprobe.py || echo "hwprobe failed, see above"
+
 echo "[$(date +%H:%M:%S)] redrawing the figures"
 pixi run python tools/make_figures.py || echo "figures failed, see above"
 

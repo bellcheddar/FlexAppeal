@@ -1,0 +1,8 @@
+# Section 2.2's settings, derived from hardware.toml and from what the finished runs actually used.
+
+md_platform = "OpenCL"
+md_precision = "single"
+cpu_workers = 14
+io_workers = 8
+concurrent_md = 1
+memory_headroom_gb = 24

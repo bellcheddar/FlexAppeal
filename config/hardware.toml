@@ -1,0 +1,25 @@
+# Section 2.1's probe. Regenerate with tools/hwprobe.py; do not edit by hand.
+
+probed_at = "2026-10-11T02:47:48-0400"
+cpu = "Apple M2 Ultra"
+performance_cores = 16
+efficiency_cores = 8
+memory_gb = 128.0
+disk_free_gb = 1369.5
+
+[gpu]
+model = "Apple M2 Ultra"
+cores = "60"
+vendor = "sppci_vendor_Apple"
+
+[[openmm_platforms]]
+name = "Reference"
+claimed_speed = 1.0
+
+[[openmm_platforms]]
+name = "CPU"
+claimed_speed = 10.0
+
+[[openmm_platforms]]
+name = "OpenCL"
+claimed_speed = 50.0

@@ -1948,6 +1948,87 @@ in the spec the whole time.
 
 ---
 
+## 4y. Section 2 names five files and none of them existed
+
+Section 2 is the hardware section and it is specific. `tools/hwprobe.py` writes
+`config/hardware.toml`; section 2.2 derives `config/tuning.toml` from it;
+measured speeds go in `config/benchmarks.toml`; and section 2.3's analysis pool
+polls `data/manifests/md.jsonl`. There was no `config/` directory at all, no
+`hwprobe.py`, and `data/manifests/` held the two reference manifests and
+nothing else.
+
+**The settings were right anyway**, which is why this survived so long.
+`tools/run_md.py` works the platform out at run time rather than reading it
+from a file, and does it better than the spec's table asks: section 2.2 expects
+OpenCL at mixed precision, Apple's OpenCL is single precision only, and the
+runner tries each candidate against the real system and drops to what the
+device supports rather than failing. One GPU worker, analysis on the CPU
+alongside, 4 fs with HMR. All of it correct, none of it written down.
+
+What was missing is the record. Section 2.2 ends "Every compute budget in
+Section 5.6 is derived from these measurements, never assumed", and a budget
+cannot be derived from a file that does not exist or checked against one. The
+probe now writes all three:
+
+| file | what it holds |
+|---|---|
+| `config/hardware.toml` | Apple M2 Ultra, 16 performance and 8 efficiency cores, 128 GB, 1,369 GB free, a 60-core GPU, and the three OpenMM platforms this machine has with the speed each claims |
+| `config/tuning.toml` | `md_platform` OpenCL, `md_precision` single, `cpu_workers` 14, `io_workers` 8, `concurrent_md` 1, `memory_headroom_gb` 24 |
+| `config/benchmarks.toml` | measured ns/day per row, with the finished ones marked |
+
+Three things worth saying about how it was built rather than what it writes.
+
+The platform is **read, not re-benchmarked**. Section 2.2 asks for a 20 ps
+benchmark of each platform, and `run_md.py` already tries each candidate
+against the real system and records what it kept, so the probe reads
+`run.json`. Running the benchmark again would mean competing with the queue for
+the one GPU this machine has, to re-derive a number the queue has already
+measured on the actual system rather than a 20 ps stand-in.
+
+`md_precision` records `single`, not the `mixed` the table asks for. That is
+the D010 deviation, and writing `mixed` into a file that claims to describe
+what ran would be worse than the deviation itself.
+
+And a key that cannot be measured is **omitted**, not defaulted. A machine with
+no `hw.perflevel0.physicalcpu` gets no `cpu_workers`, rather than a 2 that
+reads like a measurement. That is section 0's rule and it matters most in a
+file whose only purpose is to be trusted later by someone who was not here.
+
+The test for this caught me writing the same `relative_to` crash that section
+4o records from `tools/make_figures.py`, where `--out` outside the project
+kills the log line. The same bug, written again three hours later, in the same
+shape of function. It now has the same helper, with a comment saying so.
+
+### The fifth file, and why it starts with two reconstructed lines
+
+`data/manifests/md.jsonl` is the other one. Section 0 asks for a manifest per
+stage and section 2.3 names this one specifically. The queue now appends a line
+when a row starts, finishes or fails.
+
+Append-only, deliberately. It is a history and not a view of what is true now:
+a row that started and then failed is two lines, and collapsing them to one
+would throw away the thing most worth knowing. `tools/ingest.py` reads the run
+directories for current state; this sits beside it as the record of what
+happened. The write is wrapped so that a queue which cannot write its own notes
+still runs the simulations, because losing the record is bad and losing a day
+of GPU time to an unwritable directory would be worse.
+
+The manifest starts with two lines marked `reconstructed`, taken from
+`production.log` and a finished `run.json`. The queue process running this
+campaign loaded its code before this existed, and Python does not reload a
+running module, so the rows it is working through now will never append. The
+honest options were to leave the file empty until the next campaign or to write
+down what can be recovered. It writes it down and flags it, because a line
+worked out afterwards is not the same kind of fact as one written as it
+happened, and a log that blurs the two is worse than one that starts late.
+
+Restarting the queue to pick up the change was the other option and it was not
+taken: `b2ar_apo` is thirteen nanoseconds into a fifty nanosecond row, it would
+resume from its checkpoint, and interrupting a good run to improve its
+bookkeeping is the wrong trade.
+
+---
+
 ## 5. Production runs
 
 Tier 2 started at 17:04 on 10 October, in section 5.3's priority order: β2AR

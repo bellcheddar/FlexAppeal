@@ -1558,6 +1558,57 @@ def test_the_deploy_leaves_the_working_data_behind_and_takes_the_database():
         "gitignored and is exactly what the explorer reads")
 
 
+def test_the_queue_keeps_an_append_only_md_manifest(tmp_path: Path,
+                                                    monkeypatch):
+    """Section 0 asks for `data/manifests/<stage>.jsonl`; section 2.3 names
+    this one. There was none.
+
+    The only record of what the queue had done was `production.log`, which is
+    prose, and the per-row `run.json`, which exists only once a row finishes.
+    A row that was running, or that had died, left nothing a later pass could
+    read.
+    """
+    import importlib.util
+
+    root = Path(__file__).resolve().parents[1]
+    spec = importlib.util.spec_from_file_location(
+        "queue_md", root / "tools" / "queue_md.py")
+    queue = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(queue)
+
+    manifest = tmp_path / "md.jsonl"
+    monkeypatch.setattr(queue, "MANIFEST", manifest)
+    queue.note("started", "abl1_apo", production_ns=50.0)
+    queue.note("failed", "abl1_apo", returncode=1)
+
+    lines = [json.loads(line) for line in
+             manifest.read_text().strip().splitlines()]
+    assert [row["event"] for row in lines] == ["started", "failed"], (
+        "the manifest is a history, so a row that started and then failed is "
+        "two lines and not one overwritten one")
+    assert all(row["name"] == "abl1_apo" for row in lines)
+    assert all(row.get("at") for row in lines)
+
+
+def test_a_queue_that_cannot_write_its_notes_still_runs(tmp_path: Path,
+                                                        monkeypatch, capsys):
+    """Losing the record is bad; losing a day of GPU time would be worse."""
+    import importlib.util
+
+    root = Path(__file__).resolve().parents[1]
+    spec = importlib.util.spec_from_file_location(
+        "queue_md", root / "tools" / "queue_md.py")
+    queue = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(queue)
+
+    # A path whose parent is a file, so mkdir and open both fail.
+    blocked = tmp_path / "wall"
+    blocked.write_text("not a directory")
+    monkeypatch.setattr(queue, "MANIFEST", blocked / "md.jsonl")
+    queue.note("started", "abl1_apo")           # must not raise
+    assert "could not write" in capsys.readouterr().out
+
+
 def test_a_dead_row_is_recorded_as_failed_and_not_left_running(tmp_path: Path):
     """Section 0's ladder ends in `status = "failed:<reason>"`. Nothing wrote it.
 
@@ -2016,6 +2067,76 @@ def test_the_run_view_gives_each_motif_its_residue_endpoints(tmp_path: Path):
     for entry in found:
         assert entry["first"] <= entry["last"]
         assert entry["token"], f"{entry['name']} has no colour token"
+
+
+def _hwprobe():
+    import importlib.util
+
+    root = Path(__file__).resolve().parents[1]
+    spec = importlib.util.spec_from_file_location(
+        "hwprobe", root / "tools" / "hwprobe.py")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def test_the_hardware_probe_writes_the_three_files_section_2_names(tmp_path: Path):
+    """Section 2.1 and 2.2 name `hardware.toml`, `tuning.toml` and
+    `benchmarks.toml`, and none of the three existed.
+
+    The settings were right, because `run_md.py` works the platform out at run
+    time and logs what it kept, but nothing recorded what the machine is or
+    what it managed. Section 2.2 ends "every compute budget is derived from
+    these measurements, never assumed", and a budget cannot be checked against
+    a file that is not there.
+    """
+    import subprocess
+    import sys
+    import tomllib
+
+    root = Path(__file__).resolve().parents[1]
+    out = tmp_path / "config"
+    done = subprocess.run(
+        [sys.executable, str(root / "tools" / "hwprobe.py"), "--out", str(out)],
+        cwd=root, capture_output=True, text=True)
+    assert done.returncode == 0, done.stderr
+
+    for name in ("hardware.toml", "tuning.toml", "benchmarks.toml"):
+        path = out / name
+        assert path.is_file(), f"{name} was not written"
+        tomllib.loads(path.read_text())          # parses, or this raises
+
+    tuning = tomllib.loads((out / "tuning.toml").read_text())
+    for key in ("io_workers", "concurrent_md", "memory_headroom_gb"):
+        assert key in tuning, key
+    assert tuning["concurrent_md"] == 1, "one GPU, one context"
+    assert tuning["memory_headroom_gb"] == 24
+
+
+def test_the_probe_omits_what_it_cannot_measure_rather_than_writing_zero():
+    """Section 0: omit a key you cannot produce, never write 0 or null.
+
+    It matters most in a file whose only job is to be trusted later. A machine
+    with no `hw.perflevel0.physicalcpu` should get no `cpu_workers`, not a
+    `cpu_workers` of 2 that reads like a measurement.
+    """
+    module = _hwprobe()
+    assert module.tuning({}, {}) .get("cpu_workers") is None
+    assert "md_platform" not in module.tuning({}, {})
+    # And with a measurement it derives the rule: performance cores minus two.
+    derived = module.tuning({"performance_cores": 16}, {"OpenCL": 3})
+    assert derived["cpu_workers"] == 14
+    assert derived["md_platform"] == "OpenCL"
+    # Two cores is the floor, so a small machine does not get zero workers.
+    assert module.tuning({"performance_cores": 2}, {})["cpu_workers"] == 2
+
+
+def test_the_toml_writer_refuses_what_it_cannot_represent():
+    """It is a small writer, so it raises rather than writing something that
+    parses differently from what was meant."""
+    module = _hwprobe()
+    with pytest.raises(ValueError, match="nests deeper"):
+        module.as_toml({"outer": {"inner": {"deeper": 1}}}, header="x")
 
 
 # ===========================================================================

@@ -113,6 +113,8 @@ def run_row(row: dict, *, out_dir: Path, production_ns: float,
     # to tell a run that is slow from one that has hung.
     row_log = out_dir / f"{name}.log"
     log(f"starting {name}: {row['note']}  (log: {row_log})")
+    note("started", name, production_ns=production_ns,
+         membrane=bool(row["membrane"]), ligand=row.get("ligand"))
     started = time.time()
     with row_log.open("w") as handle:
         process = subprocess.Popen(command, cwd=ROOT, stdout=subprocess.PIPE,
@@ -137,8 +139,11 @@ def run_row(row: dict, *, out_dir: Path, production_ns: float,
         for line in tail:
             print(f"    {line}", flush=True)
         record_failure(out_dir / name, name, returncode, elapsed, tail)
+        note("failed", name, returncode=returncode,
+             minutes=round(elapsed / 60, 1))
     else:
         log(f"{name} finished in {elapsed / 60:.1f} min")
+        note("finished", name, minutes=round(elapsed / 60, 1))
 
     speed = None
     run_json = out_dir / name / "run.json"
@@ -149,6 +154,38 @@ def run_row(row: dict, *, out_dir: Path, production_ns: float,
             pass
     return {"name": name, "ok": returncode == 0,
             "minutes": round(elapsed / 60, 1), "ns_per_day": speed}
+
+
+# Section 0 asks for a manifest per stage in `data/manifests/<stage>.jsonl`,
+# and section 2.3 names this one. There was none: the only record of what the
+# queue had done was `production.log`, which is prose for a reader, and the
+# per-row `run.json`, which exists only once a row has finished. A row that is
+# running, or that died, left nothing a later pass could read.
+MANIFEST = ROOT / "data" / "manifests" / "md.jsonl"
+
+
+def note(event: str, name: str, **fields) -> None:
+    """One line in the MD manifest. Append-only, and never fatal.
+
+    Append-only because it is a log of what happened and not a view of what is
+    true now: a row that started and then failed is two lines, and collapsing
+    them would throw away the thing worth knowing. `tools/ingest.py` reads the
+    run directories for current state; this is the history beside it.
+
+    Wrapped, because a queue that cannot write its own notes should still run
+    the simulations. Losing the record is bad; losing 24 hours of GPU time
+    because a directory was not writable would be worse.
+    """
+    import json
+
+    try:
+        MANIFEST.parent.mkdir(parents=True, exist_ok=True)
+        with MANIFEST.open("a") as handle:
+            handle.write(json.dumps({
+                "at": time.strftime("%Y-%m-%dT%H:%M:%S%z"),
+                "event": event, "name": name, **fields}) + "\n")
+    except OSError as exc:                                     # noqa: BLE001
+        log(f"  could not write {MANIFEST.name}: {exc}")
 
 
 def record_failure(run_dir: Path, name: str, returncode: int,

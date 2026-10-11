@@ -529,3 +529,18 @@ Timestamped, one line per meaningful event, for the reference-state build
   the figure generator for the state map. Also re-measured section 6.3's three
   budgets after the explorer grew: first paint 432 ms of 2 s, scrub handler
   0.1 ms of 100 ms, bundle 3.5 MB of 150 MB at 50 ns.
+- `02:5x` Audited section 2, which is the hardware section and had never been
+  checked. It names five files and none existed: `tools/hwprobe.py`,
+  `config/hardware.toml`, `config/tuning.toml`, `config/benchmarks.toml` and
+  `data/manifests/md.jsonl`. The settings themselves were right, because
+  `run_md.py` derives the platform at run time and does it better than the
+  spec's table asks, but nothing recorded what the machine is or what it
+  managed, and section 2.2 says every compute budget is derived from these
+  measurements rather than assumed. Probe written, three files generated,
+  benchmarks refreshed in the final pass as rows finish. The queue now appends
+  to md.jsonl on start, finish and failure; the campaign already running
+  cannot, since Python does not reload a live module, so the file opens with
+  two lines marked reconstructed rather than pretending or staying empty.
+- `02:5x` The probe test caught me writing the same `relative_to` crash that
+  4o records from make_figures: `--out` outside the project kills the log line.
+  Same bug, same shape of function, three hours apart.

@@ -1,0 +1,23 @@
+# Measured ns/day per system and platform. Section 2.2: every compute budget is derived from these, never assumed.
+
+
+[[runs]]
+name = "abl1_apo"
+ns_per_day = 202.0
+produced_ns = 4.3
+complete = false
+
+[[runs]]
+name = "b2ar_apo"
+ns_per_day = 59.7
+produced_ns = 13.4
+complete = false
+
+[[runs]]
+name = "b2ar_apo_smoke"
+platform = "OpenCL"
+ns_per_day = 59.8
+atoms = 194032
+production_ns = 1.0
+wall_hours = 0.4
+complete = true
