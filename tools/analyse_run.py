@@ -419,12 +419,16 @@ def periodic_shifts(traj):
     across the box when the slider is dragged.
 
     So each frame is shifted by the whole number of box vectors that puts its
-    centroid in the same image as the first frame's. Returned rather than
-    applied, because the bilayer has to be moved by the same amount: the lipid
-    bundle's own centroid does not jump, a bilayer spanning the box being
-    stable whatever image the protein is in, so a shift computed from the
-    lipids would be zero and the membrane would sit a box length from the
-    receptor it belongs to.
+    centroid in the same image as the first frame's.
+
+    Only the protein is treated this way, and the first attempt here got that
+    wrong. Applying the protein's shift to the bilayer as well made the picture
+    worse, not better: the bilayer was already in one piece, so half its frames
+    were moved a box length and its y span went from 145 Å to 269. A slab
+    spanning the box has a stable centroid whatever image the protein is in,
+    which is why it needs the other half of the same idea instead. The lipids
+    are imaged around wherever the receptor ended up, which
+    `write_lipid_bundle` does with the centres the viewer bundle returns.
 
     Returns an (n_frames, 3) array in nanometres, to be added to every atom of
     the matching frame. Zeros when there is no unit cell to reason about, and
@@ -475,12 +479,14 @@ def write_viewer_bundle(loaded, name: str, out_dir: Path,
         "n_frames": int(sliced.n_frames), "stride": stride,
         "frame_ns": stride * frame_ps / 1000.0,
         "bytes": topology.stat().st_size + trajectory.stat().st_size,
-        "shifts": shifts,
+        # Where the receptor ended up, per frame, for the bilayer to be imaged
+        # around. Not a result; the caller takes it out of the payload.
+        "centres": sliced.xyz.mean(axis=1),
     }
 
 
 def write_lipid_bundle(solvated: Path, trajectory: Path, name: str,
-                       out_dir: Path, stride: int, shifts=None) -> dict:
+                       out_dir: Path, stride: int, centres=None) -> dict:
     """The bilayer phosphorus, for section 6.2's membrane toggle.
 
     The viewer bundle drops the solvent and the lipids on load, and says so, on
@@ -511,17 +517,30 @@ def write_lipid_bundle(solvated: Path, trajectory: Path, name: str,
 
     lipids = md.load(str(trajectory), top=str(solvated), stride=stride,
                      atom_indices=phosphorus)
-    # The protein's shifts, not the bilayer's own. A bilayer spans the box, so
-    # its centroid does not jump when the protein crosses a boundary and a
-    # shift computed from these atoms would be zero. Applying the protein's
-    # keeps the two structures in the same image, which is the only thing that
-    # matters when they are drawn one on top of the other.
-    if shifts is not None and len(shifts) == lipids.n_frames:
-        lipids.xyz = lipids.xyz + shifts[:, None, :]
-    elif shifts is not None:
-        log(f"lipid bundle: {len(shifts)} protein frames against "
-            f"{lipids.n_frames} lipid frames, so the periodic correction was "
-            f"not applied; the bilayer may sit a box length from the receptor")
+    # Imaged around the receptor rather than shifted with it. Applying the
+    # protein's own whole-box shift here was the first thing tried and it made
+    # the picture worse: the bilayer was already in one piece, so half its
+    # frames moved a box length and its y span went from 145 Å to 269.
+    #
+    # The minimum-image convention about the receptor's centre is the right
+    # operation. Every phosphorus is placed in whichever periodic copy sits
+    # nearest the receptor, which is a contiguous patch of bilayer around the
+    # protein however the integrator happened to wrap either of them. On the
+    # live run it brings the lipids' y centre onto the receptor's and collapses
+    # their z span from 120 Å to 62, the second being lipids that had been
+    # wrapped through the top of the box.
+    if (centres is not None and len(centres) == lipids.n_frames
+            and lipids.unitcell_lengths is not None):
+        import numpy as np
+
+        box = np.asarray(lipids.unitcell_lengths)[:, None, :]
+        anchor = np.asarray(centres)[:, None, :]
+        offset = lipids.xyz - anchor
+        lipids.xyz = anchor + offset - box * np.round(offset / box)
+    elif centres is not None:
+        log(f"lipid bundle: {len(centres)} protein frames against "
+            f"{lipids.n_frames} lipid frames, so the bilayer was not imaged "
+            f"around the receptor and may be drawn away from it")
     topology = out_dir / f"{name}.lipids.pdb"
     coords = out_dir / f"{name}.lipids.xtc"
     lipids[0].save_pdb(str(topology))
@@ -759,12 +778,12 @@ def main() -> int:
     viewer = write_viewer_bundle(loaded, args.name, out_dir)
     # Taken out of the payload rather than written to it: it is a numpy array
     # for the lipid bundle's use and has no business in the analysis JSON.
-    viewer_shifts = viewer.pop("shifts", None)
+    viewer_centres = viewer.pop("centres", None)
     # The bilayer, if there is one, as its own structure beside the protein.
     viewer["lipids"] = write_lipid_bundle(
         solvated, trajectory, args.name, out_dir,
         stride=max(1, int(round(VIEWER_STRIDE_NS * 1000.0 / 100.0)))
-        * max(1, args.stride), shifts=viewer_shifts)
+        * max(1, args.stride), centres=viewer_centres)
     # The two structures are stepped by one slider, which drives the protein,
     # so a bilayer with a different number of frames would sit at the wrong
     # one. They agree whenever `--stride` is 1, which is every run here, but a

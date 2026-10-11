@@ -836,3 +836,18 @@ trajectory with every per-frame span bit-identical. Returns zeros for a
 non-orthorhombic box rather than guessing.
 
 FINDINGS 4an. Eight tests added, 970 passed, 1 skipped.
+
+### 11 October, 07:29 to 08:00
+
+The streaming pass at 07:23 rebuilt the bundle on the new code and logged
+"11 of 25 frames were in a different periodic image". Measuring the result
+rather than assuming it showed the receptor fixed, y span 60.8 A, and the
+bilayer made worse: y span 269 A, centre alternating 65/196.
+
+Applying the protein's shift to the lipids was the wrong operation. The bilayer
+was already in one piece, so half its frames were moved a box length. Replaced
+with the minimum-image convention about the receptor's centre, which also fixes
+lipids wrapped in z that the first attempt never touched: y centre now tracks
+the receptor and z span falls from 120 A to 62.
+
+FINDINGS 4an corrected rather than appended to. 970 passed, 1 skipped.

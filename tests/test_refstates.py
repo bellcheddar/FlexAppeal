@@ -4417,13 +4417,18 @@ def test_a_trajectory_with_no_box_is_not_guessed_at():
     assert np.allclose(_analyse_run_module().periodic_shifts(traj), 0.0)
 
 
-def test_the_bilayer_moves_with_the_receptor(tmp_path: Path):
-    """The lipids take the protein's shift, not their own.
+def test_the_bilayer_is_imaged_around_the_receptor(tmp_path: Path):
+    """Not shifted with it, which was the first thing tried and was wrong.
 
     A bilayer spans the box, so its centroid does not jump when the protein
-    crosses a boundary: a shift computed from the lipid atoms would be zero,
-    and the membrane would be drawn a box length away from the receptor it
-    belongs to.
+    crosses a boundary: it was already in one piece. Applying the protein's
+    whole-box shift to it moved half its frames a box length and took its y
+    span from 145 A to 269, which is a worse picture than the one being fixed.
+
+    The minimum-image convention about the receptor's centre is the right
+    operation: every phosphorus goes in whichever periodic copy sits nearest
+    the receptor, giving a contiguous patch around the protein however either
+    of them happened to be wrapped.
     """
     import mdtraj as md
     import numpy as np
@@ -4433,27 +4438,31 @@ def test_the_bilayer_moves_with_the_receptor(tmp_path: Path):
     out = tmp_path / "analysis"
     out.mkdir()
 
-    frames = md.load(str(dcd), top=str(pdb)).n_frames
-    shift = np.zeros((frames, 3))
-    shift[:, 1] = 5.0                       # 5 nm, every frame
-    moved = module.write_lipid_bundle(pdb, dcd, "b2ar_apo", out, stride=1,
-                                      shifts=shift)
     plain_out = tmp_path / "plain"
     plain_out.mkdir()
-    module.write_lipid_bundle(pdb, dcd, "b2ar_apo", plain_out, stride=1)
+    plain = module.write_lipid_bundle(pdb, dcd, "b2ar_apo", plain_out, stride=1)
+    loose = md.load(str(plain_out / plain["trajectory"]),
+                    top=str(plain_out / plain["topology"]))
+    box = np.asarray(loose.unitcell_lengths)
 
-    with_shift = md.load(str(out / moved["trajectory"]),
-                         top=str(out / moved["topology"]))
-    without = md.load(str(plain_out / moved["trajectory"]),
-                      top=str(plain_out / moved["topology"]))
-    delta = (with_shift.xyz - without.xyz).mean(axis=(0, 1))
-    assert abs(delta[1] - 5.0) < 0.05, delta
-    assert abs(delta[0]) < 0.05 and abs(delta[2]) < 0.05, delta
+    # A receptor one whole box away in y from where the lipids were written.
+    centres = loose.xyz.mean(axis=1) + np.array([0.0, box[0, 1], 0.0])
+    imaged = module.write_lipid_bundle(pdb, dcd, "b2ar_apo", out, stride=1,
+                                       centres=centres)
+    moved = md.load(str(out / imaged["trajectory"]),
+                    top=str(out / imaged["topology"]))
+
+    # Every atom should now sit within half a box of the receptor's centre,
+    # which is what "imaged around it" means and what makes the patch
+    # contiguous on the page.
+    offset = moved.xyz - centres[:, None, :]
+    assert np.all(np.abs(offset) <= box[:, None, :] / 2 + 1e-6), (
+        np.abs(offset).max(axis=(0, 1)), box[0])
 
 
 def test_a_frame_count_mismatch_leaves_the_bilayer_where_it_was(tmp_path: Path,
                                                                 capsys):
-    """Rather than applying a shift that does not line up frame for frame."""
+    """Rather than imaging against centres that do not line up frame for frame."""
     import numpy as np
 
     module = _analyse_run_module()
@@ -4461,11 +4470,11 @@ def test_a_frame_count_mismatch_leaves_the_bilayer_where_it_was(tmp_path: Path,
     out = tmp_path / "analysis"
     out.mkdir()
     module.write_lipid_bundle(pdb, dcd, "b2ar_apo", out, stride=1,
-                              shifts=np.zeros((99, 3)))
-    assert "may sit a box length from the receptor" in capsys.readouterr().out
+                              centres=np.zeros((99, 3)))
+    assert "may be drawn away from it" in capsys.readouterr().out
 
 
-def test_the_analysis_payload_does_not_carry_the_shift_array():
+def test_the_analysis_payload_does_not_carry_the_centres_array():
     """It is a numpy array for the lipid bundle's use, not a result.
 
     Left in the viewer dict it would reach `json.dumps`, which cannot
@@ -4474,5 +4483,5 @@ def test_the_analysis_payload_does_not_carry_the_shift_array():
     """
     source = (Path(__file__).resolve().parents[1]
               / "tools" / "analyse_run.py").read_text()
-    assert 'viewer.pop("shifts", None)' in source, (
+    assert 'viewer.pop("centres", None)' in source, (
         "the caller should take it out of the payload")

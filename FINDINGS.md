@@ -2791,13 +2791,28 @@ that frame's centroid in the same image as the first frame's. On the live
 trajectory it collapses y from 186.7 Å to 60.8 Å and leaves every per-frame
 span bit-identical, which is the check that it moved images rather than atoms.
 
-It is returned rather than applied because the bilayer has to move by the same
-amount. A bilayer spans the box, so its centroid does not jump when the protein
-crosses a boundary, and a shift computed from the lipid atoms would be zero:
-the membrane would then be drawn a box length away from the receptor it
-belongs to, which is a worse picture than the one being fixed. So the protein's
-shifts are passed to the lipid bundle, and a frame-count disagreement between
-the two says so rather than applying a correction that does not line up.
+It is returned rather than applied because the bilayer needs something done to
+it too. My first answer to what was wrong, and it made the picture worse. A
+bilayer spans the box, so its centroid does not jump when the protein crosses a
+boundary: it was already in one piece. Applying the protein's shift to it moved
+half its frames a box length, and its y span went from 145 Å to 269.
+
+The right operation is the other half of the same idea: the minimum-image
+convention about the receptor's centre. Every phosphorus is placed in whichever
+periodic copy sits nearest the receptor, which gives a contiguous patch of
+bilayer around the protein however the integrator happened to wrap either of
+them. On the live run it brings the lipids' y centre onto the receptor's and
+collapses their z span from 120 Å to 62, the second being lipids that had been
+wrapped through the top of the box and that the first attempt never addressed
+at all. A frame-count disagreement between the two bundles says so rather than
+imaging against centres that do not line up.
+
+The lesson is the ordinary one about symmetry. Two structures drawn together
+had the same visible symptom, a thing in the wrong place, and needed opposite
+corrections: the protein was in one piece and in the wrong image, the bilayer
+was in the right image and in several pieces. Reaching for the same fix for
+both is what produced a 269 Å bilayer, and the only reason it was caught is
+that the regenerated bundle was measured rather than assumed to be better.
 
 Two smaller things fell out. The viewer trajectory is now copied before being
 moved, because `loaded` is the trajectory every metric is measured on and a
