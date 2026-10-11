@@ -1073,3 +1073,28 @@ correction.
 
 FINDINGS 4au. One test added. 994 passed with the new test red until this
 commit lands, which is the state it is asserting about.
+
+### 11 October, 13:36 to 14:00
+
+The user asked for all four of the remaining options, including the reference
+overlay I had recommended against. First of them: section 6.2's cartoon
+coloured by motif, now built.
+
+No API route exists: the vendored Mol* bundle is minified and exports no
+MolScript, so a component per motif is unreachable from the page. The colour
+theme registry does expose `uncertainty`, which reads the B-factor, so the
+number travels in the structure. `tools/analyse_run.py` writes each atom's
+`--motif-N` number there and the page colours by it from brand.css. Display
+only; `loaded` is untouched. Overlaps go to the smaller motif, so xDFG keeps
+380-383 inside the activation loop.
+
+Wrong twice, both caught by looking: the colours were CSS strings where Mol*
+wants integers, which drew a near-black cartoon with no error; and the scale
+runs backwards, which gave every motif its opposite number's colour and looked
+deliberate. The second was confirmed by predicting the whole mapping from atom
+counts and matching it against the render rather than by flipping it.
+
+D023 marked as superseded in part, D029 records the method. 1001 passed,
+1 skipped.
+
+FINDINGS 4av. Six tests added.

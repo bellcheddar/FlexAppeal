@@ -31,6 +31,11 @@
          data-structure="{{ url_for('refstates.viewer_file', run_id=run.run_id, kind='pdb') }}"
          data-trajectory="{{ url_for('refstates.viewer_file', run_id=run.run_id, kind='xtc') }}"
          data-frames="{{ viewer.n_frames }}"
+         {# Whether the B-factor column carries a motif number. A bundle
+            written before this existed has none, and the cartoon then keeps
+            its default theme rather than being painted from a column of
+            zeroes. #}
+         data-motif-painted="{{ "1" if viewer.get("motif_painted") else "0" }}"
          {# (n - 1), not n: five frames at a 1 ns stride span 0 to 4 ns, and
             the slider's own readout divides by (frames - 1). Using n made every
             time overstate by one stride, so a frame at 4.2 ns read as 5.0. #}
@@ -105,9 +110,14 @@
       </p>
       <p>
         The residue spans in the table are the ones every measurement above was
-        taken on, so a motif can be found in the sequence panel. Colouring the
-        cartoon by motif is not wired up yet; the table is the honest version of
-        it rather than a half-working theme.
+        taken on.{% if viewer.get("motif_painted") %} The cartoon is coloured by
+        them, in the colour each motif keeps on every chart on this page, and
+        everything no motif covers is grey. Where two motifs overlap the
+        smaller one wins: ABL1's xDFG sits inside its activation loop, and
+        colouring four residues by the twenty-six around them would hide the
+        motif the DFG question is about.{% else %} The cartoon is not coloured
+        by them for this run, because its viewer bundle was written before that
+        was wired up; the table is the honest version of it.{% endif %}
       </p>
       <p>
         There is no reference overlay either, for the same reason. Superposing

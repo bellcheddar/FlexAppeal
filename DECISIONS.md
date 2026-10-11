@@ -781,6 +781,11 @@ build could have written had no tilt at all.
 
 ## D023: the membrane toggle is built, the reference overlay is declared missing
 
+**Superseded in part on 11 October**, after the user asked for all of it: the
+cartoon colouring described below as not built is now built, by D029. The
+reference overlay's argument stood on its own and the user overruled it, so it
+is being built too, with the verification D030 describes.
+
 Section 6.2 specifies the viewer in one line and asks for four things: cartoon
 coloured by motif tokens, the bilayer as transparent phosphate spheres on a
 toggle, a frame scrubber, and a reference overlay with the nearest active and
@@ -950,3 +955,45 @@ lipids wrapped through the top of the box that a shift never touched.
 **A non-orthorhombic box is left alone.** A whole-box translation is not the
 right correction for a triclinic cell, and section 0.3's rule is to do nothing
 rather than apply something that merely looks like a fix.
+
+---
+
+## D029: the cartoon's motif colour travels in the B-factor column
+
+Section 6.2 asks for the cartoon coloured by the motif tokens. D023 recorded it
+as not built. The user asked for it, so here is how it is done and why it looks
+like that.
+
+**The number cannot come from an API call.** The vendored Mol* bundle is
+minified and exports no MolScript, so `tryCreateComponentFromExpression` has
+nothing to build an expression from and a component per motif is out of reach
+from the page. Probing the runtime, what the colour theme registry does expose
+is `uncertainty`, which reads the B-factor column.
+
+So the number travels in the structure. `tools/analyse_run.py` writes each
+atom's `--motif-N` number into the B-factor of the viewer PDB, and the page
+colours by it with the same palette the charts use. The file keeps an honest
+meaning: the number in that column is the motif's number.
+
+**Display only.** The viewer bundle is a strided copy written for the browser;
+no measurement is taken from it, and `loaded`, which every metric is measured
+on, is untouched.
+
+**Overlaps go to the smaller motif.** ABL1's xDFG is four residues inside a
+twenty-six residue activation loop. Colouring the overlap by the larger would
+hide the motif the whole DFG-in/out question is about. Ties break on the token
+number, so the result does not depend on dictionary order.
+
+**The palette is reversed at the point of use**, because `uncertainty` runs
+from certain to uncertain and so consumes the list backwards. Unreversed, the
+background took motif 6's blue and every motif took its opposite number's
+colour, which looked completely deliberate. It was caught by predicting the
+entire mapping from the atom counts per B-factor value and checking that
+prediction against the render, rather than by flipping it until it looked
+right. Compensating in the display code rather than writing `6 - n` into the
+file is what keeps the column's meaning worth having.
+
+**A bundle written before this has no such column**, so the viewer payload
+carries `motif_painted` and the page both withholds the theme and says so.
+Painting a cartoon from a column of zeroes would make the whole protein one
+colour.

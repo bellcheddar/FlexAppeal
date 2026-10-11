@@ -133,6 +133,126 @@
     return out;
   }
 
+  /* Section 6.2's cartoon coloured by motif.
+   *
+   * The number comes out of the structure, not out of an API call. The
+   * vendored Mol* bundle is minified and exports no MolScript, so building a
+   * component per motif is not reachable from a page; the colour theme
+   * registry does expose `uncertainty`, which reads the B-factor column, and
+   * `tools/analyse_run.py` writes each atom's `--motif-N` number there.
+   *
+   * A set palette over a domain of [-0.5, n+0.5] puts each integer in the
+   * middle of its own bin, so the mapping from motif number to colour is exact
+   * rather than an artefact of where a continuous scale happens to fall.
+   *
+   * No-ops on the Analysis tab, which has no motif numbers to colour by: the
+   * bundle says whether it painted any, and an unpainted structure keeps the
+   * default theme rather than being washed to a single colour.
+   */
+  const MOTIF_SLOTS = 6;
+
+  /* Mol* wants 0xRRGGBB, not a CSS string. Handed "#0072b2" it produced a
+     cartoon that was uniformly almost black, which is the worst outcome
+     available: the theme applied, so nothing errored, and the structure was
+     still there and unreadable. Anything this cannot parse returns null and
+     the caller leaves the default theme alone. */
+  function cssColourToInt(value) {
+    const text = String(value || '').trim();
+    let hex = null;
+    if (/^#[0-9a-f]{6}$/i.test(text)) hex = text.slice(1);
+    else if (/^#[0-9a-f]{3}$/i.test(text)) {
+      hex = text.slice(1).split('').map(function (c) { return c + c; }).join('');
+    } else {
+      const rgb = text.match(/^rgba?\(\s*(\d+)[,\s]+(\d+)[,\s]+(\d+)/i);
+      if (rgb) {
+        return (Number(rgb[1]) << 16) + (Number(rgb[2]) << 8) + Number(rgb[3]);
+      }
+    }
+    if (hex === null) return null;
+    const parsed = parseInt(hex, 16);
+    return Number.isFinite(parsed) ? parsed : null;
+  }
+
+  function motifPalette() {
+    const root = getComputedStyle(document.documentElement);
+    /* Index 0 is everything no motif covers: the muted grey the rest of the
+       page uses for "nothing to say". */
+    const first = cssColourToInt(root.getPropertyValue('--md-text-muted'));
+    const colours = [first === null ? 0x5a6b80 : first];
+    for (let i = 1; i <= MOTIF_SLOTS; i += 1) {
+      const value = cssColourToInt(root.getPropertyValue('--motif-' + i));
+      if (value === null) return null;
+      colours.push(value);
+    }
+    return colours;
+  }
+
+  function polymerComponents(plugin) {
+    const out = [];
+    try {
+      const current = plugin.managers.structure.hierarchy.current;
+      (current.structures || []).forEach(function (ref) {
+        (ref.components || []).forEach(function (component) {
+          const key = String(component.key || '').toLowerCase();
+          let label = '';
+          try {
+            label = String(component.cell.obj.label || '').toLowerCase();
+          } catch (err) { /* unlabelled is still testable by key */ }
+          if (key.indexOf('polymer') >= 0 || label.indexOf('polymer') >= 0) {
+            out.push(component);
+          }
+        });
+      });
+    } catch (err) { /* no hierarchy yet */ }
+    return out;
+  }
+
+  function colourByMotif(viewer, host) {
+    const plugin = viewer && viewer.plugin;
+    if (!plugin || !host || host.dataset.motifPainted !== '1') return false;
+    const colours = motifPalette();
+    if (!colours) return false;
+
+    const components = polymerComponents(plugin);
+    if (!components.length) return false;
+    let touched = 0;
+    try {
+      const update = plugin.build();
+      components.forEach(function (component) {
+        (component.representations || []).forEach(function (rep) {
+          if (!rep.cell) return;
+          update.to(rep.cell).update(function (old) {
+            if (!old.type || old.type.name !== 'cartoon') return;
+            /* Reversed, because `uncertainty` puts high values at the start
+               of the scale: a higher B-factor means less certainty, and the
+               theme's palette runs from certain to uncertain. Unreversed, the
+               background took motif 6's blue and each motif took the colour of
+               its opposite number, which looked entirely deliberate. Confirmed
+               by predicting the whole mapping from the atom counts and
+               matching it against the render rather than by flipping it until
+               it looked right.
+
+               Compensated here rather than by writing `6 - n` into the PDB,
+               so the column keeps the only meaning worth having: the number in
+               the B-factor is the motif's number. */
+            old.colorTheme = {
+              name: 'uncertainty',
+              params: {
+                domain: [-0.5, MOTIF_SLOTS + 0.5],
+                list: { kind: 'set', colors: colours.slice().reverse() }
+              }
+            };
+            touched += 1;
+          });
+        });
+      });
+      update.commit();
+    } catch (err) {
+      return false;
+    }
+    return touched > 0;
+  }
+
   function applyNeon(viewer) {
     const plugin = viewer.plugin;
     if (!plugin || !plugin.canvas3d) return;
@@ -518,6 +638,7 @@
          * Mol*'s animation stays as the fallback for a page without the slider,
          * which is any single-frame structure. */
         applyNeon(viewer);
+        colourByMotif(viewer, host);
         wireLipidToggle(viewer, say);
         const scrubbing = wireSlider(viewer, frames, duration);
         const playing = scrubbing || (frames > 1 && autoplay(viewer));

@@ -5058,3 +5058,113 @@ def test_the_committed_figures_are_not_older_than_the_code_that_draws_them():
         "tools/make_figures.py was committed after the figures it draws, so "
         "data/figures/ is showing output from code that no longer exists; "
         "run it and commit the result")
+
+
+def _tiny_kinase_topology():
+    """A topology with the residue numbers ABL1's motifs actually use."""
+    import mdtraj as md
+
+    topology = md.Topology()
+    chain = topology.add_chain()
+    for number in list(range(249, 256)) + list(range(316, 319)) + \
+            list(range(380, 390)):
+        residue = topology.add_residue("ALA", chain, resSeq=number)
+        for name in ("N", "CA", "C"):
+            topology.add_atom(name, md.element.carbon, residue)
+    return topology
+
+
+def test_the_cartoon_number_is_the_motif_token_number():
+    """Section 6.2's cartoon colouring, carried in the B-factor column.
+
+    The vendored Mol* bundle is minified and exports no MolScript, so a
+    component per motif is out of reach from the page; `uncertainty` reads the
+    B-factor, so the number rides in the structure. The column's meaning is
+    exactly the motif's `--motif-N` number, which is what lets the page use the
+    same palette it uses on every chart.
+    """
+    module = _analyse_run_module()
+    topology = _tiny_kinase_topology()
+    values = module.motif_bfactors(
+        topology, {"g.l": list(range(249, 255)), "hinge": [316, 317, 318]},
+        "kinase")
+    assert values is not None
+    by_residue = {atom.residue.resSeq: int(values[atom.index])
+                  for atom in topology.atoms}
+    assert by_residue[250] == 4, "g.l is --motif-4"
+    assert by_residue[317] == 5, "hinge is --motif-5"
+    assert by_residue[385] == 0, "nothing covers it"
+
+
+def test_an_overlap_goes_to_the_smaller_motif():
+    """xDFG is four residues inside a twenty-six residue activation loop.
+
+    Colouring the overlap by the larger one would hide the motif the whole
+    DFG-in/out question is about.
+    """
+    module = _analyse_run_module()
+    topology = _tiny_kinase_topology()
+    values = module.motif_bfactors(
+        topology,
+        {"xDFG": [380, 381, 382, 383], "A-loop": list(range(381, 390))},
+        "kinase")
+    by_residue = {atom.residue.resSeq: int(values[atom.index])
+                  for atom in topology.atoms}
+    for number in (380, 381, 382, 383):
+        assert by_residue[number] == 2, f"{number} should be xDFG"
+    for number in (384, 385, 389):
+        assert by_residue[number] == 3, f"{number} should be the A-loop"
+
+
+def test_nothing_to_colour_by_leaves_the_cartoon_alone():
+    """A column of zeroes would paint the whole protein one colour."""
+    module = _analyse_run_module()
+    topology = _tiny_kinase_topology()
+    assert module.motif_bfactors(topology, {}, "kinase") is None
+    assert module.motif_bfactors(topology, {"g.l": [250]}, "nonsense") is None
+    assert module.motif_bfactors(topology, None, "kinase") is None
+    # A motif the token table does not name contributes nothing, and if that
+    # leaves nothing at all the answer is None rather than a zeroed column.
+    assert module.motif_bfactors(topology, {"not-a-motif": [250]},
+                                 "kinase") is None
+
+
+def test_the_page_only_colours_a_bundle_that_was_painted():
+    """A bundle written before this existed has no such column."""
+    root = Path(__file__).resolve().parents[1]
+    page = (root / "flexappeal" / "templates" / "refstates_run.html").read_text()
+    assert 'data-motif-painted="{{ "1" if viewer.get("motif_painted")' in page
+    script = (root / "flexappeal" / "static" / "analysis.js").read_text()
+    assert "host.dataset.motifPainted !== '1'" in script, (
+        "the viewer should withhold the theme rather than paint zeroes")
+
+
+def test_the_motif_palette_is_reversed_for_the_uncertainty_theme():
+    """Unreversed it looked entirely deliberate, which is why it needs a test.
+
+    `uncertainty` runs from certain to uncertain, so it consumes the colour
+    list backwards: the background took motif 6's blue and every motif took the
+    colour of its opposite number. Nothing errored and the structure was still
+    a structure.
+    """
+    script = (Path(__file__).resolve().parents[1]
+              / "flexappeal" / "static" / "analysis.js").read_text()
+    assert "colours.slice().reverse()" in script
+    assert "name: 'uncertainty'" in script
+    assert "domain: [-0.5, MOTIF_SLOTS + 0.5]" in script, (
+        "each integer should sit in the middle of its own bin")
+
+
+def test_the_viewer_colours_come_from_the_stylesheet_as_numbers():
+    """Mol* wants 0xRRGGBB. Handed "#0072b2" it drew a near-black cartoon.
+
+    The worst available outcome: the theme applied, nothing errored, and the
+    structure was there and unreadable.
+    """
+    script = (Path(__file__).resolve().parents[1]
+              / "flexappeal" / "static" / "analysis.js").read_text()
+    assert "function cssColourToInt" in script
+    assert "getPropertyValue('--motif-' + i)" in script, (
+        "the palette should stay single-sourced in brand.css")
+    assert "if (value === null) return null;" in script, (
+        "an unparseable colour should leave the default theme alone")

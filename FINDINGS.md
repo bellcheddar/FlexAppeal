@@ -3145,6 +3145,72 @@ It failed on being written, correctly: the script had been committed four times
 tonight and the figures had not been regenerated since. It passes once both go
 in together, which is the workflow it exists to enforce.
 
+## 4av. The cartoon is coloured by motif, and the number travels in the file
+
+Section 6.2 asks for four things in the viewer. The scrubber was built, the
+bilayer toggle was built in section 4ab, and D023 recorded the other two as not
+built. The user asked for all of it, so this is the first.
+
+**There is no API route.** The vendored Mol\* bundle is minified. Probing the
+runtime rather than guessing: `window.molstar` exports thirteen names and none
+of them is MolScript, so `tryCreateComponentFromExpression` exists on the
+builder's prototype with nothing to hand it, and a component per motif is out
+of reach from the page. `molstar.lib.structure` does export the query API, but
+the builder wants an expression, not a query.
+
+What the colour theme registry does expose, out of fifty-odd themes, is
+`uncertainty`: the B-factor column. So the number travels in the structure
+rather than in a call. `tools/analyse_run.py` writes each atom's `--motif-N`
+number into the B-factor of the viewer PDB, and the page colours by it from
+`brand.css`, which is the palette every chart on that page already uses.
+
+The viewer bundle is a strided copy written for the browser. Nothing measures
+anything from it, and `loaded`, which every metric is taken on, is not touched.
+
+**Overlaps go to the smaller motif.** ABL1's xDFG is residues 380 to 383 and
+sits inside its activation loop, 381 to 409. Colouring the overlap by the
+larger would hide a four-residue motif entirely inside a twenty-six residue
+one, and xDFG is the motif the whole DFG-in/out question is about. So the
+larger motifs are written first and the smaller ones over them, ties breaking
+on token number so the answer does not depend on dictionary order. On the live
+run: alphaC 282-292, xDFG 380-383, A-loop 384-409, g.l 249-254, hinge 316-318,
+c.l 361-368, and 845 of 4,255 atoms carry a number.
+
+### Two ways it was wrong, and how each was caught
+
+**The colours were strings.** Mol\* wants `0xRRGGBB`, and handed `"#0072b2"` it
+drew a uniformly near-black cartoon. That is the worst outcome on offer: the
+theme applied, nothing errored, the structure was still there, and it was
+unreadable. A converter now handles `#rgb`, `#rrggbb` and `rgb(...)` and
+returns null for anything else, and null leaves the default theme alone rather
+than painting something.
+
+**The scale ran backwards.** `uncertainty` runs from certain to uncertain, so
+it consumes the colour list from the far end: the background took motif 6's
+blue and every motif took the colour of its opposite number. This one looked
+completely deliberate. It was caught by counting atoms per B-factor value,
+predicting the entire mapping that a reversal would produce, and checking that
+prediction against the render:
+
+    B=0 (3410 atoms, background) -> light blue     B=4 ( 66) -> dark orange
+    B=1 ( 181 atoms, alphaC)     -> amber          B=5 ( 52) -> dark blue
+    B=2 (  49 atoms, xDFG)       -> pink           B=6 (130) -> grey
+    B=3 ( 367 atoms, A-loop)     -> green
+
+Six of seven matched, and the seventh is the fixed point of a reversal over
+seven colours. That is a different thing from flipping it and seeing whether it
+looks better, and the difference matters here because both versions looked
+plausible.
+
+The palette is reversed at the point of use rather than by writing `6 - n` into
+the file, so the column keeps the only meaning worth having: the number in the
+B-factor is the motif's number.
+
+**A bundle written before this has no such column**, so the payload carries
+`motif_painted`, the page withholds the theme without it, and its read-more
+says which of the two it is looking at. Painting a cartoon from a column of
+zeroes would make the whole protein one colour and look like a feature.
+
 ## 5. Production runs
 
 Tier 2 started at 17:04 on 10 October, in section 5.3's priority order: β2AR

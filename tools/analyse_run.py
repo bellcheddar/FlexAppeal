@@ -446,8 +446,61 @@ def periodic_shifts(traj):
     return -np.round((centre - centre[0]) / box) * box
 
 
+def motif_bfactors(topology, motif_residues, kind: str):
+    """A per-atom motif token number, for the viewer to colour a cartoon by.
+
+    Section 6.2 asks for the cartoon coloured by the motif tokens. The vendored
+    Mol* bundle is minified and exports no MolScript, so building a component
+    per motif is not reachable from the page; what the colour theme registry
+    does expose is `uncertainty`, which reads the B-factor column. So the
+    number travels in the structure rather than in an API call: each atom gets
+    the integer from its motif's `--motif-N` token, and zero where no motif
+    covers it. The palette the page already uses then indexes straight into it.
+
+    **Overlaps go to the smaller motif.** ABL1's xDFG is residues 380 to 383
+    and sits inside its A-loop, 381 to 409. Colouring the overlap by the larger
+    motif would hide a four-residue motif entirely inside a twenty-six residue
+    one, and xDFG is the motif the whole DFG-in/out question is about. Ties
+    break on the token number so the result does not depend on dictionary
+    order.
+
+    Returns None when there is nothing to colour by, which leaves the cartoon
+    on its default theme rather than painting it all one colour.
+    """
+    import numpy as np
+
+    from flexappeal.refstates.store import MOTIF_TOKENS
+
+    tokens = MOTIF_TOKENS.get(kind) or {}
+    if not motif_residues or not tokens:
+        return None
+
+    # Smallest motif first, so a later write cannot bury a smaller one.
+    ordered = sorted(
+        ((name, residues) for name, residues in motif_residues.items()
+         if name in tokens),
+        key=lambda item: (-len(item[1]),
+                          tokens[item[0]]))
+    by_residue: dict[int, int] = {}
+    for motif, residues in ordered:
+        try:
+            index = int(str(tokens[motif]).rsplit("-", 1)[-1])
+        except ValueError:
+            continue
+        for number in residues:
+            by_residue[int(number)] = index
+    if not by_residue:
+        return None
+
+    values = np.zeros(topology.n_atoms, dtype=float)
+    for atom in topology.atoms:
+        values[atom.index] = by_residue.get(atom.residue.resSeq, 0)
+    return values
+
+
 def write_viewer_bundle(loaded, name: str, out_dir: Path,
-                        frame_ps: float = 100.0) -> dict:
+                        frame_ps: float = 100.0, motif_residues=None,
+                        kind: str = "") -> dict:
     """A topology and a strided trajectory the 3D viewer can load.
 
     Written beside the analysis rather than served from `data/md`, because the
@@ -468,7 +521,10 @@ def write_viewer_bundle(loaded, name: str, out_dir: Path,
     out_dir.mkdir(parents=True, exist_ok=True)
     topology = out_dir / f"{name}.pdb"
     trajectory = out_dir / f"{name}.xtc"
-    sliced[0].save_pdb(str(topology))
+    # The motif number rides in the B-factor column. Display only: nothing
+    # downstream reads this file, the measurements are taken against `loaded`.
+    painted = motif_bfactors(sliced.topology, motif_residues, kind)
+    sliced[0].save_pdb(str(topology), bfactors=painted)
     sliced.save_xtc(str(trajectory))
     moved = int((abs(shifts) > 1e-6).any(axis=1).sum())
     if moved:
@@ -479,6 +535,9 @@ def write_viewer_bundle(loaded, name: str, out_dir: Path,
         "n_frames": int(sliced.n_frames), "stride": stride,
         "frame_ns": stride * frame_ps / 1000.0,
         "bytes": topology.stat().st_size + trajectory.stat().st_size,
+        # So the page knows the cartoon can be coloured, rather than guessing
+        # from a column that is zero on a run with no motifs resolved.
+        "motif_painted": painted is not None,
         # Where the receptor ended up, per frame, for the bilayer to be imaged
         # around. Not a result; the caller takes it out of the payload.
         "centres": sliced.xyz.mean(axis=1),
@@ -775,7 +834,8 @@ def main() -> int:
 
     out_dir = Path(args.out)
     out_dir.mkdir(parents=True, exist_ok=True)
-    viewer = write_viewer_bundle(loaded, args.name, out_dir)
+    viewer = write_viewer_bundle(loaded, args.name, out_dir,
+                                 motif_residues=motif_residues, kind=args.kind)
     # Taken out of the payload rather than written to it: it is a numpy array
     # for the lipid bundle's use and has no business in the analysis JSON.
     viewer_centres = viewer.pop("centres", None)
