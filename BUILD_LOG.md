@@ -1364,3 +1364,43 @@ described in prose with no symbolic formula, and the two percentages need
 per-class minima and maxima over the whole database which are not published.
 So the condition is not met and it is omitted, now with the reasoning recorded
 in D032 rather than silently absent.
+
+### 11 October, 17:40. The DFG dihedral, and the first row to finish
+
+The last optional metric, section 5.4's DFG dihedral label. The spec offers
+"BLAminus etc., or `N/A`", so unlike the activation index this one has an
+allowed branch rather than a condition to meet.
+
+Checked the primary source, Modi and Dunbrack (PNAS 2019,
+doi 10.1073/pnas.1814279116). The naming scheme is published and unambiguous.
+The boundaries are not: the Ramachandran regions are DBSCAN clusters at
+eps = 0.05, MinPts = 20 fitted on the authors' own structure set, not degree
+ranges, and the chi1 rotamers are given as nominal centres with no tolerance.
+The paper even notes CDK2 chains near chi1 = -100 degrees, between two
+rotamers, without saying which way they are called. Both halves of the label
+need numbers the paper does not contain, so `N/A` it is, recorded in D033.
+That closes the optional metrics.
+
+**b2ar_apo finished at 17:36**, 50 ns in 13.27 h at 59.7 ns/day. The handover
+to abl1_apo exercised everything built for it this session: the platform
+ladder tried CUDA, then OpenCL mixed, then settled on OpenCL single; the
+short-row check passed the row at 50.0 ns; the queue resumed abl1_apo from
+its 4.000 ns checkpoint and dropped 3 frames written past it.
+
+The streaming loop passes `--skip-membrane` for as long as production runs, so
+b2ar_apo's bilayer QC would have waited for the whole queue to drain on
+Tuesday even though its trajectory was final. Checked first that a later
+streaming pass could not undo the work: `put_membrane` deletes the run's rows
+before inserting, but it is only reached when the flag is absent, so a
+`--skip-membrane` pass never touches the table. Then analysed the full 499
+frames and ingested with the QC.
+
+The bilayer settles inside the expected window, which is the question 5.2 left
+open: 68.05 to 66.23 A^2 monotonically, mean 67.09, thickness 38.42 to 39.35,
+mean 38.92. G6 closed. Figures redrawn from the final data, every stored
+number verified against its analysis file, 1030 passed and 1 skipped.
+
+TM5 is the result worth keeping. 5.0c read it as flat at 30.8 ns; over the
+full run it reaches -0.144 on the final tenth and spends 45 frames labelled
+inactive, while NPxxY and TM7 are active in all 499. The whole-protein score,
++0.289, shows none of that.
