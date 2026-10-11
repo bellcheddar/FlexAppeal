@@ -51,10 +51,49 @@
       17 of 17.
     </li>
     <li>
-      The regulatory spine's 6.0 &#8491; contact distance sits a tenth of an
-      angstrom above the top of the active range. Moved to 7.7 &#8491;, in the
+      The regulatory spine's 6.0 &#8491; contact distance clears the top of the
+      active range by 0.04 &#8491;. Moved to 7.7 &#8491;, in the 4.4 &#8491;
       empty region between the clusters, the references still classify perfectly
-      and the trajectory stops reporting a permanent conflict.
+      and the trajectory stops reporting a permanent conflict. One reference
+      turns on the choice: 2G1T, the Src-like inactive structure, has its
+      deciding pair at 6.14 &#8491;, so the published threshold calls its spine
+      broken when it is intact.
+    </li>
+  </ul>
+</section>
+
+<section class="md-card md-panel is-wide">
+  <h3>What these runs are not</h3>
+  <p>
+    Each limitation below changes how a number on these pages should be read, so
+    it is here rather than only in the build notes.
+  </p>
+  <ul>
+    <li>
+      <strong>The ABL1 runs are dephosphorylated.</strong> The start structure
+      carries phosphotyrosine at residue 393, the activation-loop tyrosine, and
+      the force field ships no parameters for it, so it is built as plain
+      tyrosine. Phosphorylation at that position is one of the main things that
+      holds ABL1 active, so a drift towards the inactive state in the apo run
+      has a physical explanation that has to be offered before any other.
+    </li>
+    <li>
+      <strong>One run per starting state, not three.</strong> Replicas were
+      dropped for compute, so nothing here separates a conformational change
+      from a single trajectory's excursion. A motif that moves once has moved
+      once.
+    </li>
+    <li>
+      <strong>50 ns is short for the question.</strong> The &#946;<sub>2</sub>AR
+      active-to-inactive relaxation these runs start from was observed on the
+      microsecond scale, so its absence here is expected and is not evidence
+      that the receptor is stable.
+    </li>
+    <li>
+      <strong>The scores are relative to a reference set.</strong> A frame is
+      placed between crystal structures of the two states, so a frame that
+      resembles neither is reported as intermediate rather than as something
+      new.
     </li>
   </ul>
 </section>

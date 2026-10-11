@@ -2204,3 +2204,83 @@ def test_the_queue_hands_run_md_a_ccd_code_not_a_path(tmp_path: Path):
     option = option[:option.index(")\n")]
     assert "type=Path" not in option, "--ligand must take a code, not a path"
     assert "CCD" in option, "the option should say it wants a CCD code"
+
+
+def test_the_bilayer_qc_streams_chunks_without_losing_frames(tmp_path: Path):
+    """The pass is streamed, so the chunk windows must still tile the run.
+
+    It used to load the whole solvated trajectory, which for a finished 50 ns
+    membrane row is 500 frames of 194,032 atoms: about 1.2 GB held at once for
+    data used one 10 ns window at a time. `iterload` caps that at one chunk, and
+    what has to be checked is the bookkeeping that replaced `loaded.n_frames`:
+    contiguous windows, every frame counted once.
+
+    The fixture is built here rather than committed, and is not a real
+    structure: two planes of phosphorus in POPC residues and some water, which
+    is all `phosphorus_indices` and `analyse_chunk` look for.
+    """
+    import importlib.util
+
+    import mdtraj as md
+    import numpy as np
+
+    from flexappeal.refstates import membrane
+
+    n_per_leaflet, n_water, n_frames = 8, 6, 10
+    topology = md.Topology()
+    chain = topology.add_chain()
+    for _ in range(2 * n_per_leaflet):
+        residue = topology.add_residue("POPC", chain)
+        topology.add_atom("P", md.element.phosphorus, residue)
+    water_chain = topology.add_chain()
+    for _ in range(n_water):
+        residue = topology.add_residue("HOH", water_chain)
+        topology.add_atom("O", md.element.oxygen, residue)
+
+    rng = np.random.default_rng(11)
+    box_nm = 4.0
+    xyz = np.zeros((n_frames, topology.n_atoms, 3))
+    for frame in range(n_frames):
+        flat = rng.uniform(0, box_nm, size=(topology.n_atoms, 2))
+        xyz[frame, :, :2] = flat
+        # Two headgroup planes about 3.8 nm apart, and water above the top one.
+        xyz[frame, :n_per_leaflet, 2] = 2.9 + rng.normal(0, 0.02, n_per_leaflet)
+        xyz[frame, n_per_leaflet:2 * n_per_leaflet, 2] = (
+            1.0 + rng.normal(0, 0.02, n_per_leaflet))
+        xyz[frame, 2 * n_per_leaflet:, 2] = rng.uniform(3.4, 3.9, n_water)
+
+    trajectory = md.Trajectory(xyz, topology)
+    trajectory.unitcell_lengths = np.tile([box_nm, box_nm, box_nm],
+                                          (n_frames, 1))
+    trajectory.unitcell_angles = np.tile([90.0, 90.0, 90.0], (n_frames, 1))
+
+    run_dir = tmp_path / "b2ar_apo"
+    run_dir.mkdir()
+    trajectory[0].save_pdb(str(run_dir / "solvated.pdb"))
+    trajectory.save_dcd(str(run_dir / "trajectory.dcd"))
+
+    root = Path(__file__).resolve().parents[1]
+    spec = importlib.util.spec_from_file_location(
+        "_ingest_stream_test", root / "tools" / "ingest.py")
+    ingest = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(ingest)
+
+    # 0.2 ns windows over 1 ns of 100 ps frames: five chunks, so the
+    # cross-chunk bookkeeping is actually exercised.
+    original = membrane.CHUNK_NS
+    membrane.CHUNK_NS = 0.2
+    try:
+        rows = ingest.membrane_chunks(run_dir, "b2ar_apo",
+                                      expect_bilayer=True)
+    finally:
+        membrane.CHUNK_NS = original
+
+    assert len(rows) > 1, "the chunking was not exercised"
+    assert sum(r["n_frames"] for r in rows) == n_frames, "frames lost or doubled"
+    end = 0.0
+    for row in rows:
+        assert row["start_ns"] == pytest.approx(end), "windows are not contiguous"
+        end = row["end_ns"]
+        assert row["n_lipids"] == 2 * n_per_leaflet
+        assert row["leaflet_counts"] == [n_per_leaflet, n_per_leaflet]
+    assert end == pytest.approx(n_frames * 0.1)

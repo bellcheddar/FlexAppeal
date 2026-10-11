@@ -315,3 +315,28 @@ Timestamped, one line per meaningful event, for the reference-state build
 - `22:0x` All four rows verified buildable and self-consistent: b2ar_carazolol
   187,848 particles with lipids present, abl1_imatinib 48,185 without, both
   with their system particle count matching their topology.
+- `22:1x` The bilayer QC loaded the whole solvated trajectory. At a finished
+  50 ns membrane row that is 500 frames of 194,032 atoms, about 1.2 GB held at
+  once for data used one 10 ns window at a time. It needs the solvent so it
+  cannot drop atoms the way `traj.load` does, but the chunks were already
+  independent, so it now streams with `iterload` and holds one chunk. Verified
+  to give identical numbers on the smoke trajectory, and the cross-chunk
+  bookkeeping checked at five chunks: contiguous windows, every frame counted
+  once. A test builds its own two-plane fixture rather than committing one.
+- `22:1x` Corrected the About page, which still said the published R-spine
+  threshold clears the active range by "a tenth of an angstrom". It is 0.04 A,
+  and the page now also names 2G1T as the reference whose label turns on the
+  choice.
+- `22:1x` Added a "What these runs are not" section to the About page. The
+  dephosphorylation was written up in FINDINGS and DECISIONS but not on the
+  page a reader of the results actually sees, along with the single replica,
+  the 50 ns against a microsecond relaxation, and the scores being relative to
+  a reference set.
+- `22:2x` Armed `tools/watch_stall.sh`. The existing watchers cover completion
+  and failure, both of which the queue writes to its log; neither covers a
+  hang, where every process stays alive and every log goes quiet. Over a
+  19-hour row that is the failure most worth catching. Stall is defined on the
+  state data, not the trajectory file, whose size can sit unchanged while a
+  write is buffered, and the patience is 20 minutes against a 2.4-minute frame
+  interval. It follows whichever row the queue says it is on rather than naming
+  one. Both branches tested.

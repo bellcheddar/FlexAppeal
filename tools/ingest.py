@@ -137,8 +137,10 @@ def membrane_chunks(run_dir: Path, name: str,
                 f"cannot be loaded")
         return []
 
-    loaded = md.load(str(trajectory), top=str(topology))
-    if not membrane.phosphorus_indices(loaded.topology):
+    # The topology alone, to decide whether there is a bilayer at all. One
+    # frame, so this costs nothing next to the trajectory.
+    reference = md.load(str(topology))
+    if not membrane.phosphorus_indices(reference.topology):
         if expect_bilayer:
             log(f"  {name}: REFUSING the bilayer QC: this row is a membrane "
                 f"row but its topology has no lipid phosphorus")
@@ -146,15 +148,24 @@ def membrane_chunks(run_dir: Path, name: str,
 
     frame_ns = 0.1          # section 5.2 saves every 100 ps
     per_chunk = max(1, int(membrane.CHUNK_NS / frame_ns))
+
+    # Streamed a chunk at a time rather than loaded whole. This pass needs the
+    # solvent, so it cannot drop atoms the way `traj.load` does, and a finished
+    # 50 ns membrane row is 500 frames of 194,032 atoms: about 1.2 GB held at
+    # once for data that is used one 10 ns window at a time and then discarded.
+    # `iterload` caps it at one chunk, around 230 MB, and the chunks were
+    # already independent of each other.
     chunks = []
-    for start in range(0, loaded.n_frames, per_chunk):
-        piece = loaded[start:start + per_chunk]
+    seen = 0
+    for piece in md.iterload(str(trajectory), top=str(topology),
+                             chunk=per_chunk):
         if piece.n_frames == 0:
             continue
         chunk = membrane.analyse_chunk(
-            piece, start_ns=start * frame_ns,
-            end_ns=(start + piece.n_frames) * frame_ns)
+            piece, start_ns=seen * frame_ns,
+            end_ns=(seen + piece.n_frames) * frame_ns)
         chunks.append(chunk)
+        seen += piece.n_frames
     gate = membrane.gate_six(chunks)
     log(f"  {len(chunks)} membrane chunks; G6 {'OPEN' if gate['open'] else 'closed'}: "
         f"{gate.get('reason')}")
