@@ -214,6 +214,12 @@ def build_parser() -> argparse.ArgumentParser:
     two.set_defaults(func=controls)
 
     three = sub.add_parser("report", help="print what the explorer database holds")
+    three.add_argument("--verify", action="store_true",
+                       help="also check every stored number against the "
+                            "analysis file the run was built from")
+    three.add_argument("--analysis", type=Path,
+                       default=Path(__file__).resolve().parents[2]
+                       / "data" / "analysis")
     three.add_argument("--db", type=Path,
                        default=Path(__file__).resolve().parents[2]
                        / "data" / "refstates.db")
@@ -411,6 +417,82 @@ def controls(args: argparse.Namespace) -> int:
 # ===========================================================================
 
 
+def verify_summary(db: Path, analysis_dir: Path) -> list[str]:
+    """Check the stored summary against the payload each run was built from.
+
+    Two independent paths to the same numbers: the analysis JSON a run writes,
+    and the SQLite summary the pages read. Everything between them is ingest
+    and SQL, and a fault there produces numbers that are wrong rather than
+    missing, which no amount of rendering reveals.
+
+    The unit test for this uses a fixture. This is the same check against
+    whatever is actually on disk, so that when four rows land unattended the
+    final pass says whether their numbers survived the trip rather than
+    assuming it.
+
+    Returns a list of complaints, empty when everything agrees.
+    """
+    import statistics
+
+    from . import store
+
+    problems: list[str] = []
+    with store.connect(db, read_only=True) as connection:
+        run_ids = [r["run_id"] for r in connection.execute(
+            "SELECT run_id FROM runs ORDER BY run_id")]
+
+    for run_id in run_ids:
+        path = analysis_dir / f"{run_id}.json"
+        if not path.is_file():
+            continue                      # nothing to check against, not a fault
+        try:
+            frames = json.loads(path.read_text()).get("frames") or []
+        except json.JSONDecodeError:
+            problems.append(f"{run_id}: the analysis file does not parse")
+            continue
+        if not frames:
+            continue
+
+        hi, lo = frames[-1]["time_ns"], frames[0]["time_ns"]
+        cut = hi - 0.1 * (hi - lo)
+        series: dict[str, list] = {}
+        tail: dict[str, list] = {}
+        for frame in frames:
+            for motif in frame.get("motifs") or []:
+                if motif.get("s") is None:
+                    continue
+                series.setdefault(motif["motif"], []).append(motif["s"])
+                if frame["time_ns"] >= cut:
+                    tail.setdefault(motif["motif"], []).append(motif["s"])
+
+        summary = store.summarise(db, run_id)
+        for key, values in (summary.get("motifs") or {}).items():
+            name = key.split(":")[-1]
+            mine = series.get(name)
+            if not mine:
+                problems.append(f"{run_id} {name}: in the database and not in "
+                                f"the analysis file")
+                continue
+            half = len(mine) // 2
+            want = {"start_s": mine[0], "final_s": mine[-1]}
+            if tail.get(name):
+                want["final_tenth_mean_s"] = statistics.mean(tail[name])
+            if len(mine) >= 4:
+                want["first_half_mean_s"] = round(
+                    statistics.mean(mine[:half]), 4)
+                want["second_half_mean_s"] = round(
+                    statistics.mean(mine[half:]), 4)
+                want["sd_s"] = round(statistics.pstdev(mine), 4)
+                want["n_scored_frames"] = len(mine)
+            for field, expected in want.items():
+                got = values.get(field)
+                if got is None or abs(float(got) - float(expected)) > 5e-4:
+                    problems.append(
+                        f"{run_id} {name}.{field}: database {got}, "
+                        f"analysis file {expected}")
+    return problems
+
+
 def report(args: argparse.Namespace) -> int:
     """Print what the explorer database holds, as a build-state summary.
 
@@ -434,6 +516,17 @@ def report(args: argparse.Namespace) -> int:
     if not runs:
         print("No runs ingested yet.")
         return 0
+
+    if getattr(args, "verify", False):
+        problems = verify_summary(args.db, args.analysis)
+        if problems:
+            print()
+            log(f"{len(problems)} stored numbers disagree with the analysis "
+                f"files they came from:")
+            for complaint in problems[:20]:
+                print(f"    {complaint}")
+            return 1
+        log("every stored number agrees with the analysis file it came from")
 
     print()
     for system in systems:

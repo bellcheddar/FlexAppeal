@@ -76,6 +76,16 @@ pixi run python tools/make_figures.py || echo "figures failed, see above"
 # And the controls, which is what says whether P5 and P6 came out. They read
 # the same database and cost seconds, so there is no reason to make anyone
 # remember to run them.
+# Every stored number against the analysis file it came from. The four rows
+# land unattended, and a fault in the ingest produces numbers that are wrong
+# rather than missing, which nothing downstream would notice. Reported rather
+# than fatal: a disagreement is worth finding in the morning, and stopping the
+# rest of the pass over it would lose the figures and the controls too.
+echo "[$(date +%H:%M:%S)] verifying the stored numbers against the analyses"
+pixi run python -m flexappeal.refstates.cli report --verify \
+  | grep -E "agrees|disagree|^    [a-z0-9_]+ [a-zA-Z0-9_.]+:" \
+  || echo "verification reported a disagreement, see above"
+
 echo "[$(date +%H:%M:%S)] positive controls"
 pixi run python -m flexappeal.refstates.cli controls 2>&1   | sed -n '/^P[0-9]:/,$p' || true
 

@@ -2402,6 +2402,45 @@ The regression test asserts on **every** motif rather than one, because an
 error that starts at the second element is invisible to a test that checks the
 first.
 
+### What three faults in one change bought
+
+Three mistakes in one small edit is a signal about the change, so the next
+thing added was not more code but a check of a different kind: the analysis
+JSON a run writes and the SQLite summary the pages read are two independent
+paths to the same seven numbers, and they have to agree.
+
+Run against the live database, all eleven motifs across both rows agree on
+every one of `start_s`, `final_s`, `final_tenth_mean_s`, the two half-means,
+the scatter and the frame count. Zero disagreements, so the ingest is sound end
+to end and not only in the parts that have unit tests.
+
+It is a test now, and it was checked the way section 4n's rod test was: putting
+the `cut` shadowing back makes it fail, taking it out makes it pass. That
+matters more than it usually would here, because this is the check that would
+have caught the fault **on the first run** rather than when the page raised a
+500 — and, unlike the 500, it would also catch the version of that bug where
+the overwritten value still formats into something plausible.
+
+The unit tests in this build mostly check that a function does what it says.
+This one checks that two things that should say the same thing do, which is a
+different and harder property, and it is the one that a silently wrong number
+violates.
+
+It runs on the real data too, not only on a fixture. `flexappeal refstates
+report --verify` does the same comparison against whatever is on disk, and the
+streaming loop's final pass calls it, so when the four rows land unattended the
+run says whether their numbers survived the trip rather than assuming it.
+Reported rather than fatal: a disagreement is worth finding in the morning, and
+stopping the pass over one would lose the figures and the controls with it.
+
+Against the live database right now it reports **every stored number agrees
+with the analysis file it came from**, across eleven motifs and two rows.
+
+There is a test that the verifier can fail, as well as that it passes. Moving
+one score in the analysis file by hand makes it complain about exactly that
+field, because a checker that cannot fail is worth nothing and this one runs on
+four rows with nobody watching.
+
 **And a fourth, found by the same run.** Fixing the shadowing took the suite
 from ten failures to four, and the four left were the new column itself:
 

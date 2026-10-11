@@ -2422,6 +2422,107 @@ def test_a_run_too_short_to_halve_reports_no_trend(tmp_path: Path):
             f"{motif} lost its endpoints as well")
 
 
+def test_the_summary_agrees_with_the_payload_it_was_ingested_from(tmp_path: Path):
+    """Two independent paths to the same seven numbers must agree.
+
+    The analysis JSON is what a run writes; the SQLite summary is what the
+    pages read. Everything in between is ingest and SQL, and a fault there
+    produces numbers that are wrong rather than absent, which no amount of
+    rendering will reveal.
+
+    This is the shape of check that would have caught the final-tenth
+    shadowing in section 5.0b on the first run rather than when the page
+    raised a 500, and unlike that 500 it would also have caught the version
+    where the overwritten value still formats.
+    """
+    import statistics
+
+    payload = _payload_with_frames(20)
+    database = tmp_path / "t.db"
+    store.ingest_analysis(database, payload, system_id="abl1",
+                          run_id="abl1_apo", family="kinase",
+                          environment="water")
+    summary = store.summarise(database, "abl1_apo")
+
+    frames = payload["frames"]
+    span_hi, span_lo = frames[-1]["time_ns"], frames[0]["time_ns"]
+    cut = span_hi - 0.1 * (span_hi - span_lo)
+    series: dict[str, list] = {}
+    tail: dict[str, list] = {}
+    for frame in frames:
+        for motif in frame["motifs"]:
+            series.setdefault(motif["motif"], []).append(motif["s"])
+            if frame["time_ns"] >= cut:
+                tail.setdefault(motif["motif"], []).append(motif["s"])
+
+    assert summary["motifs"], "nothing was summarised"
+    for key, values in summary["motifs"].items():
+        name = key.split(":")[-1]
+        mine = series[name]
+        half = len(mine) // 2
+        expected = {
+            "start_s": mine[0],
+            "final_s": mine[-1],
+            "final_tenth_mean_s": statistics.mean(tail[name]),
+            "first_half_mean_s": round(statistics.mean(mine[:half]), 4),
+            "second_half_mean_s": round(statistics.mean(mine[half:]), 4),
+            "sd_s": round(statistics.pstdev(mine), 4),
+            "n_scored_frames": len(mine),
+        }
+        for field, want in expected.items():
+            got = values.get(field)
+            assert got is not None, f"{name}.{field} is missing"
+            assert abs(float(got) - float(want)) < 5e-4, (
+                f"{name}.{field}: the database says {got} and the payload "
+                f"says {want}")
+
+
+def test_verify_summary_catches_a_number_that_drifted(tmp_path: Path):
+    """The live version of the round-trip check, for the unattended landing.
+
+    The fixture test above proves the two paths agree on a clean ingest. This
+    proves the checker would actually complain, because a verifier that cannot
+    fail is worth nothing and the final pass runs this one on four rows nobody
+    is watching.
+    """
+    import json as _json
+
+    payload = _payload_with_frames(20)
+    database = tmp_path / "t.db"
+    store.ingest_analysis(database, payload, system_id="abl1",
+                          run_id="abl1_apo", family="kinase",
+                          environment="water")
+
+    analysis = tmp_path / "analysis"
+    analysis.mkdir()
+    (analysis / "abl1_apo.json").write_text(_json.dumps(payload))
+    assert _cli().verify_summary(database, analysis) == [], (
+        "a clean ingest should agree with its own payload")
+
+    # Move one score in the file and the database must now disagree with it.
+    payload["frames"][0]["motifs"][0]["s"] = 0.123456
+    (analysis / "abl1_apo.json").write_text(_json.dumps(payload))
+    problems = _cli().verify_summary(database, analysis)
+    assert problems, "a changed number went unnoticed"
+    assert any("start_s" in complaint for complaint in problems), problems
+
+
+def test_verify_summary_is_quiet_about_a_run_with_no_analysis_file(tmp_path: Path):
+    """A row ingested without its payload beside it is not a disagreement.
+
+    The analysis directory is a working directory; a missing file there means
+    there is nothing to compare against, which is different from the two
+    sources saying different things.
+    """
+    database = tmp_path / "t.db"
+    store.ingest_analysis(database, _payload_with_frames(20), system_id="abl1",
+                          run_id="abl1_apo", family="kinase",
+                          environment="water")
+    empty = tmp_path / "nothing"
+    empty.mkdir()
+    assert _cli().verify_summary(database, empty) == []
+
+
 # ===========================================================================
 #  Resuming without duplicating frames
 # ===========================================================================

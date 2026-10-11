@@ -621,3 +621,17 @@ Timestamped, one line per meaningful event, for the reference-state build
   none` is true. `summarise` omits the scatter for a run too short to halve,
   which is section 0's rule working as intended, so the template has to test
   for absence. `row.get("sd_s")` does.
+- `04:0x` Three faults in one small change is a signal about the change, so the
+  next thing added was a check of a different kind rather than more code: the
+  analysis JSON and the SQLite summary are independent paths to the same seven
+  numbers and must agree. Against live data all eleven motifs across both rows
+  agree on every one, zero disagreements. Now a test, checked by putting the
+  shadowing back: it fails with the bug and passes without it, and it would
+  have caught the fault on the first run instead of when the page 500'd.
+- `04:0x` Made the round-trip check run on real data, not only a fixture:
+  `report --verify` compares every stored number against the analysis file the
+  run was built from, and the streaming loop's final pass calls it so the
+  unattended landing verifies itself. Reported rather than fatal, so a
+  disagreement does not cost the figures and the controls. There is a test that
+  it can fail as well as pass, because a verifier that cannot fail is worth
+  nothing. Live right now: every number agrees, 11 motifs, 2 rows.
