@@ -1148,3 +1148,170 @@ def test_no_pair_panel_without_both_halves(tmp_path: Path):
     app.config["REFSTATES_DB"] = str(path)
     page = app.test_client().get("/refstates/").get_data(as_text=True)
     assert "The two start states" not in page
+
+
+def test_every_name_the_tools_import_from_the_package_exists():
+    """A deletion in a module the unit tests touch lightly is invisible.
+
+    This caught nothing when it was written and would have caught a real
+    deletion: a rewrite of `traj.load` replaced everything from that function to
+    the end of the file and removed `deposited_numbering`, `renumber`,
+    `scaffold_core` and `core_agreement` with it. Every unit test still passed,
+    because none of them imports those four, and the loss only surfaced on
+    running the real tool.
+
+    So the import surface the scripts actually use is asserted directly, by
+    reading what they import rather than by listing it here, which is what makes
+    it stay true as the scripts change.
+    """
+    import importlib
+    import re
+
+    root = Path(__file__).resolve().parents[1]
+    scripts = sorted((root / "tools").glob("*.py")) + [
+        root / "flexappeal" / "refstates" / "cli.py",
+        root / "flexappeal" / "refstates" / "web.py",
+    ]
+
+    missing: list[str] = []
+    checked = 0
+    # Both forms the scripts actually use: a submodule (`...refstates.traj
+    # import x`) and a package attribute (`...refstates import traj, pocket`),
+    # with leading whitespace because most are inside functions.
+    # `\.(?!\.)` is a single leading dot, so a parent-relative
+    # `from ..webapp import x` does not get read as
+    # `flexappeal.refstates.webapp`, which it is not. A lookbehind does not do
+    # it: the character before the first dot is a space either way.
+    pattern = re.compile(
+        r"from\s+(?:flexappeal\.refstates|\.(?!\.))"
+        r"(?:\.?([a-z_]+))?\s+import\s+([^\n(]+)")
+    for script in scripts:
+        for module, names in pattern.findall(script.read_text()):
+            target = f"flexappeal.refstates.{module}" if module else "flexappeal.refstates"
+            try:
+                loaded = importlib.import_module(target)
+            except ModuleNotFoundError:
+                missing.append(f"{script.name}: module {target}")
+                continue
+            for name in (n.strip() for n in names.split(",")):
+                if not name or name.startswith("#") or name == "as":
+                    continue
+                name = name.split(" as ")[0].strip()
+                checked += 1
+                if hasattr(loaded, name):
+                    continue
+                # A submodule is only an attribute of its package once it has
+                # been imported, so `from flexappeal.refstates import pocket`
+                # is valid while hasattr is False until then.
+                try:
+                    importlib.import_module(f"{target}.{name}")
+                except ModuleNotFoundError:
+                    missing.append(f"{script.name}: {target}.{name}")
+
+    assert checked > 20, f"only {checked} imports checked; the pattern missed some"
+    assert not missing, f"imported but absent: {missing}"
+
+
+# ===========================================================================
+#  P5 and P6, exercised before the data lands
+# ===========================================================================
+#
+# "Pending" is not evidence that a control works. Both are run against
+# fixtures here so that when the rows land the only new thing is the data.
+
+
+def _cli():
+    import importlib
+
+    return importlib.import_module("flexappeal.refstates.cli")
+
+
+def _inactive_run(path: Path, scores: list[float]) -> None:
+    """An inactive-start run whose whole-protein score follows `scores`."""
+    payload = {
+        "name": "p5", "kind": "gpcr", "core": {},
+        "motif_residues": {"TM6": list(range(269, 300))},
+        "ensembles": {"inactive": {"codes": ["2RH1"]}},
+        "frames": [{"time_ns": float(i), "n_conflicts": 0, "motifs": [
+            {"motif": "TM6", "d_act_a": 4.0, "d_inact_a": 1.0, "s": s,
+             "label": "inactive"}]} for i, s in enumerate(scores)],
+        "notes": [],
+    }
+    store.ingest_analysis(path, payload, system_id="b2ar",
+                          run_id="b2ar_carazolol", family="gpcr",
+                          environment="POPC",
+                          run_fields={"start_state": "inactive",
+                                      "status": "complete"})
+
+
+def test_p5_passes_a_run_that_stays_inactive(tmp_path: Path):
+    path = tmp_path / "t.db"
+    # 50 frames at 1 ns, all negative: the final 20 ns are all below zero.
+    _inactive_run(path, [-0.8] * 50)
+    rows = _cli().control_p5(path)
+    assert len(rows) == 1
+    assert rows[0]["passed"] is True
+    assert rows[0]["fraction_below_zero"] == pytest.approx(1.0)
+    assert rows[0]["replicas"] == 1
+
+
+def test_p5_fails_a_run_that_activates_late(tmp_path: Path):
+    """A run that crosses inside the window must fail, not be averaged over.
+
+    The score spends most of the run inactive and ends up positive, so a mean
+    over the whole trajectory would pass it. P5 asks about the final 20 ns.
+    """
+    path = tmp_path / "t.db"
+    _inactive_run(path, [-0.8] * 35 + [0.4] * 15)
+    rows = _cli().control_p5(path)
+    assert rows[0]["passed"] is False
+    assert rows[0]["fraction_below_zero"] < 1.0
+    # And the window really is the last 20 ns rather than the whole run.
+    assert rows[0]["frames_in_window"] <= 21
+
+
+def test_p5_ignores_active_start_runs(tmp_path: Path):
+    """P5 is about the inactive-start runs; an active one is not a failure."""
+    path = tmp_path / "t.db"
+    store.ingest_analysis(path, _analysis_payload(), system_id="s",
+                          run_id="active_one", family="kinase",
+                          environment="water",
+                          run_fields={"start_state": "active"})
+    assert _cli().control_p5(path) == []
+
+
+def test_p6_passes_a_bilayer_inside_the_acceptable_window(tmp_path: Path):
+    path = tmp_path / "t.db"
+    store.ingest_analysis(path, _analysis_payload(), system_id="b2ar",
+                          run_id="b2ar_apo", family="gpcr", environment="POPC")
+    with store.connect(path) as connection:
+        store.put_membrane(connection, "b2ar_apo", [
+            {"start_ns": float(i * 10), "apl_a2": 64.0 + i * 0.3,
+             "thickness_a": 38.0} for i in range(5)])
+    rows = _cli().control_p6(path)
+    assert rows[0]["passed"] is True
+    assert rows[0]["apl_in_expected"] is True
+    assert rows[0]["thickness_in_expected"] is True
+
+
+def test_p6_fails_on_g6_but_tolerates_outside_expected(tmp_path: Path):
+    """Section 5.8 has two windows and P6 is tied to the wider one.
+
+    A chunk outside 60 to 68 is logged; a run outside 55 to 75 invalidates the
+    bilayer. Conflating them would fail a usable run.
+    """
+    path = tmp_path / "t.db"
+    store.ingest_analysis(path, _analysis_payload(), system_id="b2ar",
+                          run_id="b2ar_apo", family="gpcr", environment="POPC")
+    with store.connect(path) as connection:
+        store.put_membrane(connection, "b2ar_apo", [
+            {"start_ns": 0.0, "apl_a2": 71.0, "thickness_a": 38.0},
+            {"start_ns": 10.0, "apl_a2": 70.5, "thickness_a": 38.0}])
+    rows = _cli().control_p6(path)
+    assert rows[0]["apl_in_expected"] is False, "71 is outside 60 to 68"
+    assert rows[0]["passed"] is True, "but inside 55 to 75, so usable"
+
+    with store.connect(path) as connection:
+        store.put_membrane(connection, "b2ar_apo", [
+            {"start_ns": 0.0, "apl_a2": 40.0, "thickness_a": 38.0}])
+    assert _cli().control_p6(path)[0]["passed"] is False

@@ -508,6 +508,43 @@ length as each other, and an endpoint with nothing to show must 404 so the panel
 is hidden. A panel is allowed to be absent. It is not allowed to be present and
 blank.
 
+## 4d. What was outstanding, found by asking
+
+Marc asked whether everything was ready for the results landing and said he
+found it hard to believe nothing was. He was right. Checking rather than
+asserting turned up three things, one of them a bug that would have corrupted a
+whole row silently.
+
+**`traj.load` selected `protein or resname CAU`.** CAU is carazolol. The ABL1
+imatinib row's ligand is STI, so that row would have been loaded without its
+ligand, analysed as an apo system, and written a viewer bundle with no ligand in
+it, all without raising. The selection is now an exclusion: protein plus
+anything that is not solvent, counter-ion or bilayer. Written that way because
+the inclusion version is exactly the wrong shape for a package whose claim is
+that it handles a protein it has never seen. Verified on all three systems: STI
+kept for imatinib, CAU for carazolol, nothing extra for the apo runs.
+
+**P5 and P6 did not exist.** Both are section 9 acceptance criteria and both
+read the explorer database, so neither could be written against data that had
+not arrived; neither had been written at all. They now exist, report `pending`
+rather than nothing when there is no data, and are exercised against fixtures so
+that when the rows land the only new thing is the data. P5's adaptation is
+recorded rather than reinterpreted: section 9 asks for 2 of 3 replicas and D009
+dropped the replicas to one, so the rule is per run, because one replica cannot
+support a majority.
+
+**And I had deleted four functions.** Rewriting `traj.load` replaced everything
+from that function to the end of the file, taking `deposited_numbering`,
+`renumber`, `scaffold_core` and `core_agreement` with it. All 56 tests still
+passed, because none of them imports those four; the loss surfaced only on
+running the real tool. There is now a test that reads what every script imports
+from the package and asserts each name resolves, and it was confirmed to catch
+the deletion by making one.
+
+One concern turned out to be unfounded and is recorded because checking it was
+the point: the final membrane pass loads a 50 ns solvated trajectory in one go,
+which is 1.16 GB against 128 GB of RAM. Left alone rather than "fixed".
+
 ## 5. Production runs
 
 Tier 2 started at 17:04 on 10 October, in section 5.3's priority order: β2AR

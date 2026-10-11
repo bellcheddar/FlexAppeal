@@ -161,6 +161,10 @@ def build_parser() -> argparse.ArgumentParser:
                                           "every start model")
     two.add_argument("--systems", type=Path,
                      default=Path(__file__).resolve().parents[2] / "data" / "systems")
+    two.add_argument("--db", type=Path,
+                     default=Path(__file__).resolve().parents[2]
+                     / "data" / "refstates.db",
+                     help="the explorer database, which P5 and P6 read")
     two.add_argument("--out", type=Path, default=None)
     two.set_defaults(func=controls)
 
@@ -296,10 +300,53 @@ def controls(args: argparse.Namespace) -> int:
     passed = [r for r in scored if r["passed"]]
     print()
     print(f"    {len(passed)} of {len(scored)} scored rows pass P4")
+
+    # P5 and P6 read the explorer database rather than the start models, so
+    # they only have anything to say once a run has been analysed. Reported as
+    # pending rather than skipped, because a control nobody mentions reads as a
+    # control that passed.
+    database = args.db
+    p5 = control_p5(database) if database.is_file() else []
+    p6 = control_p6(database) if database.is_file() else []
+
+    print()
+    print(f"P5: an inactive-start run stays inactive over its final "
+          f"{P5_WINDOW_NS:.0f} ns")
+    print("    section 9 asks 2 of 3 replicas; D009 dropped the replicas to "
+          "one, so the\n    rule is per run and the adaptation is recorded "
+          "rather than reinterpreted")
+    if not p5:
+        print("    pending: no inactive-start run analysed yet")
+    for row in p5:
+        if row.get("status") != "ok":
+            print(f"    {row['run_id']:16s} {row.get('status')}")
+            continue
+        print(f"    {row['run_id']:16s} {row['frames_in_window']:3d} frames, "
+              f"mean s {row['mean_whole_s']:+.3f}, "
+              f"{row['fraction_below_zero']:.0%} below zero  "
+              f"{'PASS' if row['passed'] else 'FAIL'}")
+
+    print()
+    print("P6: every membrane chunk inside section 5.8's windows")
+    if not p6:
+        print("    pending: no membrane chunks ingested yet")
+    for row in p6:
+        if row.get("status") != "ok":
+            print(f"    {row['run_id']:16s} {row.get('status')}")
+            continue
+        thickness = (f"{row['thickness_mean']:.1f} A"
+                     if row["thickness_mean"] else "no thickness")
+        print(f"    {row['run_id']:16s} {row['chunks']:3d} chunks, APL "
+              f"{row['apl_mean']:.1f} A^2 ({row['apl_min']:.1f} to "
+              f"{row['apl_max']:.1f}), {thickness}  "
+              f"{'PASS' if row['passed'] else 'FAIL'}")
+
+    results = {"P4": results, "P5": p5, "P6": p6}
     if args.out:
         args.out.parent.mkdir(parents=True, exist_ok=True)
         args.out.write_text(json.dumps(
-            {"control": "P4", "margin": P4_MARGIN, "rows": results}, indent=2) + "\n")
+            {"controls": results, "p4_margin": P4_MARGIN,
+             "p5_window_ns": P5_WINDOW_NS}, indent=2) + "\n")
         log(f"wrote {args.out}")
     # A P4 failure is a result to report rather than an error to abort on,
     # which section 9 is explicit about, so this exits zero either way and the
@@ -374,3 +421,124 @@ def run(args: argparse.Namespace) -> int:
     command += args.queue_args or []
     log("delegating to tools/queue_md.py " + " ".join(args.queue_args or []))
     return subprocess.run(command, cwd=root).returncode
+
+
+# ===========================================================================
+#  Positive controls P5 and P6
+# ===========================================================================
+
+# Section 9's P5 asks that at least 2 of 3 inactive-start replicas keep the
+# whole-protein score below zero over the final 20 ns. D009 dropped the
+# replicas to one, so the criterion becomes "the inactive-start run keeps it
+# below zero", and the adaptation is recorded rather than quietly reinterpreted:
+# one replica cannot support a 2-of-3 rule, and pretending otherwise would be
+# claiming a majority from a sample of one.
+P5_WINDOW_NS = 20.0
+P5_INACTIVE_STARTS = ("inactive", "DFG-out")
+
+
+def _final_window(frames: list[dict], window_ns: float) -> list[dict]:
+    if not frames:
+        return []
+    last = max(f["time_ns"] for f in frames)
+    return [f for f in frames if f["time_ns"] >= last - window_ns]
+
+
+def control_p5(database: Path) -> list[dict[str, Any]]:
+    """Do the inactive-start runs stay inactive over their final 20 ns?
+
+    Evaluated on the whole-protein score per frame, recomputed from the stored
+    per-motif scores so there is one definition of the weighting.
+    """
+    from . import store
+
+    with store.connect(database, read_only=True) as connection:
+        runs = [dict(r) for r in connection.execute(
+            "SELECT run_id, system_id, start_state, length_ns FROM runs "
+            "ORDER BY run_id")]
+        weights = {}
+        for row in connection.execute("SELECT motif_id, residues_json FROM motifs"):
+            try:
+                weights[row["motif_id"]] = len(json.loads(row["residues_json"] or "[]"))
+            except (TypeError, json.JSONDecodeError):
+                weights[row["motif_id"]] = 0
+
+    out = []
+    for run in runs:
+        if run.get("start_state") not in P5_INACTIVE_STARTS:
+            continue
+        with store.connect(database, read_only=True) as connection:
+            rows = [dict(r) for r in connection.execute(
+                "SELECT DISTINCT frame, time_ns, motif_id, s_score FROM "
+                "motif_frames WHERE run_id = ? AND s_score IS NOT NULL",
+                (run["run_id"],))]
+        by_frame: dict[int, dict] = {}
+        for row in rows:
+            frame = by_frame.setdefault(row["frame"],
+                                        {"time_ns": row["time_ns"], "parts": []})
+            weight = weights.get(row["motif_id"], 0)
+            if weight > 0:
+                frame["parts"].append((row["s_score"], weight))
+        frames = [{"time_ns": f["time_ns"],
+                   "whole_s": sum(s * w for s, w in f["parts"])
+                              / sum(w for _, w in f["parts"])}
+                  for f in by_frame.values() if f["parts"]]
+        if not frames:
+            out.append({**run, "status": "no scored frames"})
+            continue
+
+        window = _final_window(frames, P5_WINDOW_NS)
+        below = [f for f in window if f["whole_s"] < 0.0]
+        out.append({
+            **run, "status": "ok",
+            "window_ns": P5_WINDOW_NS,
+            "frames_in_window": len(window),
+            "fraction_below_zero": len(below) / len(window) if window else None,
+            "mean_whole_s": sum(f["whole_s"] for f in window) / len(window),
+            # The spec's rule is per replica, so with one replica the run
+            # either stayed inactive or it did not.
+            "passed": all(f["whole_s"] < 0.0 for f in window),
+            "replicas": 1,
+        })
+    return out
+
+
+def control_p6(database: Path) -> list[dict[str, Any]]:
+    """Was every membrane chunk inside section 5.8's windows?"""
+    from . import membrane, store
+
+    with store.connect(database, read_only=True) as connection:
+        runs = [r["run_id"] for r in connection.execute(
+            "SELECT DISTINCT run_id FROM membrane ORDER BY run_id")]
+        out = []
+        for run_id in runs:
+            chunks = [dict(r) for r in connection.execute(
+                "SELECT * FROM membrane WHERE run_id = ? ORDER BY time_ns",
+                (run_id,))]
+            apl = [c["apl"] for c in chunks if c["apl"] is not None]
+            thickness = [c["thickness"] for c in chunks
+                         if c["thickness"] is not None]
+            if not apl:
+                out.append({"run_id": run_id, "status": "no area per lipid"})
+                continue
+            lo, hi = membrane.APL_EXPECTED_A2
+            acceptable = membrane.APL_ACCEPTABLE_A2
+            t_lo, t_hi = membrane.THICKNESS_EXPECTED_A
+            out.append({
+                "run_id": run_id, "status": "ok",
+                "chunks": len(chunks),
+                "apl_mean": sum(apl) / len(apl),
+                "apl_min": min(apl), "apl_max": max(apl),
+                "apl_in_expected": all(lo <= v <= hi for v in apl),
+                "apl_in_acceptable": all(acceptable[0] <= v <= acceptable[1]
+                                         for v in apl),
+                "thickness_mean": (sum(thickness) / len(thickness)
+                                   if thickness else None),
+                "thickness_in_expected": all(t_lo <= v <= t_hi
+                                             for v in thickness) if thickness else None,
+                # Section 5.8's G6 is the acceptable window, not the expected
+                # one: a chunk outside 60 to 68 is logged, a run outside 55 to
+                # 75 invalidates the bilayer.
+                "passed": all(acceptable[0] <= v <= acceptable[1] for v in apl),
+            })
+    return out

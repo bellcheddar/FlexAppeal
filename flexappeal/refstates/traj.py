@@ -324,23 +324,53 @@ def analyse(traj, *, name: str, kind: str, core: Core,
     return run
 
 
-def load(topology: Path, trajectory: Path, *, stride: int = 1):
-    """One trajectory, protein and ligand only, with the solvent dropped.
+# Everything that is solvent, counter-ion or bilayer. Anything else in the file
+# is the thing being simulated and is kept.
+NOT_THE_SYSTEM = {"HOH", "WAT", "TIP3", "NA", "CL", "K", "MG", "ZN",
+                  "POPC", "POP", "PC", "OL", "PA", "DLPC", "DOPC", "DPPC"}
 
-    The solvent is dropped on load rather than later: a 190,000-atom membrane
-    system is mostly water, and every frame of it held in memory is the
-    difference between a few hundred megabytes and a few gigabytes for data
-    that no measurement here looks at.
+
+def kept_atoms(topology) -> list[int]:
+    """Protein plus whatever else is not solvent, ion or lipid.
+
+    Written as an exclusion rather than as a list of ligands because the
+    inclusion version was wrong: it selected `protein or resname CAU`, which is
+    carazolol, so the ABL1 imatinib run would have had its STI silently dropped
+    and been analysed as an apo system with nothing raised. A ligand the code
+    has not been told about is exactly the case that has to work, since the
+    whole package is meant to handle a protein it has never seen.
+    """
+    import mdtraj as md
+
+    keep = []
+    for atom in topology.atoms:
+        name = atom.residue.name.upper()
+        if name in NOT_THE_SYSTEM:
+            continue
+        # Lipid17 splits a lipid into residues whose names vary by tail, so the
+        # prefix catches the ones the set above does not name. PRO is the one
+        # amino acid that would be caught by it.
+        if name.startswith("PO") and name != "PRO":
+            continue
+        keep.append(atom.index)
+    return keep
+
+
+def load(topology: Path, trajectory: Path, *, stride: int = 1):
+    """One trajectory, with the solvent, ions and bilayer dropped.
+
+    Dropped on load rather than later: a 190,000-atom membrane system is mostly
+    water, and every frame of it held in memory is the difference between a few
+    hundred megabytes and a few gigabytes for data no measurement here reads.
     """
     import mdtraj as md
 
     first = md.load(str(topology))
-    keep = first.topology.select("protein or resname CAU")
+    keep = kept_atoms(first.topology)
+    if not keep:
+        raise ValueError(f"{topology.name} has nothing but solvent in it")
     return md.load(str(trajectory), top=str(topology), stride=stride,
                    atom_indices=keep)
-
-
-# ===========================================================================
 #  Deposited numbering
 # ===========================================================================
 
