@@ -169,11 +169,16 @@ def kinase_setup(start_pdb: Path, reference_pdb: str,
                             "chain": entry.get("chain") or ""})
         rows[which] = entries
         total = len(ensemble_rows[which].entries)
-        if max_references and total > len(entries):
-            log(f"{which}: {len(entries)} references, the best of {total} "
-                f"by quality")
-        else:
-            log(f"{which}: {len(entries)} references")
+        # Rows and structures are not the same number and the difference is
+        # large. KLIFS lists one row per chain, and the ensemble is keyed on the
+        # deposition, so ABL1's "12 active references" are 5 structures and its
+        # 45 inactive are 14. The score rests on the structures, so both are
+        # reported rather than the flattering one.
+        unique = len({e["pdb"] for e in entries})
+        best = (f", the best of {total} by quality"
+                if max_references and total > len(entries) else "")
+        log(f"{which}: {len(entries)} catalogue rows over {unique} "
+            f"structures{best}")
 
     # The activation loop runs from the DFG aspartate to the APE motif, and APE
     # is found in each structure's own sequence, so a reference needs its own
@@ -336,11 +341,11 @@ def gpcr_setup(start_pdb: Path, protein: str = "adrb2_human",
                             "chain": str(entry.get("preferred_chain") or "")[:1]})
         rows[which] = entries
         total = len(ensemble_rows[which].entries)
-        if max_references and total > len(entries):
-            log(f"{which}: {len(entries)} references, the best of {total} "
-                f"by resolution")
-        else:
-            log(f"{which}: {len(entries)} references")
+        unique = len({e["pdb"] for e in entries})
+        best = (f", the best of {total} by resolution"
+                if max_references and total > len(entries) else "")
+        log(f"{which}: {len(entries)} catalogue rows over {unique} "
+            f"structures{best}")
 
     # Restricted to what every reference resolves. Without this TM6, the
     # headline activation motif, went unscored: 38 residues through the most

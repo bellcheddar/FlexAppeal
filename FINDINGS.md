@@ -1257,6 +1257,42 @@ limitation with a number attached rather than a silent one.
 Every existing caller passes these positionally and still gets the right
 default, so the four production rows are unaffected.
 
+## 4m. The kinase scores rest on five active structures, not twelve
+
+Chasing why CDK2 kept one reference in forty led back to the worked example, and
+to a number I had been quoting wrongly all build.
+
+Every log line and several paragraphs of mine say ABL1 has 12 active and 45
+inactive references. Those are **catalogue rows**. KLIFS lists one row per chain
+and per alternate conformation, and the motif ensemble is keyed on the
+deposition, so what the scores actually compare against is:
+
+| state | catalogue rows | structures | usable after motif resolution |
+|---|---|---|---|
+| active | 12 | 5 | 5 |
+| inactive | 45 | 14 | 14 |
+
+The five are 2F4J, 2GQG, 2HZ4, 2V7A and 4TWP. The fourteen inactive are
+2E2B through 6NPV. Eighteen of the inactive rows are additionally recorded as
+partial for a missing activation loop, which is a real limitation of those
+structures rather than a fault here.
+
+Nothing is lost on the way: the ensemble builder records a reason for every row
+it does not keep, and it recorded none, because the rows collapse onto
+depositions rather than being dropped. D016 already made exactly this choice for
+the manifest and for the same reason, that chains of one crystal are not
+independent. What was wrong was only the reporting, which counted the flattering
+number.
+
+**Why it matters enough to correct.** An active state score is the distance to
+the nearest of five crystal structures. That is a legitimate measurement and it
+is what the reference-ensemble method is, but it is a much smaller basis than
+"12 references" suggests, and a reader deciding how much to trust a motif score
+needs the real figure. The receptor is in a different position: GPCRdb lists one
+row per structure, so beta2AR's 72 active and 28 inactive are 72 and 28.
+
+`analyse_run.py` now logs both: `active: 12 catalogue rows over 5 structures`.
+
 ## 5. Production runs
 
 Tier 2 started at 17:04 on 10 October, in section 5.3's priority order: β2AR

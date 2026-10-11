@@ -680,7 +680,15 @@ it keeps all 45).
 reason the cap is an option rather than a constant: every committed number,
 including P1, P2, P3, P4 and both manifests, is computed over the full
 ensembles. Checked after the change: P4 still reads +0.305, -0.368, +0.593 and
--0.934, and ABL1 still resolves 12 active and 45 inactive.
+-0.934, and ABL1 still resolves 12 active and 45 inactive catalogue rows.
+
+**A correction to the sentence above.** Those are rows, not structures. KLIFS
+lists one row per chain and the ensemble is keyed on the deposition, so ABL1's
+12 active rows are **5 structures** and its 45 inactive rows are **14**. The cap
+of 40 still changes nothing for either worked example, because both are under it
+on rows and far under it on structures, but the reason given was wrong.
+`analyse_run.py` now logs both counts, since the score rests on the structures
+and reporting only the rows flatters it.
 
 `--max-references 0` turns the cap off for a user who wants the full set.
 

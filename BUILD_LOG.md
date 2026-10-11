@@ -393,3 +393,14 @@ Timestamped, one line per meaningful event, for the reference-state build
   was no longer there, which is the only reason it did not go unnoticed.
   Restored above the gates as its own section, so a gate rewrite cannot take the
   results with it.
+- `23:2x` Chasing the CDK2 alignment drop led back to the worked example and to
+  a number I had been quoting wrongly all build. ABL1's "12 active and 45
+  inactive references" are catalogue rows: KLIFS lists one per chain and the
+  ensemble is keyed on the deposition, so the scores rest on **5** active and
+  **14** inactive structures. Nothing is lost on the way, since the builder
+  records a reason for every row it does not keep and recorded none; the rows
+  collapse rather than drop, which is the same choice D016 made for the
+  manifest. What was wrong was the reporting, which counted the flattering
+  number. Both counts are now logged, D020 is corrected, and the About page
+  says it too, because an active score being the distance to the nearest of
+  five crystal structures is something a reader needs.
