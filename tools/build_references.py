@@ -12,8 +12,12 @@ nobody can re-derive is a number nobody can check.
     python tools/build_references.py --verify   # rebuild nothing, compare instead
 
 `--verify` is the useful mode day to day: it recomputes everything and diffs it
-against what is committed, so a change in a catalogue or in our own code shows
-up as a disagreement rather than as a silent drift.
+against what is on disk, so a change in a catalogue or in our own code shows up
+as a disagreement rather than as a silent drift.
+
+Note that the manifests are gitignored, so they are not committed and a fresh
+clone has none. That is why this script matters: without it there is no way to
+produce them on another machine at all.
 """
 
 from __future__ import annotations
@@ -255,7 +259,7 @@ def _load(path: Path) -> list[dict]:
 
 
 def compare(fresh: list[dict], committed: list[dict], key: str = "pdb") -> dict:
-    """What changed between a rebuild and what is on disk.
+    """What changed between a rebuild and the manifest on disk.
 
     Compared per record rather than as whole files, because the order a
     catalogue returns its rows in is not stable and a diff on the file would
@@ -372,7 +376,7 @@ def main() -> int:
         elif args.verify:
             diff = compare(kinase, _load(path))
             log(f"  verify: {diff['n_fresh']} rebuilt against "
-                f"{diff['n_committed']} committed, {len(diff['changed'])} "
+                f"{diff['n_committed']} on disk, {len(diff['changed'])} "
                 f"changed, {len(diff['added'])} added, {len(diff['removed'])} removed")
             for row in diff["changed"][:5]:
                 log(f"    {row['record']}: {row['fields']}")
@@ -397,7 +401,7 @@ def main() -> int:
         if args.verify:
             diff = compare(receptor, _load(path))
             log(f"  verify: {diff['n_fresh']} rebuilt against "
-                f"{diff['n_committed']} committed, {len(diff['changed'])} "
+                f"{diff['n_committed']} on disk, {len(diff['changed'])} "
                 f"changed, {len(diff['added'])} added, {len(diff['removed'])} removed")
             for row in diff["changed"][:5]:
                 log(f"    {row['record']}: {row['fields']}")

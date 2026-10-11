@@ -95,3 +95,8 @@ data/refstates.db
 # once in this build; named here so it cannot.
 DEEPFLEX_*.md
 FXA2_BUILD_PROMPT.md
+
+# A stray 15 MB copy of the clip at the repository root. The one the app serves
+# is flexappeal/static/lysozyme.mp4 and that is tracked; this duplicate is not
+# wanted in the history twice.
+/lysozyme.mp4

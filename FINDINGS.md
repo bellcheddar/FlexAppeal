@@ -753,7 +753,7 @@ a logic fault in `motif_agreement`, which worked perfectly in isolation when
 tested. The fix was to reapply and then verify each part had landed, rather than
 trust that an assertion passing meant the file had changed.
 
-## 4g. Three committed numbers nobody could re-derive
+## 4g. Three numbers nobody could re-derive
 
 An audit for unreferenced public functions turned up six. Three were dead and
 are now deleted. The other three were the interesting half:
@@ -766,8 +766,8 @@ and `refs_b2ar.jsonl` feed the reference browser and both state maps, P1 and P2
 are counted off the kinase manifest, and P3's 11.39 angstrom threshold sits in
 `tools/ingest.py` as a constant. So four of the spec's own acceptance numbers
 rested on artefacts that could not be regenerated. That is a reproducibility
-gap and not a tidiness one: a committed number nobody can re-derive is a number
-nobody can check, including me.
+gap and not a tidiness one: a number nobody can re-derive is a number nobody
+can check, including me.
 
 `tools/build_references.py` closes it. `--verify` rebuilds everything in memory
 and diffs it per record rather than per file, because the order a catalogue
@@ -776,7 +776,7 @@ change.
 
 Both halves now reproduce exactly:
 
-| manifest | rebuilt | committed | changed | controls |
+| manifest | rebuilt | on disk | changed | controls |
 |---|---|---|---|---|
 | `refs_abl1.jsonl` | 20 | 20 | 0 | P1 17/17, P2 17/17 |
 | `refs_b2ar.jsonl` | 116 | 116 | 0 | P3 100/100 at 11.39 A |
@@ -786,7 +786,7 @@ than leaving the two to drift apart silently.
 
 ### The first rebuild disagreed, and it was the script that was wrong
 
-It reported 42 kinase rows against 20 committed, with P1 at 37/37 and P2 at
+It reported 42 kinase rows against the 20 on disk, with P1 at 37/37 and P2 at
 36/37. Both numbers pass their marks, which is what made this worth chasing
 rather than accepting: a rebuild that passes is not the same as a rebuild that
 reproduces.
@@ -794,7 +794,7 @@ reproduces.
 KLIFS lists one row per chain and per alternate conformation, so ABL1 comes
 back as 61 rows over 20 depositions, with 2G1T alone appearing four times. My
 script deduplicated on `(pdb, chain)` where the original had deduplicated on the
-deposition. Per-PDB first occurrence reproduces all 20 committed chains exactly,
+deposition. Per-PDB first occurrence reproduces all 20 chains exactly,
 including the six that are not chain A, so the original intent was unambiguous
 once tested.
 
@@ -828,6 +828,25 @@ not depend on which copy of this crystal the catalogue happened to list first.
 A test now asserts that no deposition appears twice in the kinase manifest. The
 invariant needs guarding precisely because breaking it is silent: the per-chain
 rebuild passed both controls and only the record count gave it away.
+
+### And they were never committed at all
+
+Checked before pushing, and it corrects the paragraphs above. `data/manifests/`
+is in `.gitignore`, so neither manifest is tracked: they are local files, and
+the word "committed" in my own account of this was wrong.
+
+That makes the gap worse rather than smaller. A fresh clone has no manifests at
+all, so before `tools/build_references.py` existed the reference browser and
+both state maps had no way to be populated on any machine but this one, and
+P3's threshold in `ingest.py` was a number with no reachable derivation. The
+fix is the same fix and it was the right one; the description of what it fixed
+was too generous.
+
+What is tracked under `data/` is five files: `references.json`, which the About
+page reads, and four `*_start.json` carrying each row's provenance, which hold a
+PDB code, a chain, a span and an expected state and no coordinates. Everything
+else, the trajectories, the caches, the built systems, the manifests and the
+explorer database, is ignored and travels by rsync or is rebuilt.
 
 ### The same gap, in a second place
 
