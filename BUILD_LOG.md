@@ -862,3 +862,27 @@ console errors either way.
 Also checked: GATE_OPEN.md names all four gates that apply, which is section
 8's phase 7 requirement. G4 open and pushed, G3 waiting, G1 will not open,
 G2 not needed.
+
+### 11 October, 08:05 to 08:45
+
+README: the positive-controls table listed five of the six controls, missing P6
+(passes) and P5 (pending). Both added, with the pending one stated as pending,
+and a test that the table names all six.
+
+Live reference browser: `resolution` was NULL in all 136 rows under a column
+the page renders and section 7's schema declares. Both catalogues return it and
+both filters already parse it, for the 2.8 A and 3.6 A cuts; it was simply not
+carried into the manifest. Now carried, omitted rather than nulled where
+unreadable. Rebuilt: 136 of 136 rows have one, P1/P2/P3 unchanged at 17/17,
+17/17, 100/100 at 11.39 A.
+
+One suite run failed `test_an_upload_is_kept_when_it_is` and passed on a re-run.
+Not flaky. `keep_run` built ids with `token_urlsafe`, whose alphabet contains
+`-` and `_`, so one id in thirty-two began with a hyphen while `_RUN_ID`
+requires an alphanumeric first character. Such a run was written to disk,
+reported as kept, and then listed nowhere and reachable at no URL. Measured
+3.03% over 20,000 draws. The first character is drawn from the alphanumerics
+now; the regression test makes 3,000 draws, because one draw passes 31 times in
+32.
+
+FINDINGS 4ao. Six tests added, 977 passed, 1 skipped.

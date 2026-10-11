@@ -2846,6 +2846,64 @@ A non-orthorhombic box returns zeros. A whole-box translation is not the right
 correction for a triclinic cell, and section 0.3's rule is to leave the data
 alone rather than apply something that merely looks like a fix.
 
+## 4ao. A column of dashes, and a test that was not flaky
+
+Two faults from looking at the live reference browser, which renders 116 β2AR
+entries with the catalogue's state call beside this build's and reports 100 of
+100 agreement. It is right, and it has a column in it that is empty.
+
+### Resolution was read, used, and thrown away
+
+`resolution` is NULL in all 136 reference rows. The column is in section 7's
+schema and the page renders a heading for it, so every row showed a dash.
+
+The number was never missing. Both catalogues return it and both filters
+already parse it: KLIFS to apply the 2.8 Å cut, GPCRdb the 3.6 Å one. It was
+read out of the response, used to decide whether to keep the entry, and then
+dropped on the floor, because the manifest row that the ingest later reads was
+built from a hand-written set of keys and that was not one of them.
+
+Now carried through, and omitted rather than nulled where a value cannot be
+read: an entry with no resolution, a null, or a string that is not a number
+leaves the column alone. Zero would be worse than a dash in a column people
+read to judge quality, because zero sorts to the top. 136 of 136 rows carry one
+after the rebuild, and P1, P2 and P3 come back at 17/17, 17/17 and 100/100 at
+11.39 Å, which says the rebuild changed what it was meant to and nothing else.
+
+### One kept run in thirty-two was kept nowhere
+
+The suite failed once, on `test_an_upload_is_kept_when_it_is`, asserting that
+one kept run was in the library and finding none. It passed alone, passed with
+its file, and passed on a full re-run. The easy reading was load, and the easy
+reading was wrong.
+
+`keep_run` built its id like this:
+
+    run_id = secrets.token_urlsafe(9).replace("_", "-").replace("=", "")[:16]
+
+`token_urlsafe` draws from a 64-character alphabet that includes `-` and `_`,
+and the `_` becomes `-`, so **one id in thirty-two begins with a hyphen**.
+`_RUN_ID` requires the first character to be alphanumeric, and it guards both
+`list_runs` and `run_directory`. A run that drew such an id was written to
+disk, the page said "Kept in the library", and from that moment it appeared in
+no listing and resolved to no URL. Kept, invisible and unreachable.
+
+Measured at 3.03% over 20,000 draws, against the 3.12% the alphabet predicts.
+
+The first character is drawn from the alphanumerics now, rather than hoped for.
+The regression test makes three thousand draws rather than one, because one
+draw passes thirty-one times in thirty-two, and a test that usually passes is
+exactly what this fault looked like for as long as it existed. A second test
+forces the old id through the upload route and asserts the library can show
+what the page said it kept.
+
+What is worth keeping from this is the diagnosis, not the fix. A test that
+fails rarely and passes on a re-run invites being called flaky, and the word
+closes the question. Here the failure rate was a property of the product: one
+in thirty-two, visible in the generator the moment anyone read it beside the
+pattern that validates it. The re-run that went green was not evidence of
+anything.
+
 ## 5. Production runs
 
 Tier 2 started at 17:04 on 10 October, in section 5.3's priority order: β2AR

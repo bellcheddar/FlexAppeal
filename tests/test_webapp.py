@@ -13,6 +13,7 @@ from __future__ import annotations
 import io
 import json
 import pathlib
+import secrets
 
 import pytest
 
@@ -1733,3 +1734,63 @@ def test_the_upload_form_alone_does_not_pull_the_plotting_libraries(client):
     assert "molstar.js" not in body
     # analysis.js still loads: it runs the drop zone.
     assert "analysis.js" in body
+
+
+def test_every_kept_run_gets_an_id_the_library_will_list():
+    """It failed about once in thirty full suites and was not flakiness.
+
+    `keep_run` built its id as
+
+        secrets.token_urlsafe(9).replace("_", "-").replace("=", "")[:16]
+
+    and `token_urlsafe` draws from a 64-character alphabet containing `-` and
+    `_`, so about one id in thirty-two began with a hyphen. `_RUN_ID` requires
+    an alphanumeric first character and guards both `list_runs` and
+    `run_directory`, so such a run was written to disk, reported as "Kept in
+    the library", and then listed nowhere and reachable at no URL.
+
+    Many draws rather than one, because one draw passes thirty-one times out of
+    thirty-two and a test that usually passes is what this bug looked like for
+    as long as it existed.
+    """
+    from flexappeal import webapp as webapp_mod
+
+    seen = set()
+    for _ in range(3000):
+        run_id = (secrets.choice(webapp_mod._RUN_ID_FIRST)
+                  + secrets.token_urlsafe(9).replace("_", "-")
+                  .replace("=", "")[:15])
+        assert webapp_mod._RUN_ID.match(run_id), run_id
+        seen.add(run_id)
+    assert len(seen) > 2990, "the ids should still be distinct"
+
+
+def test_a_kept_run_is_listed_whatever_id_it_drew(library, monkeypatch):
+    """The end of the same fault, through the route rather than the generator.
+
+    Forced onto an id beginning with a hyphen, which is what one keep in
+    thirty-two used to produce, the page must not claim to have kept something
+    the library cannot show.
+    """
+    import io
+
+    fixture = FIXTURES / "trypsin_ben.fxa"
+    if not fixture.is_file():
+        pytest.skip("tests/fixtures/trypsin_ben.fxa is missing")
+    from flexappeal import webapp as webapp_mod
+
+    monkeypatch.setattr(webapp_mod.secrets, "token_urlsafe",
+                        lambda n: "-leading-hyphen")
+    body = library.post(
+        "/analysis",
+        data={"fxa_file": (io.BytesIO(fixture.read_bytes()), "r.fxa"),
+              "keep_run": "1", "run_label": "forced id"},
+        content_type="multipart/form-data").get_data(as_text=True)
+    assert "Kept in the library" in body
+
+    with library.application.app_context():
+        kept = [r for r in webapp_mod.list_runs()
+                if r["id"] != webapp_mod.EXAMPLE_RUN_ID]
+    assert len(kept) == 1, (
+        "a run the page said it kept must appear in the library")
+    assert webapp_mod._RUN_ID.match(kept[0]["id"]), kept[0]["id"]

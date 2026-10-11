@@ -4485,3 +4485,104 @@ def test_the_analysis_payload_does_not_carry_the_centres_array():
               / "tools" / "analyse_run.py").read_text()
     assert 'viewer.pop("centres", None)' in source, (
         "the caller should take it out of the payload")
+
+
+def test_the_readme_lists_every_positive_control_including_the_undecided_one():
+    """Section 9 defines six. The public table listed five.
+
+    The missing two were P6, the bilayer windows, which passes, and P5, an
+    inactive start staying inactive, which is pending because the run that
+    would decide it is third in a queue that is still draining. A table of five
+    passes with the undecided one left out reads as six, which is the kind of
+    omission that is not a lie in any single row.
+
+    Matched on what each control is about rather than on its figures, which
+    move as rows land. A control that is dropped from the table fails this; a
+    control whose number changes does not.
+    """
+    readme = (Path(__file__).resolve().parents[1] / "README.md").read_text()
+    table = readme[readme.index("### Positive controls"):]
+    table = table[:table.index("### ", 1)] if "### " in table[1:] else table
+
+    for control, needle in (
+            ("P1 DFG label", "DFG label against KLIFS"),
+            ("P2 alphaC label", "label against KLIFS"),
+            ("P3 TM3-TM6 separation", "TM3"),
+            ("P4 start scores as its own state", "scores as its own state"),
+            ("P5 inactive start stays inactive", "stays inactive"),
+            ("P6 bilayer windows", "Bilayer inside its published windows")):
+        assert needle in table, f"{control} is missing from the README table"
+
+    assert "pending" in table, (
+        "a control that has not been decided should say so rather than be "
+        "left out")
+
+
+def _build_references_module():
+    import importlib.util
+
+    root = Path(__file__).resolve().parents[1]
+    spec = importlib.util.spec_from_file_location(
+        "build_references", root / "tools" / "build_references.py")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def test_the_resolution_each_catalogue_already_returned_is_kept():
+    """It was read to filter on and then dropped.
+
+    KLIFS applies a 2.8 A cut and GPCRdb a 3.6 A one, so both filters parse
+    `resolution` out of the response. Neither carried it any further, and
+    section 7's schema has a `resolution REAL` column that the reference
+    browser renders a heading for: all 136 rows showed a dash under it, filled
+    from nothing while the number sat in a response already in hand.
+    """
+    module = _build_references_module()
+    assert module._resolution({"resolution": "2.79"}) == {"resolution": 2.79}
+    assert module._resolution({"resolution": 3.2}) == {"resolution": 3.2}
+
+
+def test_a_resolution_that_cannot_be_read_is_omitted_not_nulled():
+    """Section 0.3: omit a key you cannot produce, never a stand-in.
+
+    An EM entry with no resolution, or a null, or a string that is not a
+    number, must leave the column alone rather than write a zero into it. Zero
+    angstrom would sort to the top of a column people read to judge quality.
+    """
+    module = _build_references_module()
+    for entry in ({}, {"resolution": None}, {"resolution": ""},
+                  {"resolution": "n/a"}, {"resolution": 0},
+                  {"resolution": -1}):
+        assert module._resolution(entry) == {}, entry
+
+
+def test_a_reference_keeps_its_resolution_through_the_store(tmp_path: Path):
+    """And a reference without one leaves the column null rather than zero."""
+    database = tmp_path / "t.db"
+    store.create(database)
+    with store.connect(database) as connection:
+        store.put_system(connection, "b2ar", name="beta2AR", family="gpcr",
+                         environment="membrane")
+        store.put_reference(connection, "b2ar:4LDE", "b2ar", pdb="4LDE",
+                            chain="A", source="GPCRdb", source_state="active",
+                            our_state="active", resolution=2.79, metrics={})
+        store.put_reference(connection, "b2ar:3SN6", "b2ar", pdb="3SN6",
+                            chain="R", source="GPCRdb", source_state="active",
+                            our_state="active", metrics={})
+        rows = {r["pdb"]: r["resolution"] for r in connection.execute(
+            "SELECT pdb, resolution FROM reference_structures")}
+    assert rows["4LDE"] == 2.79
+    assert rows["3SN6"] is None, (
+        "no reading is null, which the page draws as a dash, not a zero")
+
+
+def test_the_ingest_omits_a_resolution_it_does_not_have():
+    """An older manifest has no such key and must ingest unchanged.
+
+    The manifests are rebuilt rather than migrated, but they are gitignored, so
+    the first ingest after a fresh clone reads whatever is on that machine.
+    """
+    source = (Path(__file__).resolve().parents[1]
+              / "tools" / "ingest.py").read_text()
+    assert 'if row.get("resolution") is not None else {}' in source

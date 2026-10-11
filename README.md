@@ -288,6 +288,13 @@ at 300 K.
 | TM3–TM6 state separation, leave-one-out | 100 / 100 at 11.39 Å |
 | R-spine label after recalibration | 5 / 5 active, 14 / 14 inactive |
 | Each start structure scores as its own state | 4 / 4 |
+| Bilayer inside its published windows | 67.7 Å² per lipid, 38.6 Å thick, every chunk inside |
+| An inactive start stays inactive | **pending**: no inactive-start run has finished yet |
+
+The last row is listed rather than left out. It is the one control of the six
+that has not been decided, because the run that would decide it is third in a
+queue that is still draining, and a table of five passes with the undecided one
+missing would read as six.
 
 ### Reuse
 

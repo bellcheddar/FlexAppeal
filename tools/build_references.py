@@ -101,10 +101,32 @@ def build_kinase(work: Path, all_chains: bool = False) -> list[dict]:
                 "dfg_agrees": prepared.dfg_agrees,
                 "alphac_agrees": prepared.alphac_agrees,
                 "note": prepared.note,
+                **_resolution(entry),
             })
             log(f"  {prepared.pdb} {prepared.chain}: {prepared.status}, "
                 f"DFG {prepared.our_dfg} against {prepared.their_dfg}")
     return rows
+
+
+def _resolution(entry) -> dict:
+    """The entry's resolution, as a field to merge in, or nothing.
+
+    Both catalogues return it and both filters already read it, KLIFS to apply
+    the 2.8 A cut and GPCRdb the 3.6 A one, and then it was dropped. Section 7's
+    schema has a `resolution REAL` column and the reference browser renders a
+    Resolution heading, so every one of the 136 rows showed an em dash under a
+    column that could have been filled from the response that was already in
+    hand.
+
+    Returns an empty dict rather than `{"resolution": None}` when the value is
+    missing or unparseable, so the key is omitted rather than stored as a
+    stand-in, which is section 0.3's rule.
+    """
+    try:
+        value = float(entry.get("resolution"))
+    except (TypeError, ValueError):
+        return {}
+    return {"resolution": round(value, 2)} if value > 0 else {}
 
 
 def build_receptor() -> tuple[list[dict], dict]:
@@ -145,7 +167,8 @@ def build_receptor() -> tuple[list[dict], dict]:
             distance = (tm3_tm6_distance(target, numbering)
                         if target is not None else None)
             rows.append({"pdb": code, "chain": chain,
-                         "state": which, "tm3_tm6": distance})
+                         "state": which, "tm3_tm6": distance,
+                         **_resolution(entry)})
             if distance is not None and which in by_state:
                 by_state[which].append(distance)
 

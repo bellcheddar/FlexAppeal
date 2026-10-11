@@ -313,7 +313,12 @@ def main() -> int:
                         meta["system_id"], pdb=code,
                         chain=row.get("chain") or "",
                         source="KLIFS" if meta["family"] == "kinase" else "GPCRdb",
-                        source_state=theirs, our_state=ours, metrics=metrics)
+                        source_state=theirs, our_state=ours, metrics=metrics,
+                        # Omitted rather than nulled when the manifest predates
+                        # the field, so an old manifest ingests without writing
+                        # a stand-in over a column it knows nothing about.
+                        **({"resolution": row["resolution"]}
+                           if row.get("resolution") is not None else {}))
                     annotated += 1
                     # Agreement only where both sides have an opinion. A row
                     # this build could not label is not a disagreement and is

@@ -21,6 +21,7 @@ import os
 import re
 import secrets
 import shutil
+import string
 import subprocess
 import sys
 import time
@@ -696,6 +697,10 @@ DEFAULT_RUNS_ROOT = REPO_ROOT / "web_runs"
 EXAMPLE_RUN_ID = "example"
 
 _RUN_ID = re.compile(r"^[a-zA-Z0-9][a-zA-Z0-9_-]{0,63}$")
+# The characters `_RUN_ID` will accept in first position. A generated id has to
+# start with one of these or it is refused by the two functions that resolve
+# it, so the first character is chosen from here rather than hoped for.
+_RUN_ID_FIRST = string.ascii_letters + string.digits
 
 
 def _runs_root() -> Path:
@@ -796,8 +801,26 @@ def keep_run(content: bytes, label: str = "") -> str:
     The id is a random token rather than the job name. Two runs can share a
     name, and a name chosen by an uploader would otherwise decide where a file
     lands on disk.
+
+    The first character is drawn separately, which is not fussiness.
+    `token_urlsafe` draws from a 64-character alphabet that includes `-` and
+    `_`, and this used to be
+
+        secrets.token_urlsafe(9).replace("_", "-").replace("=", "")[:16]
+
+    so roughly one id in thirty-two began with a hyphen. `_RUN_ID` requires the
+    first character to be alphanumeric, and it guards both `list_runs` and
+    `run_directory`. A run with such an id was therefore written to disk, the
+    page said "Kept in the library", and it appeared in no listing and resolved
+    to no URL: kept, invisible and unreachable, about three per cent of the
+    time. Measured at 3.03% over 20,000 draws against the 3.12% the alphabet
+    predicts.
+
+    It showed up as a test that failed about once in thirty full runs, which
+    reads as flakiness and was a product fault the whole time.
     """
-    run_id = secrets.token_urlsafe(9).replace("_", "-").replace("=", "")[:16]
+    run_id = (secrets.choice(_RUN_ID_FIRST)
+              + secrets.token_urlsafe(9).replace("_", "-").replace("=", "")[:15])
     path = _runs_root() / run_id
     path.mkdir(parents=True, exist_ok=True)
     (path / "results.fxa").write_bytes(content)
