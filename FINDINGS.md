@@ -1281,11 +1281,57 @@ as the log, so anything downstream can see it.
 
 The honest summary of G-REUSE after this: the plumbing works on an unseen
 kinase, resolves its own catalogue entry, caps its own downloads and says when
-its own ensemble is too thin to trust. For CDK2 specifically the answer is not
-yet worth much, because the core-based alignment keeps one reference in forty.
-Improving that means a core chosen per target rather than from one reference
-structure, which is a larger change than this pass, and it is now a stated
-limitation with a number attached rather than a silent one.
+its own ensemble is too thin to trust. For CDK2 specifically the answer was not
+yet worth much, because the core-based alignment kept one reference in
+twenty-nine.
+
+### Resolved, and it was not what this section guessed
+
+I wrote above that fixing it "means a core chosen per target rather than from
+one reference structure, which is a larger change than this pass". That was a
+guess, and measuring it found something smaller and worse.
+
+The cores are not the problem. Across CDK2's twenty-nine references the KLIFS
+scaffold gives 42 residues to twenty-eight of them and 41 to one. The problem
+is which one `align_to_common_frame` picked as its target: the first in sorted
+order. That was **1F5Q**, the odd one. Every other reference is dropped when
+its core length differs from the target's, so the single shortest reference in
+the set took the whole ensemble with it, and the survivor was the target
+itself. Hence a "core residual mean 0.0 A, max 0.0 A" in the log, which is what
+a set of one fitted onto itself reads as, and which should have been the tell.
+
+The target is now the first, in sorted order, whose core is the **most common
+length** in the set. On CDK2:
+
+| | before | after |
+|---|---|---|
+| target | 1F5Q, 41 residues | 1FVV, 42 residues |
+| aligned | **1** of 29 | **28** of 29 |
+| core residual | 0.0 Å, which is one structure onto itself | mean 0.473 Å, max 1.425 Å |
+| core agreement | not measurable | 0.49 Å mean, 1.425 Å worst |
+
+The score on a two-frame 1HCK trajectory now comes out at **+0.364, active, 0
+conflicts**, which is the right answer for an ATP-bound CDK2, resting on 28
+structures instead of one. The thin-ensemble warning still fires, and now says
+something true and narrower: CDK2's *inactive* side has one reference, because
+the catalogue has two inactive entries for this kinase. That is a limit of
+KLIFS and not of this code.
+
+**Nothing in production moves.** Choosing by modal length cannot change a set
+that is already uniform, and every ABL1 and β2AR ensemble here is: ABL1 aligns
+19 of 19 onto 2F4J at 0.568 Å mean and 0.989 Å max, β2AR 100 onto 3P0G at 0.829
+and 1.289, and P4 still reads +0.305, −0.368, +0.593, −0.934. Those are the
+same numbers to three decimals, which is the check that mattered before
+touching shared code with four rows in flight.
+
+The thorough fix, intersecting the cores, is still not available and the reason
+is worth keeping: these are residue numbers, and ABL1's references are split
+between the ABL1a and ABL1b numbering nineteen residues apart, so the
+intersection across its nineteen references is **three residues**. It would
+have to be taken over KLIFS positions and resolved back per structure. The
+position-level intersection is 38 of 42 for CDK2 and would be the better core;
+it is a change to how cores are built rather than to how one is chosen, and it
+is not needed to get twenty-eight references out of twenty-nine.
 
 Every existing caller passes these positionally and still gets the right
 default, so the four production rows are unaffected.

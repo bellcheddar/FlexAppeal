@@ -847,3 +847,33 @@ So it is left undone and said out loud here, which is the same position
 sections 4r and 4u take on the viewer overlay and the motif timelines. The
 spec's text is in section 12.1 and applying it, with or without the push rule,
 is one copy away whenever the user wants it.
+
+## D025: the alignment target is the most common core length, not the first code
+
+`align_to_common_frame` fits every reference onto one target and drops any
+whose core is a different length. The target was the first reference in sorted
+order, chosen that way for reproducibility, and reproducible it is: on CDK2 it
+reproducibly picked 1F5Q, whose KLIFS scaffold is 41 residues where twenty-eight
+of the other twenty-eight are 42, and dropped the entire ensemble bar the
+target.
+
+The target is now the first, in sorted order, whose core length is the modal
+length of the set. Still deterministic, and no longer hostage to which code
+happens to sort first.
+
+**Why not intersect the cores instead**, which is the more thorough fix: these
+are residue numbers. ABL1's references are split between the ABL1a and ABL1b
+numbering nineteen residues apart, so the intersection across its nineteen
+references is three residues, which is not a rigid-body fit. The intersection
+would have to be taken over KLIFS pocket positions, which are numbering
+independent, and resolved back to residues per structure. That is a change to
+how cores are built rather than to how one is chosen, and it is worth doing if
+a target ever shows real core disagreement rather than an off-by-one: the
+position-level intersection for CDK2 is 38 of 42.
+
+**Safe for the rows in flight**, which is why it was done this way with four
+production rows running. Choosing by modal length is a no-op on a set that is
+already uniform, and every ABL1 and beta2AR ensemble here is uniform. Verified
+rather than argued: ABL1 aligns 19 of 19 onto 2F4J at 0.568 A mean and 0.989 A
+max, beta2AR 100 onto 3P0G at 0.829 and 1.289, and P4 reads +0.305, -0.368,
++0.593, -0.934, all unchanged.

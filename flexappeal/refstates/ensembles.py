@@ -250,9 +250,28 @@ def align_to_common_frame(ensembles: dict[str, MotifEnsemble]) -> dict[str, Any]
     the cause was that half the comparison was nonsense. Nothing in the output
     said so.
 
-    The target is the first reference in sorted order, so the choice is
-    reproducible. The transform is fitted on the core and applied to every motif,
-    which is the same rule the per-frame scoring uses.
+    The target is the first reference, in sorted order, whose core is the most
+    common length in the set. Sorted order alone is not enough and the
+    difference is not cosmetic: a reference whose core is one residue shorter
+    than everyone else's fails the shape check below for every other reference,
+    and if that reference happens to sort first the whole ensemble is thrown
+    away. On CDK2 it did. The target was 1F5Q with a 41-residue core, 28 of the
+    other 29 references had 42, and one reference survived out of twenty-nine.
+
+    Choosing by modal length cannot change a set that is already uniform, which
+    every ABL1 and beta2AR ensemble here is, so the production rows are
+    unaffected and CDK2 goes from one reference to twenty-eight.
+
+    Intersecting the cores instead would be the more thorough fix and it is not
+    available: these are residue numbers, and ABL1's references are split
+    between the ABL1a and ABL1b numbering nineteen residues apart, so the
+    intersection across its nineteen references is three residues. The
+    intersection would have to be taken over KLIFS positions and resolved back
+    per structure, which is a change to how cores are built rather than to how
+    one is chosen.
+
+    The transform is fitted on the core and applied to every motif, which is the
+    same rule the per-frame scoring uses.
     """
     from .traj import apply_transform, rmsd, superpose
 
@@ -263,7 +282,14 @@ def align_to_common_frame(ensembles: dict[str, MotifEnsemble]) -> dict[str, Any]
     if not codes:
         return {"n_aligned": 0}
 
-    target_state, target_code = codes[0]
+    from collections import Counter
+
+    lengths = Counter(
+        len(ensembles[state].by_code[code][CORE_KEY]) for state, code in codes)
+    modal = lengths.most_common(1)[0][0]
+    target_state, target_code = next(
+        (state, code) for state, code in codes
+        if len(ensembles[state].by_code[code][CORE_KEY]) == modal)
     target = np.asarray(
         ensembles[target_state].by_code[target_code][CORE_KEY], dtype=float)
 

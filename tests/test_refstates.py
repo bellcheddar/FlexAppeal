@@ -2185,6 +2185,59 @@ def test_the_membrane_system_integrates_for_five_picoseconds():
     assert np.isfinite(coordinates).all(), "a coordinate went non-finite"
 
 
+def _ensemble_of(lengths: dict[str, list[tuple[str, int]]]):
+    """Ensembles with cores of given lengths, for the alignment target tests."""
+    rng = np.random.default_rng(0)
+    out = {}
+    for state, items in lengths.items():
+        found = ensembles.MotifEnsemble(state=state)
+        for code, n in items:
+            found.by_code[code] = {ensembles.CORE_KEY: rng.normal(size=(n, 3)),
+                                   "motif": rng.normal(size=(4, 3))}
+        out[state] = found
+    return out
+
+
+def test_one_odd_reference_does_not_discard_the_whole_ensemble():
+    """The alignment target used to be whichever reference sorted first.
+
+    Every other reference is dropped when its core length differs from the
+    target's, so a target that is one residue shorter than everyone else takes
+    the entire ensemble with it. On CDK2 that is exactly what happened: the
+    target was 1F5Q with a 41-residue core, 28 of the other 29 references had
+    42, and one reference survived out of twenty-nine. The score that came out
+    of it was a distance to a single structure.
+
+    The target is now the first, in sorted order, whose core is the most common
+    length in the set.
+    """
+    found = _ensemble_of({
+        # "1F5Q" sorts before every "A..." code, as it did in the real set.
+        "active": [("1F5Q", 41)] + [(f"A{i:03d}", 42) for i in range(28)],
+        "inactive": [("Z001", 42)],
+    })
+    report = ensembles.align_to_common_frame(found)
+    assert report["n_aligned"] == 29, report
+    assert report["n_dropped"] == 1, "only the odd one out should go"
+    assert report["target"] != "1F5Q", (
+        "the odd reference was chosen as the target again")
+
+
+def test_a_uniform_ensemble_keeps_the_first_reference_as_its_target():
+    """Choosing by modal length must not move a set that is already uniform.
+
+    Every ABL1 and beta2AR ensemble in this build is uniform, so this is what
+    makes the change safe for the production rows: same target, same transform,
+    same scores.
+    """
+    found = _ensemble_of({"active": [(f"B{i:03d}", 43) for i in range(5)],
+                          "inactive": [(f"C{i:03d}", 43) for i in range(14)]})
+    report = ensembles.align_to_common_frame(found)
+    assert report["target"] == "B000", "the target moved on a uniform set"
+    assert report["n_aligned"] == 19
+    assert report["n_dropped"] == 0
+
+
 # ===========================================================================
 #  Resuming without duplicating frames
 # ===========================================================================

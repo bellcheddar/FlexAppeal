@@ -575,3 +575,14 @@ Timestamped, one line per meaningful event, for the reference-state build
   measured was the whole vendored suite, whose 17 failures are elsewhere and
   are about its own interpreter path. `pytest.ini`'s comment implied the
   vendored tests were unusable; sharpened, with the command to repeat it.
+- `03:3x` Went after the CDK2 limitation 4l recorded and found it was not what
+  4l guessed. The cores are near-uniform: 28 of CDK2's 29 references give a
+  42-residue KLIFS scaffold and one gives 41. What broke it is that
+  `align_to_common_frame` took its target as the first reference in sorted
+  order, which was the odd one, so every other reference failed the shape check
+  and the ensemble collapsed to the target alone. The "core residual mean 0.0 A"
+  in the log was one structure fitted onto itself and should have been the tell.
+  Target is now the first with the modal core length: CDK2 goes 1 of 29 to 28 of
+  29, core agreement 0.49 A mean. Production is bit-for-bit unchanged, which is
+  the check that mattered: ABL1 19/19 onto 2F4J at 0.568, beta2AR 100 onto 3P0G
+  at 0.829, P4 still +0.305, -0.368, +0.593, -0.934.
