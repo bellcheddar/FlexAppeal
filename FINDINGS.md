@@ -644,6 +644,55 @@ The alphaC salt bridge reading `in` for both is correct rather than a failure:
 imatinib-bound ABL1 is the classic DFG-out, alphaC-in type II conformation, and
 19 of 20 KLIFS references for this kinase are alphaC-in.
 
+## 4f. Four functions that were implemented, tested, and called by nothing
+
+`smooth`, `transitions`, `sse.agreement` and `sse.reference_profile` all existed
+with tests and no caller. The SSE comparison against the reference ensembles is
+an explicit section 5.6 requirement, so that was a gap in the deliverable rather
+than unused convenience code.
+
+Wired up, it is an independent line of evidence and it agrees with the geometry.
+On the Tier 1 receptor run:
+
+| motif | active | inactive | margin | lean |
+|---|---|---|---|---|
+| TM7 | 0.712 | 0.561 | 0.151 | active |
+| TM5 | 0.982 | 0.832 | 0.150 | active |
+| TM6 | 0.934 | 0.868 | 0.066 | active |
+| NPxxY | 0.739 | 0.774 | 0.035 | **neither** |
+| H8 | 0.864 | 0.888 | 0.025 | **neither** |
+
+**The last two columns are the point.** Secondary structure is far less
+discriminating than geometry: most residues of a transmembrane helix are helical
+in both states, so every agreement here is high and the differences are small.
+The first version reported H8 as leaning inactive on a margin of 0.024, which is
+reading noise and would have sat on the page as a finding. A lean is now only
+called above a 0.05 margin, chosen from the observed spread rather than picked:
+the discriminating motifs separate by 0.07 to 0.15 and the ones carrying no
+signal by 0.02 to 0.04, so the line goes between them.
+
+The three TM helices leaning active corroborates the geometric score of +0.277
+for the same run, from a measurement that shares none of its machinery.
+
+### A cache that is a requirement, not an optimisation
+
+Running DSSP over the 116 receptor references takes about nine minutes, and
+section 2.3's streaming analysis re-runs every half hour while production is
+going. The labels are properties of deposited structures and never change, so
+they are cached: nine minutes becomes seven seconds. The key covers the residues
+asked for as well as the structure codes, so changing a motif's span invalidates
+the cache rather than silently reusing labels for different residues.
+
+### And a lost edit, worth recording as a process failure
+
+Three replacements were applied to one file by a single script whose last
+assertion failed. Python raised before the write, so all three were lost
+together, not just the one that failed. The run afterwards therefore used the
+old code and reported no agreement at all, and I initially mis-diagnosed that as
+a logic fault in `motif_agreement`, which worked perfectly in isolation when
+tested. The fix was to reapply and then verify each part had landed, rather than
+trust that an assertion passing meant the file had changed.
+
 ## 5. Production runs
 
 Tier 2 started at 17:04 on 10 October, in section 5.3's priority order: β2AR

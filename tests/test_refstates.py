@@ -1638,3 +1638,33 @@ def test_smoothing_is_skipped_when_the_window_is_wider_than_the_run():
     long_run = [i / 100.0 for i in range(100)]
     smoothed = state.smooth(long_run, frame_ps=100.0, window_ns=2.0)
     assert len(set(round(v, 6) for v in smoothed)) > 50
+
+
+def test_an_sse_lean_on_a_tiny_margin_is_not_called():
+    """Secondary structure is far less discriminating than geometry.
+
+    Most residues of a transmembrane helix are helical in both states, so every
+    agreement is high and the differences are small. H8 came out 0.864 active
+    against 0.888 inactive, and calling that "inactive" on a 0.024 margin is
+    reading noise.
+    """
+    # A frame that matches the active set slightly better, but only slightly.
+    frame = ["H"] * 20
+    active = sse.reference_profile({
+        "a": ["H"] * 20,
+        "b": ["H"] * 19 + ["T"],
+    })
+    inactive = sse.reference_profile({
+        "c": ["H"] * 20,
+        "d": ["H"] * 18 + ["T", "T"],
+    })
+    found = sse.summarise(sse.agreement(frame, active, inactive))
+    assert found["margin"] < sse.DECISIVE_MARGIN
+    assert found["decisive"] is False
+    assert found["leans"] == "neither"
+
+    # And a real difference is still called.
+    inactive_far = sse.reference_profile({"c": ["E"] * 20, "d": ["E"] * 20})
+    decided = sse.summarise(sse.agreement(frame, active, inactive_far))
+    assert decided["decisive"] is True
+    assert decided["leans"] == "active"

@@ -30,6 +30,12 @@ from typing import Any
 # cannot drift from it.
 HELIX_CLASSES = ("H", "G", "I")
 STRAND_CLASSES = ("E", "B")
+# How far apart the two agreements must be before the lean means anything.
+# Chosen from the observed spread rather than picked: the discriminating motifs
+# separate by 0.07 to 0.15 and the ones that carry no signal separate by 0.02
+# to 0.04, so the line goes between them.
+DECISIVE_MARGIN = 0.05
+
 SIMPLIFIED = {"H": "H", "G": "H", "I": "H", "E": "E", "B": "E",
               "T": "C", "S": "C", " ": "C", "": "C", "C": "C",
               "NA": "NA"}
@@ -192,11 +198,20 @@ def summarise(rows: list[dict[str, Any]]) -> dict[str, Any]:
         return {"n_residues": 0}
     active = sum(r["active_fraction"] for r in both) / len(both)
     inactive = sum(r["inactive_fraction"] for r in both) / len(both)
+    margin = abs(active - inactive)
     return {"n_residues": len(both),
             "mean_active_agreement": round(active, 3),
             "mean_inactive_agreement": round(inactive, 3),
-            "leans": "active" if active > inactive else
-                     "inactive" if inactive > active else "neither"}
+            "margin": round(margin, 3),
+            # Secondary structure is far less discriminating than geometry:
+            # most residues of a transmembrane helix are helical in both
+            # states, so every agreement here is high and the differences are
+            # small. H8 came out 0.864 active against 0.888 inactive, and
+            # calling that "inactive" on a 0.024 margin would be reading noise.
+            "decisive": margin >= DECISIVE_MARGIN,
+            "leans": ("active" if active > inactive else
+                      "inactive" if inactive > active else "neither")
+                     if margin >= DECISIVE_MARGIN else "neither"}
 
 
 def dssp_rows(traj, simplified: bool = False):

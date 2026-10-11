@@ -332,7 +332,8 @@ def write_viewer_bundle(loaded, name: str, out_dir: Path,
     }
 
 
-def secondary_structure(loaded, motif_residues: dict[str, list[int]]) -> dict:
+def secondary_structure(loaded, motif_residues: dict[str, list[int]],
+                        profiles: dict | None = None) -> dict:
     """Per-frame DSSP, and each motif's helix and strand content (section 5.6).
 
     Stored as the per-motif summary plus the whole-chain per-frame strings. The
@@ -381,6 +382,18 @@ def secondary_structure(loaded, motif_residues: dict[str, list[int]]) -> dict:
             "helix_fraction_last": helix[-1],
             "strand_fraction_mean": sum(strand) / len(strand),
         }
+
+        # Section 5.6: per residue, the fraction of each reference set sharing
+        # this frame's SSE class. Taken at the last frame, which is the one a
+        # reader is asking about; the per-frame series is a motif by residue by
+        # frame cube and belongs nowhere near a page.
+        if profiles:
+            found = sse.motif_agreement(
+                sse.motif_sse(rows[-1], name, indices,
+                              [n for n in residues if n in index_of]).labels,
+                name, profiles)
+            if found.get("n_residues"):
+                motifs[name]["reference_agreement"] = found
 
     return {
         "n_frames": int(len(rows)),
@@ -525,7 +538,8 @@ def main() -> int:
             """
             return {}
 
-    dssp_payload = secondary_structure(loaded, motif_residues)
+    dssp_payload = secondary_structure(loaded, motif_residues,
+                                       profiles=agreement.get("sse_profiles"))
     if dssp_payload:
         log(f"DSSP: {dssp_payload['n_residues']} residues over "
             f"{dssp_payload['n_frames']} frames; "
