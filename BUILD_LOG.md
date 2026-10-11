@@ -1439,3 +1439,33 @@ an `IGNORED_CONSOLE` entry: a filter would have hidden the next real
 RangeError silently and for good.
 
 1031 passed, 3 skipped, stable over three consecutive runs.
+
+### 11 October, 18:40. A finished row should not wait for the queue
+
+b2ar_apo's bilayer QC had to be run by hand this evening because the streaming
+loop skips the membrane pass while any row is producing, and the final pass
+that lifts the flag waits for the whole queue. That is Tuesday. The flag was
+reasoning about the pass when the expense belongs to the row: a row whose
+run.json says complete will not change again.
+
+analyse_all.sh now partitions and runs two ingests, the finished rows with the
+bilayer QC and the producing rows without. First pass after the change put
+b2ar_apo in the first group and abl1_apo in the second, which is right.
+
+The tests for `row_finished` then passed against a predicate mutated to
+"any run.json means finished", which is precisely the rule they were written
+to exclude. The script `cd`s to the repository root on the way in, so sourcing
+it to reach a helper moved the shell off the fixtures and onto the real
+data/md: b2ar_carazolol has not run, so "no run.json" was true regardless, and
+b2ar_apo has, so "complete" was true regardless. The hardcoded path is now
+`${FLEXAPPEAL_ROOT:-<the script's own parent>}` in both shell scripts, the
+tests pass a root they own, and the mutation now fails the right test.
+
+stream_analysis.sh was running while both changes were made. Bash reads a
+script by byte offset, so shifting lines near the top of a running script can
+leave it resuming mid-file when `main` returns, and `main` returns exactly
+once, to run the final pass. The loop was stopped by PID and restarted on the
+new file; queue_md.py and run_md.py were listed before and after and abl1_apo
+wrote through both.
+
+1036 passed, 2 skipped.

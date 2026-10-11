@@ -8,14 +8,40 @@
 # that has to be kept alive across a machine sleeping is more moving parts than
 # the job needs.
 set -u
-cd /Users/dellboy/Documents/Vibe_Coding/FlexAppeal
+# The repository root, overridable. It was a bare absolute path, which is fine
+# for the launcher that runs this and wrong for anything else: a test that
+# sourced this to exercise one of its helpers was silently moved to the real
+# repository and read the real `data/md`, so its own fixtures were never
+# consulted and it passed whatever the helper did. Defaulting to the script's
+# own location keeps the launcher working from anywhere and lets a test point
+# it at a directory it controls.
+cd "${FLEXAPPEAL_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"
 
 # --skip-membrane for the streaming passes. The state analysis loads protein and
 # ligand only, which is a few megabytes, while the bilayer QC needs the full
 # solvated trajectory and that is most of a gigabyte once a 50 ns membrane row
 # is under way. Cheap enough to run every half hour one way, not the other.
-SKIP_MEMBRANE=""
-if [ "${1:-}" = "--skip-membrane" ]; then SKIP_MEMBRANE="--skip-membrane"; fi
+#
+# It skips the bilayer QC for a row that is **still producing**, which is what
+# the expense is actually about, rather than for every row in the pass. A row
+# whose run.json says complete will not change again, so its QC is computed as
+# soon as it finishes and the row is final from that moment.
+#
+# Without the distinction a membrane row that finished early in a queue waited
+# for the whole queue to drain before anyone could see its bilayer. b2ar_apo
+# finished at 17:36 on 11 October with three days of queue behind it, and its
+# QC had to be run by hand to avoid exactly that wait. b2ar_carazolol finishes
+# on the Monday with a row still to go, so it would have been the same again.
+STREAMING=""
+if [ "${1:-}" = "--skip-membrane" ]; then STREAMING="yes"; fi
+
+# A row is finished when its own run.json says so. The queue writes that file
+# at the end of a row, so its presence with a complete status is the same fact
+# the queue itself acts on.
+row_finished() {
+  [ -f "data/md/$1/run.json" ] \
+    && grep -q '"status"[[:space:]]*:[[:space:]]*"complete"' "data/md/$1/run.json"
+}
 
 # A case statement rather than associative arrays: macOS ships bash 3.2, which
 # has none, and `declare -A` there silently creates a plain array so the first
@@ -44,6 +70,14 @@ row_refpdb() {
   esac
 }
 
+# Sourced rather than run, the helpers above are available and nothing happens,
+# which is how `row_finished` is tested. Without it, sourcing this would start a
+# full analysis pass inside the suite. `stream_analysis.sh` carries the same
+# guard for the same reason.
+if [ "${BASH_SOURCE[0]}" != "${0}" ]; then
+    return 0 2>/dev/null || true
+fi
+
 ingested=()
 for run in abl1_apo abl1_imatinib b2ar_apo b2ar_carazolol; do
   traj="data/md/$run/trajectory.dcd"
@@ -69,10 +103,31 @@ if [ ${#ingested[@]} -eq 0 ]; then
   exit 1
 fi
 
-names=()
-for run in "${ingested[@]}"; do names+=(--name "$run"); done
-echo "[$(date +%H:%M:%S)] ingesting ${ingested[*]}"
-pixi run python tools/ingest.py "${names[@]}" $SKIP_MEMBRANE
+# Two ingests rather than one, because the bilayer QC is per row and so is the
+# reason to defer it. A pass with nothing in one group simply does not run it.
+final=()
+producing=()
+for run in "${ingested[@]}"; do
+  if [ -z "$STREAMING" ] || row_finished "$run"; then
+    final+=("$run")
+  else
+    producing+=("$run")
+  fi
+done
+
+if [ ${#final[@]} -gt 0 ]; then
+  names=()
+  for run in "${final[@]}"; do names+=(--name "$run"); done
+  echo "[$(date +%H:%M:%S)] ingesting ${final[*]} with the bilayer QC"
+  pixi run python tools/ingest.py "${names[@]}"
+fi
+
+if [ ${#producing[@]} -gt 0 ]; then
+  names=()
+  for run in "${producing[@]}"; do names+=(--name "$run"); done
+  echo "[$(date +%H:%M:%S)] ingesting ${producing[*]}, still producing so no bilayer QC"
+  pixi run python tools/ingest.py "${names[@]}" --skip-membrane
+fi
 
 pixi run python - <<'PY'
 import sqlite3

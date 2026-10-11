@@ -5915,3 +5915,86 @@ def test_the_overlay_uses_the_row_the_ensemble_kept(tmp_path: Path):
         built=_built_many({"TEST": second}, core))
     assert "active" in written, (
         "the overlay should use the row whose core the ensemble stored")
+
+
+# ===========================================================================
+#  A finished row's bilayer QC does not wait for the queue
+# ===========================================================================
+
+
+def _row_finished(tmp_path: Path, run: str, run_json: str | None) -> bool:
+    """`analyse_all.sh`'s `row_finished`, against a run directory we control.
+
+    Sourced rather than executed, which the script's own guard allows, so a
+    full analysis pass does not start inside the suite.
+
+    `FLEXAPPEAL_ROOT` is the point of the exercise. The script `cd`s to the
+    repository root on the way in, so without the override these tests ran
+    against the real `data/md` and their own fixtures were never read: every
+    one of them passed against a predicate mutated to return "finished" for
+    any run.json at all, failed or not. A test that cannot fail is worse than
+    no test, so this passes a root the test owns and the mutation is caught.
+    """
+    import os
+    import subprocess
+
+    root = Path(__file__).resolve().parents[1]
+    directory = tmp_path / "data" / "md" / run
+    directory.mkdir(parents=True)
+    if run_json is not None:
+        (directory / "run.json").write_text(run_json)
+    return subprocess.run(
+        ["bash", "-c",
+         f'source "{root}/tools/analyse_all.sh"; row_finished "{run}"'],
+        cwd=tmp_path,
+        env={**os.environ, "FLEXAPPEAL_ROOT": str(tmp_path)},
+        capture_output=True).returncode == 0
+
+
+def test_a_row_still_producing_is_not_called_finished(tmp_path: Path):
+    """No run.json at all, which is every row while it is still going."""
+    assert not _row_finished(tmp_path, "b2ar_carazolol", None)
+
+
+def test_a_failed_row_is_not_called_finished(tmp_path: Path):
+    """A row that wrote run.json and failed must not get a bilayer QC.
+
+    The file's presence is not the test: a row that fell over writes one too,
+    and computing a bilayer QC on a partial trajectory would put numbers on the
+    page that look like a result.
+    """
+    assert not _row_finished(
+        tmp_path, "b2ar_carazolol",
+        '{"name": "b2ar_carazolol", "status": "failed:NaN in the forces"}')
+
+
+def test_a_complete_row_is_finished_whatever_the_spacing(tmp_path: Path):
+    """`json.dump` writes `"status": "complete"`, but the match is on the
+    pair rather than on one spelling of the whitespace between them."""
+    for index, text in enumerate(('{"status": "complete"}',
+                                  '{"status":"complete"}',
+                                  '{"name": "b2ar_apo", "status"  :   "complete"}')):
+        case = tmp_path / f"case{index}"
+        case.mkdir()
+        assert _row_finished(case, "b2ar_apo", text), text
+
+
+def test_the_real_finished_row_reads_as_finished():
+    """Against this checkout's own b2ar_apo, if it has run.
+
+    The unit tests above build their own run.json, so they would pass against
+    a predicate that matched a string this build never writes. This one reads
+    what `tools/run_md.py` actually wrote.
+    """
+    import subprocess
+
+    root = Path(__file__).resolve().parents[1]
+    written = root / "data" / "md" / "b2ar_apo" / "run.json"
+    if not written.is_file():
+        pytest.skip("no finished b2ar_apo in this checkout")
+    if '"complete"' not in written.read_text():
+        pytest.skip("b2ar_apo did not complete in this checkout")
+    assert subprocess.run(
+        ["bash", "-c",
+         f'source "{root}/tools/analyse_all.sh"; row_finished b2ar_apo'],
+        cwd=root, capture_output=True).returncode == 0

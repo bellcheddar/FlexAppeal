@@ -30,7 +30,14 @@
 # first and fired the final pass on a partial trajectory. The gap is seconds
 # against a half-hour interval, so it would have happened rarely and silently.
 set -u
-cd /Users/dellboy/Documents/Vibe_Coding/FlexAppeal
+# The repository root, overridable. It was a bare absolute path, which is fine
+# for the launcher that runs this and wrong for anything else: a test that
+# sourced this to exercise one of its helpers was silently moved to the real
+# repository and read the real `data/md`, so its own fixtures were never
+# consulted and it passed whatever the helper did. Defaulting to the script's
+# own location keeps the launcher working from anywhere and lets a test point
+# it at a directory it controls.
+cd "${FLEXAPPEAL_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"
 
 INTERVAL="${INTERVAL:-1800}"
 QUEUE_LOG="${QUEUE_LOG:-data/md/production.log}"

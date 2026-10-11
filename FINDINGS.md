@@ -3681,6 +3681,84 @@ drains.
 the page file, where before it was 1030 with no membrane page covered at all
 and a viewer assertion that only held on a machine with production data on it.
 
+## 4bc. A finished row waited for the queue, and the test for the fix could not fail
+
+`b2ar_apo` finished at 17:36 with two rows still to run. Its bilayer QC had to
+be computed by hand, because the streaming loop passes `--skip-membrane` for as
+long as **any** row is producing, and the final pass that lifts the flag only
+comes when the queue drains. On this queue that is Tuesday. So a row that was
+final on Saturday evening would have shown an empty Membrane health panel for
+three days, and `b2ar_carazolol` would have repeated it on the Monday.
+
+The flag was reasoning about the wrong thing. The expense it avoids is real:
+the state analysis reads protein and ligand, a few megabytes, while the bilayer
+QC reads the full solvated trajectory, 1.2 GB for a 50 ns membrane row. But
+that cost belongs to a row that is still growing, not to the pass. A row whose
+`run.json` says complete will not change again, and its QC can be computed once
+and then simply re-confirmed.
+
+`analyse_all.sh` now partitions the rows it analysed and runs two ingests: the
+finished ones with the bilayer QC, the producing ones without. The first pass
+after the change:
+
+```
+[18:36:52] ingesting b2ar_apo with the bilayer QC
+[18:36:58]   5 membrane rows
+[18:36:59] ingesting abl1_apo, still producing so no bilayer QC
+```
+
+### The test that passed against a predicate that did nothing
+
+`row_finished` is four lines, and the tests for it looked thorough: a row with
+no `run.json`, a row whose `run.json` says `failed:`, three spellings of the
+whitespace in `"status": "complete"`, and one against this checkout's own
+finished row.
+
+All four passed when the predicate was mutated to `[ -f run.json ]`, which is
+the exact wrong rule the tests were written to exclude: it calls a crashed row
+finished and computes a bilayer QC on a partial trajectory.
+
+The cause was one line at the top of the script:
+
+```bash
+cd /Users/dellboy/Documents/Vibe_Coding/FlexAppeal
+```
+
+Sourcing the script to reach one of its helpers moved the shell to the real
+repository, so every test read the real `data/md` instead of the fixtures it
+had just built in `tmp_path`. `b2ar_carazolol` has not run, so "no run.json"
+was true there whatever the fixture said; `b2ar_apo` has, and is complete, so
+"finished" was true there too. Four tests, all green, none of them touching
+their own data.
+
+The fix is the same shape as the fault: the hardcoded path becomes
+`${FLEXAPPEAL_ROOT:-<the script's own parent>}`, in both this script and
+`stream_analysis.sh`, which keeps the launcher working from anywhere and lets
+a test own the tree it is testing against. With that, the mutation fails
+`test_a_failed_row_is_not_called_finished`, which is what a test for this is
+for.
+
+**The general point, for the third time in this build.** A test that cannot
+fail looks exactly like a test that passes. The only reliable way to tell them
+apart is to break the thing on purpose and watch, and it costs about a minute.
+Sections 4ao and 4al record the same lesson from different directions.
+
+### Editing a script while it is running
+
+`stream_analysis.sh` was running when both changes were made. Bash reads a
+script lazily, by byte offset, so inserting lines near the top of a file whose
+`main` has not yet returned can leave the shell resuming at a shifted offset
+and executing whatever happens to be there. `main` returns exactly once, when
+the queue drains, to run the final pass that computes the remaining bilayer QC,
+G6, the figures and the controls. That is the worst possible moment for it, and
+it would have looked like the final pass simply not happening.
+
+So the loop was stopped by PID and restarted on the new file. By PID, and after
+listing what was alive, because the last time a process was stopped here by a
+pattern it was the production queue that died: `queue_md.py` and `run_md.py`
+were checked to be untouched before and after, and `abl1_apo` went on writing
+through both.
+
 ## 5. Production runs
 
 Tier 2 started at 17:04 on 10 October, in section 5.3's priority order: β2AR
