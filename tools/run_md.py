@@ -36,7 +36,15 @@ ROOT = Path(__file__).resolve().parents[1]
 
 # Section 5.2. Lengths are in nanoseconds; D009 set production to 50.
 HEAT_NS, EQUIL_NS, PRODUCTION_NS = 0.5, 1.0, 50.0
-TIMESTEP_FS, FRAME_PS, CHECKPOINT_NS = 4.0, 100.0, 1.0
+TIMESTEP_FS, FRAME_PS = 4.0, 100.0
+# Checkpointed at the frame interval, not every nanosecond. With a 1 ns
+# checkpoint and 100 ps frames the checkpoint sits up to ten frames behind the
+# trajectory, and a resume then rewrites those frames: the DCD gains duplicates
+# and, because frame time here is index times the interval, every later
+# timestamp shifts. abl1_apo had exactly this, 43 frames against a checkpoint at
+# 4.0 ns. Matching the intervals keeps them in step; `_truncate_trajectory`
+# below makes it exact.
+CHECKPOINT_NS = FRAME_PS / 1000.0
 TEMPERATURE_K, FRICTION_PER_PS, PRESSURE_BAR = 300.0, 1.0, 1.0
 PADDING_NM, IONIC_STRENGTH_M = 1.2, 0.15
 RESTRAINT_KCAL = 10.0
@@ -231,6 +239,45 @@ def protein_heavy_atoms(topology):
     return sorted(standard)
 
 
+def _truncate_trajectory(path: Path, keep: int) -> int:
+    """Cut the trajectory back to the frames the checkpoint actually covers.
+
+    A resume restarts from the checkpoint, so any frame written after the last
+    checkpoint has to go or it is written twice. Reads only the frames being
+    kept rather than loading the file, which matters for a membrane row where
+    the trajectory is about a gigabyte.
+
+    Returns how many frames were dropped, so a resume says what it did instead
+    of quietly rewriting a trajectory.
+    """
+    from mdtraj.formats import DCDTrajectoryFile
+
+    if not path.is_file():
+        return 0
+    with DCDTrajectoryFile(str(path)) as handle:
+        total = len(handle)
+        if total <= keep:
+            return 0
+        xyz, cell_lengths, cell_angles = handle.read(n_frames=keep)
+    with DCDTrajectoryFile(str(path), "w") as handle:
+        handle.write(xyz, cell_lengths=cell_lengths, cell_angles=cell_angles)
+    return total - keep
+
+
+def _truncate_state_data(path: Path, keep: int) -> int:
+    """The same for the state table, so the two stay the same length."""
+    if not path.is_file():
+        return 0
+    lines = path.read_text().splitlines()
+    if not lines:
+        return 0
+    header, rows = lines[0], lines[1:]
+    if len(rows) <= keep:
+        return 0
+    path.write_text("\n".join([header] + rows[:keep]) + "\n")
+    return len(rows) - keep
+
+
 def platform(system=None):
     """The fastest platform that will actually build a context here.
 
@@ -328,7 +375,16 @@ def main() -> int:
     if checkpoint.is_file():
         simulation.loadCheckpoint(str(checkpoint))
         done_ns = simulation.context.getState().getTime().value_in_unit(unit.nanoseconds)
-        log(f"resumed from checkpoint at {done_ns:.1f} ns")
+        log(f"resumed from checkpoint at {done_ns:.3f} ns")
+        # Anything written after that checkpoint would otherwise be written a
+        # second time, and frame time here is the frame index times the
+        # interval, so duplicates shift every later timestamp.
+        covered = int(round(done_ns * 1000.0 / FRAME_PS))
+        dropped = _truncate_trajectory(out_dir / "trajectory.dcd", covered)
+        dropped_rows = _truncate_state_data(out_dir / "state_data.csv", covered)
+        if dropped or dropped_rows:
+            log(f"  dropped {dropped} trajectory frame(s) and {dropped_rows} "
+                f"state row(s) written past the checkpoint")
     elif args.membrane:
         simulation.context.setPositions(positions)
         simulation.context.setParameter(

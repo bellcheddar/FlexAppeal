@@ -1315,3 +1315,83 @@ def test_p6_fails_on_g6_but_tolerates_outside_expected(tmp_path: Path):
         store.put_membrane(connection, "b2ar_apo", [
             {"start_ns": 0.0, "apl_a2": 40.0, "thickness_a": 38.0}])
     assert _cli().control_p6(path)[0]["passed"] is False
+
+
+# ===========================================================================
+#  Resuming without duplicating frames
+# ===========================================================================
+
+
+def _run_md():
+    import importlib.util
+
+    script = Path(__file__).resolve().parents[1] / "tools" / "run_md.py"
+    spec = importlib.util.spec_from_file_location("_run_md", script)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def test_the_checkpoint_interval_matches_the_frame_interval():
+    """Otherwise a resume rewrites every frame since the last checkpoint.
+
+    With a 1 ns checkpoint and 100 ps frames the checkpoint sits up to ten
+    frames behind, and because frame time here is the index times the interval,
+    duplicates shift every later timestamp. abl1_apo had exactly this: 43
+    frames against a checkpoint at 4.0 ns.
+    """
+    module = _run_md()
+    assert module.CHECKPOINT_NS == pytest.approx(module.FRAME_PS / 1000.0)
+
+
+def test_a_resume_truncates_frames_written_past_the_checkpoint(tmp_path: Path):
+    """The frames kept must be the originals, and the box must survive."""
+    import mdtraj as md
+    import numpy as np
+    from mdtraj.formats import DCDTrajectoryFile
+
+    module = _run_md()
+    path = tmp_path / "trajectory.dcd"
+    rng = np.random.RandomState(0)
+    xyz = rng.rand(12, 5, 3).astype("float32") * 10.0
+    lengths = np.full((12, 3), 30.0, dtype="float32")
+    angles = np.full((12, 3), 90.0, dtype="float32")
+    with DCDTrajectoryFile(str(path), "w") as handle:
+        handle.write(xyz, cell_lengths=lengths, cell_angles=angles)
+
+    dropped = module._truncate_trajectory(path, 8)
+    assert dropped == 4
+    with DCDTrajectoryFile(str(path)) as handle:
+        kept, kept_lengths, _ = handle.read()
+    assert kept.shape[0] == 8
+    assert np.allclose(kept, xyz[:8], atol=1e-3)
+    assert np.allclose(kept_lengths, lengths[:8], atol=1e-3)
+
+    # And it does nothing when the checkpoint is not behind.
+    assert module._truncate_trajectory(path, 8) == 0
+    assert module._truncate_trajectory(path, 99) == 0
+
+
+def test_the_state_table_is_truncated_with_the_trajectory(tmp_path: Path):
+    """The two have to stay the same length or every later analysis is offset."""
+    module = _run_md()
+    path = tmp_path / "state_data.csv"
+    header = '#"Step","Time (ps)","Total Energy (kJ/mole)"'
+    rows = [f"{i * 25000},{i * 100.0},{-1000.0 - i}" for i in range(1, 13)]
+    path.write_text("\n".join([header] + rows) + "\n")
+
+    assert module._truncate_state_data(path, 8) == 4
+    lines = path.read_text().splitlines()
+    assert lines[0] == header
+    assert len(lines) - 1 == 8
+    assert lines[-1].startswith("200000,800.0")
+    assert module._truncate_state_data(path, 8) == 0
+
+
+def test_truncation_is_safe_when_there_is_nothing_to_truncate(tmp_path: Path):
+    module = _run_md()
+    assert module._truncate_trajectory(tmp_path / "absent.dcd", 5) == 0
+    assert module._truncate_state_data(tmp_path / "absent.csv", 5) == 0
+    empty = tmp_path / "empty.csv"
+    empty.write_text("")
+    assert module._truncate_state_data(empty, 5) == 0

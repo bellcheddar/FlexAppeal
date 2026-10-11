@@ -541,6 +541,27 @@ running the real tool. There is now a test that reads what every script imports
 from the package and asserts each name resolves, and it was confirmed to catch
 the deletion by making one.
 
+**A resume would have duplicated frames and shifted every later timestamp.**
+Checkpoints were written every nanosecond and frames every 100 picoseconds, so
+the checkpoint sat up to ten frames behind the trajectory. A resume restarts
+from the checkpoint and the DCD reporter appends, so those frames get written a
+second time. Because frame time here is the frame index times the interval,
+duplicates do not merely repeat a point: they shift the timestamp of every frame
+after them.
+
+`abl1_apo` had exactly this waiting for it, 43 frames against a checkpoint at
+4.0 ns, and it is the row the queue will resume. The membrane rows take 20 hours
+each on a machine that sleeps, so resumes are expected rather than exceptional
+and the error would have accumulated.
+
+Two changes. The checkpoint interval now equals the frame interval, so the two
+stay in step. And a resume truncates the trajectory and the state table back to
+the frames the checkpoint actually covers, which makes it exact rather than
+nearly right. Verified on the real `abl1_apo` trajectory: 43 frames to 40, the
+kept frames bit-identical to the originals, box vectors preserved, and a no-op
+when the checkpoint is not behind. The truncation reads only the frames it
+keeps rather than loading the file, which matters at a gigabyte.
+
 One concern turned out to be unfounded and is recorded because checking it was
 the point: the final membrane pass loads a 50 ns solvated trajectory in one go,
 which is 1.16 GB against 128 GB of RAM. Left alone rather than "fixed".
