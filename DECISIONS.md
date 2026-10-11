@@ -103,6 +103,35 @@ Left out, each on the spec's own fallback ladder:
 The lock was backed up before the solve and the full suite re-run after it, because
 this environment also serves the deployed application.
 
+### Amended 11 October: three of the five added packages are not used
+
+Checked by grepping for every name in section 3's table rather than trusting
+this entry, which is the only reason it came up. `mdanalysis`, `pyarrow` and
+`duckdb` are in the environment and nothing imports them.
+
+**`mdanalysis`** was added for "membrane analysis and helix axes". The membrane
+analysis is `flexappeal/refstates/membrane.py`, written against mdtraj, and the
+helix axes are `bundle_tilt` in the same module, which fits each transmembrane
+helix with SVD and averages the seven. That is section 3's own named fallback
+for HELANAL, "hand-rolled helix axis fit (Kahn-style local axis)", and it was
+written in section 4n without noticing the spec had named it. The fallback is a
+legitimate choice and this entry should have recorded taking it.
+
+**`pyarrow` and `duckdb`** were added for "the per-residue DSSP store, which is
+too wide for SQLite and too large for JSON". No such store was built. Section 7
+keeps per-residue secondary structure out of the database, as this entry says,
+and it went into the analysis JSON after all. Measured on `b2ar_apo` at 135
+frames, the per-residue DSSP is **46 KB** of JSON inside a 575 KB payload. The
+estimate that ruled JSON out was wrong by orders of magnitude, and it was an
+estimate: nothing was measured before two dependencies were added on the
+strength of it.
+
+They are left installed rather than removed. Taking three packages back out of
+a lock that also serves the deployed application, to save nothing, is the same
+kind of trade this entry declined when it refused BoltzMaker's pins. What is
+corrected is the record of why they are there, which is now "added on an
+estimate that turned out to be wrong" rather than a purpose they serve.
+
 *Reverse:* remove the five lines from `pixi.toml` and restore the backed-up lock.
 
 

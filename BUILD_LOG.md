@@ -544,3 +544,11 @@ Timestamped, one line per meaningful event, for the reference-state build
 - `02:5x` The probe test caught me writing the same `relative_to` crash that
   4o records from make_figures: `--out` outside the project kills the log line.
   Same bug, same shape of function, three hours apart.
+- `03:0x` Checked section 3's package table by grepping for every name rather
+  than reading D004 and believing it. Three of the five packages D004 added are
+  unused: `mdanalysis` for membrane analysis and helix axes, both of which are
+  hand-rolled in `membrane.py`, and `pyarrow` and `duckdb` for a per-residue
+  DSSP store "too large for JSON" that is 46 KB of JSON. The estimate behind
+  two dependencies was never checked against a file. D004 amended, 4z written,
+  packages left installed because removing them from a lock that serves the
+  deployed app saves nothing.

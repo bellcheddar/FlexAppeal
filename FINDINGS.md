@@ -2029,6 +2029,43 @@ bookkeeping is the wrong trade.
 
 ---
 
+## 4z. Two dependencies added on an estimate nobody measured
+
+Section 3's package table is primary and fallback in two columns, and D004
+recorded which of the spec's packages were added, which were left out, and why.
+It is a careful entry. Three of the five it added are not used by anything.
+
+Found by grepping for every name in the table rather than reading D004 and
+believing it, which is the only reason it came up at all.
+
+**`mdanalysis`**, added for "membrane analysis and helix axes". The membrane
+analysis is `flexappeal/refstates/membrane.py`, written against mdtraj. The
+helix axes are `bundle_tilt` in the same file, which fits each transmembrane
+helix with SVD and averages the seven, and that is section 3's own named
+fallback for HELANAL: "hand-rolled helix axis fit (Kahn-style local axis)". It
+was written in section 4n to fix the tilt measurement, without my noticing the
+spec had named it as the fallback for a library already in the environment. The
+choice is fine. Not recording it was not.
+
+**`pyarrow` and `duckdb`**, added for "the per-residue DSSP store, which is too
+wide for SQLite and too large for JSON". No such store exists. The per-residue
+DSSP went into the analysis JSON, which is what `web.py` serves the ribbon
+from, and measured on `b2ar_apo` at 135 frames it is **46 KB** inside a 575 KB
+payload.
+
+That is the part worth recording. Two dependencies were added to a lock that
+also serves the deployed application, on a size estimate that was out by orders
+of magnitude, and the estimate was never checked against a file. It would have
+taken one `len(json.dumps(...))`. The same build measured the analysis payload,
+the endpoint timings, the web bundle and the per-chunk bilayer cost, carefully,
+and did not measure the one number that justified a dependency.
+
+They are left installed. Removing three packages from a working lock to save
+nothing is the trade D004 itself declined when it refused BoltzMaker's pins.
+What is corrected is the reason recorded beside them.
+
+---
+
 ## 5. Production runs
 
 Tier 2 started at 17:04 on 10 October, in section 5.3's priority order: β2AR
