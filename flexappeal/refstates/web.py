@@ -273,6 +273,7 @@ def run(run_id: str):
     viewer: dict[str, Any] = {}
     analysis = analysis_file(run_id)
     bound = {}
+    spread = {}
     if analysis.is_file():
         try:
             payload = json.loads(analysis.read_text())
@@ -280,6 +281,9 @@ def run(run_id: str):
             # Section 5.7's extra for a bound row. Absent for the apo rows, and
             # the template simply does not draw the panel.
             bound = payload.get("ligand") or {}
+            # Section 6.2's bands for the motif timelines: how far apart each
+            # state's own references are for that motif.
+            spread = payload.get("reference_spread") or {}
         except json.JSONDecodeError:
             viewer = {}
     # Only offer the panel when both files are actually there: a viewer that
@@ -308,6 +312,7 @@ def run(run_id: str):
         decisive_s=DECISIVE_S,
         dfg_published_a=kinase_mod.DFG_PUBLISHED_A,
         ligand=bound,
+        reference_spread=spread,
         # The bilayer windows the badges are decided against, passed rather
         # than written into the prose. The note said "60 to 68" and the badge
         # read `APL_EXPECTED_A2`, so the two could part without either looking

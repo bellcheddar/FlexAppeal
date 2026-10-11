@@ -282,6 +282,45 @@
   </section>
 {% endif %}
 
+{% if reference_spread %}
+  {# Section 6.2's motif timelines: one small panel per motif, the frame's
+     distance to each reference set over time, with the spread of each set
+     shaded behind it. The bands are what make an angstrom figure mean
+     something: a line inside the active band is as close to the active
+     structures as they are to each other. #}
+  <section class="md-card md-panel is-wide">
+    <h3>Motif timelines</h3>
+    <script type="application/json" id="reference-spread">
+      {{ reference_spread | tojson }}
+    </script>
+    <div id="motif-timelines" class="md-smallmultiples"></div>
+    <details class="md-readmore">
+      <summary>How to read these</summary>
+      <p>
+        One panel per motif. The two lines are this run's Cα RMSD to the
+        <strong>nearest active</strong> and <strong>nearest inactive</strong>
+        reference for that motif, after the core superposition, which are the
+        two numbers the state score is built from.
+      </p>
+      <p>
+        The shaded bands are the 5th to 95th percentile of how far each
+        reference of that state sits from the nearest <em>other</em> reference
+        of the same state. So the band is the spread the ensemble already has,
+        and a line inside it means this frame is as close to that set as the
+        set's own members are to each other. A line far above both bands, which
+        is what the activation loop does here, means the frame resembles
+        neither set and the score between them should be read with that in
+        mind.
+      </p>
+      <p>
+        A state with fewer than three references gets no band rather than one
+        drawn through two points, so a missing band is a small ensemble and not
+        a narrow one.
+      </p>
+    </details>
+  </section>
+{% endif %}
+
 <section class="md-card md-panel is-wide">
   <h3>State score over time</h3>
   <div id="state-timeline" class="md-plot" style="min-height:340px"></div>
@@ -607,6 +646,104 @@
   <script src="{{ url_for('static', filename='analysis.js') }}"></script>
 {% endif %}
 <script>
+/* Section 6.2's motif timelines, one small panel per motif.
+ *
+ * A panel each rather than one chart with every motif on it: the distances run
+ * from a tenth of an angstrom to ten, so a shared axis flattens five of the six
+ * motifs into the floor. Each panel gets its own y axis and its own bands.
+ *
+ * Drawn from the same `frames.json` the state chart uses, so the two cannot
+ * disagree about what a frame measured.
+ */
+(async function () {
+  const host = document.getElementById("motif-timelines");
+  const node = document.getElementById("reference-spread");
+  if (!host || !node || typeof Plotly === "undefined") return;
+  let spread;
+  try { spread = JSON.parse(node.textContent); } catch (err) { return; }
+
+  let payload;
+  try {
+    const response = await fetch({{ url_for('refstates.frames', run_id=run.run_id) | tojson }});
+    if (!response.ok) throw new Error(response.status);
+    payload = await response.json();
+  } catch (err) {
+    host.textContent = "Per-frame data is not available for this run.";
+    return;
+  }
+
+  const root = getComputedStyle(document.documentElement);
+  const colour = {
+    active: root.getPropertyValue("--state-active").trim() || "#2f6f4e",
+    inactive: root.getPropertyValue("--state-inactive").trim() || "#a33333",
+  };
+  /* Behind the lines and without an outline, so the band reads as context
+   * rather than as a third and fourth series. */
+  const band = function (values, which, span) {
+    const range = values[which];
+    if (!range) return null;
+    return {
+      type: "rect", xref: "x", yref: "y",
+      x0: span[0], x1: span[1], y0: range.low_a, y1: range.high_a,
+      fillcolor: colour[which], opacity: 0.12, line: {width: 0},
+      layer: "below",
+    };
+  };
+
+  Object.keys(payload.motifs).sort().forEach(function (id) {
+    const series = payload.motifs[id];
+    const name = id.split(":").pop();
+    const metrics = series.metrics || {};
+    const act = metrics.d_act_a;
+    const inact = metrics.d_inact_a;
+    if (!act || !inact || !series.time_ns.length) return;
+
+    const panel = document.createElement("div");
+    host.appendChild(panel);
+    const span = [series.time_ns[0], series.time_ns[series.time_ns.length - 1]];
+    const shapes = [band(spread[name] || {}, "active", span),
+                    band(spread[name] || {}, "inactive", span)]
+      .filter(Boolean);
+
+    Plotly.newPlot(panel, [
+      {x: series.time_ns, y: act, mode: "lines", name: "to nearest active",
+       line: {color: colour.active, width: 1.4},
+       hovertemplate: "%{y:.2f} A at %{x:.1f} ns<extra>nearest active</extra>"},
+      {x: series.time_ns, y: inact, mode: "lines", name: "to nearest inactive",
+       line: {color: colour.inactive, width: 1.4},
+       hovertemplate: "%{y:.2f} A at %{x:.1f} ns<extra>nearest inactive</extra>"},
+    ], {
+      /* No height here: the container carries it in CSS. Setting both pinned
+       * the plot to a size the grid cell had not finished computing, so each
+       * panel drew its content into the top half of a 200px box with the axis
+       * titles clipped and no x axis at all. The resize pass below is what
+       * makes the container the single source of the size. */
+      margin: {l: 52, r: 10, t: 26, b: 38},
+      title: {text: name, font: {size: 12}, x: 0, xanchor: "left"},
+      xaxis: {title: {text: "time (ns)", font: {size: 10}},
+              tickfont: {size: 9}},
+      /* Autoranged on the lines, not forced through zero. The activation loop
+       * sits at 7 to 10 A and its inactive band spans 0.3 to 10.9, so a zero
+       * origin squashed the trace into the top eighth of the panel. Plotly's
+       * autorange ignores shapes, which is what makes this work: the axis fits
+       * the data and a band wider than the data simply runs off the panel. */
+      yaxis: {title: {text: "RMSD (\u00c5)", font: {size: 10}},
+              tickfont: {size: 9}},
+      shapes: shapes,
+      showlegend: false,
+    }, {displayModeBar: false, responsive: true});
+  });
+
+  /* Resized once the grid has actually placed the panels. `newPlot` reads the
+   * container in the same tick it is appended, before the browser has laid the
+   * row out, so without this each plot keeps whatever size it saw first. */
+  requestAnimationFrame(function () {
+    Array.prototype.forEach.call(host.children, function (panel) {
+      try { Plotly.Plots.resize(panel); } catch (err) { /* not plotted */ }
+    });
+  });
+})();
+
 // The bands at +/-0.2 are the decisive thresholds, drawn rather than described
 // so a reader can see which side of them a line is on without reading a number.
 (async function () {

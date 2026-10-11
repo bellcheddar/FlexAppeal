@@ -3508,6 +3508,62 @@ The useful part is the distance. "No sodium came within 25 Å of the pocket in
 The page carries all three readings now, the two pocket distances and the
 nearest approach, so the negative is visible rather than inferred from a gap.
 
+## 4ba. The motif timelines section 6.2 actually asked for
+
+Section 6.2 specifies "one small panel per motif metric, shaded bands for the
+active and inactive reference ranges (5th-95th percentile of each ensemble)".
+What existed was one combined state-score chart, recorded as a deviation in
+section 4u and never closed. This closes it.
+
+**A panel each, not one chart.** The distances run from a tenth of an angstrom
+to ten: ABL1's hinge sits at 0.2 Å from its nearest active reference and its
+activation loop at 7.2. On a shared axis five of the six motifs are flattened
+into the floor, which is why the combined chart plots the score rather than the
+distances and why the distances needed their own panels.
+
+Each panel plots the two numbers the state score is built from, the frame's
+Cα RMSD to the nearest active and the nearest inactive reference, from the same
+`frames.json` the state chart reads so the two cannot disagree.
+
+**The bands are the spread each ensemble already has.** For a motif,
+`ensembles.rmsd_to_nearest` gives every reference's distance to the nearest
+*other* reference of its own state, and the band is the 5th to 95th percentile
+of those. That is what makes an angstrom figure mean something: a line inside
+the active band is as close to the active set as the active structures are to
+each other. On `abl1_apo`:
+
+    motif     active band    inactive band    d_act start -> end
+    A-loop     0.67-1.30      0.30-10.89      7.08 -> 7.24
+    alphaC     0.36-0.58       0.12-0.46      1.17 -> 0.93
+    hinge      0.31-0.35       0.09-0.42      0.48 -> 0.18
+    xDFG       0.29-0.32       0.13-1.00      0.73 -> 0.57
+
+The hinge ends inside both bands, which is why it scores intermediate: it is as
+close to the active set as that set is to itself, and equally close to the
+inactive one. xDFG ends just outside the active band at 0.57 and far outside
+the inactive one, its d_inact being 4.11 against a band ending at 1.00, which
+is why it is the most confidently active motif on the run. The A-loop sits
+above every band, resembling neither ensemble, which is the honest reading of a
+motif whose references are half unresolved.
+
+A state with fewer than three references gets no band rather than one drawn
+through two points: a thin ensemble and a tight one should not look the same.
+
+### Two sizes, one container
+
+The panels first drew their content into the top half of their boxes, with the
+axis titles clipped and no x axis at all. `Plotly.newPlot` was given a height
+in its layout *and* the container was given one in CSS, and it reads the
+container in the same tick the div is appended, before the browser has laid the
+grid row out. So it sized to whatever it saw first and the later resize never
+came.
+
+The container owns the height now and the plots are resized once the browser
+has placed them. Worth recording because of how it failed: the DOM measured
+correctly at every point, 200 px container and 200 px SVG, while the drawing
+inside was laid out for half that. Reading the geometry said everything was
+fine, and only looking at a panel at full size showed it was not.
+
 ## 5. Production runs
 
 Tier 2 started at 17:04 on 10 October, in section 5.3's priority order: β2AR

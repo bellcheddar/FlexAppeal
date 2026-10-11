@@ -1300,3 +1300,26 @@ having to diffuse in from bulk over far longer than 45 ns, and worth stating as
 a distance rather than as a missing field. All three readings are on the page.
 
 1024 passed, 1 skipped. FINDINGS 4az, 4 tests added.
+
+### 11 October, 16:10 to 16:35
+
+Item 3 of 3: section 6.2's motif timelines as small multiples, closing the
+deviation 4u recorded. One panel per motif plotting the frame's RMSD to the
+nearest active and nearest inactive reference, with each ensemble's own spread
+shaded behind it as the 5th to 95th percentile of `rmsd_to_nearest`.
+
+The bands make the figures readable: abl1_apo's hinge ends inside both, which
+is why it scores intermediate, and xDFG ends just outside the active band with
+its d_inact four times the inactive band's top, which is why it is the most
+confidently active motif. A state with fewer than three references gets no band
+rather than one through two points.
+
+The panels first drew into the top half of their boxes with the axes clipped:
+a height in the Plotly layout and another in the container CSS, with newPlot
+reading the container before the grid row had been laid out. The container owns
+it now and the plots are resized after placement. The DOM measured correctly
+throughout, 200px container and 200px SVG, so only looking at a panel at full
+size showed the fault.
+
+All three identified items are built. 1029 passed, 1 skipped.
+FINDINGS 4ba, 5 tests added.

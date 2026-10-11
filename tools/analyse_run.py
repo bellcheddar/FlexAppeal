@@ -469,6 +469,54 @@ def ca_from_frame(frame):
 OVERLAY_TOLERANCE_A = 0.005
 
 
+def reference_spread(built, motif_residues, *,
+                     low: float = 5.0, high: float = 95.0) -> dict:
+    """How far apart each state's own references are, per motif.
+
+    Section 6.2 asks the motif timelines for "shaded bands for the active and
+    inactive reference ranges (5th-95th percentile of each ensemble)", and the
+    useful reading of that is the spread the ensemble already has. For a motif,
+    `ensembles.rmsd_to_nearest` gives every reference's distance to the nearest
+    *other* reference of that state, so its percentiles say how tightly the
+    active structures agree with one another about where that motif sits.
+
+    That is what makes the band interpretable beside the frame's own distance:
+    a trajectory whose `d_act` sits inside the active band is as close to the
+    active set as the active structures are to each other, which is a
+    statement, where a bare angstrom figure is not.
+
+    A state with fewer than three references gives no band rather than a band
+    drawn from two points, and the key is omitted so the page can tell the
+    difference between a narrow range and no range.
+    """
+    import numpy as np
+
+    from flexappeal.refstates import ensembles as ens
+
+    out: dict[str, dict] = {}
+    for motif in sorted(motif_residues or {}):
+        bands = {}
+        for state in sorted(built or {}):
+            distances = ens.rmsd_to_nearest(built, motif, state)
+            # Only this state's own references: `rmsd_to_nearest` reports every
+            # reference's distance to the target state, including the other
+            # state's, and the band is meant to be the state's own spread.
+            holder = built.get(state)
+            own = getattr(holder, "by_code", holder) or {}
+            values = [v for code, v in distances.items() if code in own]
+            if len(values) < 3:
+                continue
+            bands[state] = {
+                "low_a": round(float(np.percentile(values, low)), 3),
+                "high_a": round(float(np.percentile(values, high)), 3),
+                "median_a": round(float(np.median(values)), 3),
+                "n": len(values),
+            }
+        if bands:
+            out[motif] = bands
+    return out
+
+
 def write_overlay_bundle(frame, name: str, out_dir, *, rows_by_state,
                          motifs_for, core_for, core_residues, motif_residues,
                          motif_records, built=None) -> dict:
@@ -1259,6 +1307,14 @@ def main() -> int:
     payload = run.as_row()
     if bound:
         payload["ligand"] = bound
+    # Section 6.2's bands for the motif timelines.
+    spread = reference_spread(built, motif_residues)
+    if spread:
+        payload["reference_spread"] = spread
+        log(f"reference spread: bands for {len(spread)} motif(s), "
+            + ", ".join(f"{m} {b.get('active', {}).get('n', 0)}a/"
+                        f"{b.get('inactive', {}).get('n', 0)}i"
+                        for m, b in sorted(spread.items())))
     payload["viewer"] = viewer
 
     # Section 5.6 asks for a centred 2 ns window "for display only", with the

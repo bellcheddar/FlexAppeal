@@ -5774,3 +5774,104 @@ def test_the_page_offers_the_sodium_rows():
     labels = [row[0] for row in web.MEASUREMENT_ROWS]
     assert "Nearest sodium to D2.50" in labels
     assert "D2.50 to S3.39" in labels and "D2.50 to N7.49" in labels
+
+
+def _spread_ensembles(active: int, inactive: int):
+    """Ensembles whose one motif's references sit at known spacings."""
+    import types
+
+    from flexappeal.refstates import ensembles as ens
+
+    def holder(n, offset):
+        by_code = {}
+        for index in range(n):
+            # Three atoms on a line, each reference shifted along it, so the
+            # distance to the nearest other reference is the step size.
+            step = offset * index
+            by_code[f"R{offset}{index:02d}"] = {
+                ens.CORE_KEY: [(0.0, 0.0, 0.0), (1.0, 0.0, 0.0),
+                               (0.0, 1.0, 0.0)],
+                "m1": [(step, 0.0, 0.0), (step + 1.0, 0.0, 0.0),
+                       (step, 1.0, 0.0)],
+            }
+        return types.SimpleNamespace(by_code=by_code)
+
+    return {"active": holder(active, 1), "inactive": holder(inactive, 2)}
+
+
+def test_the_reference_bands_are_the_spread_each_ensemble_already_has():
+    """Section 6.2 wants the 5th to 95th percentile of each ensemble.
+
+    The useful reading is how far apart a state's own references sit for that
+    motif, because it says what "close" means before the trajectory is
+    compared with it: a line inside the band is as close to the set as the
+    set's members are to each other.
+    """
+    module = _analyse_run_module()
+    built = _spread_ensembles(active=5, inactive=5)
+    bands = module.reference_spread(built, {"m1": [1, 2, 3]})
+
+    assert set(bands) == {"m1"}
+    assert set(bands["m1"]) == {"active", "inactive"}
+    # Active references step by 1, inactive by 2, so the inactive set is the
+    # wider of the two whatever the percentiles come out at exactly.
+    assert bands["m1"]["inactive"]["median_a"] > bands["m1"]["active"]["median_a"]
+    assert bands["m1"]["active"]["n"] == 5
+    assert bands["m1"]["active"]["low_a"] <= bands["m1"]["active"]["high_a"]
+
+
+def test_a_small_ensemble_gets_no_band_rather_than_a_narrow_one():
+    """Two points do not make a percentile, and an absent band says so.
+
+    Drawn from two references the band would look like a tight ensemble
+    instead of a thin one, which is the wrong thing to tell a reader.
+    """
+    module = _analyse_run_module()
+    built = _spread_ensembles(active=2, inactive=5)
+    bands = module.reference_spread(built, {"m1": [1, 2, 3]})
+    assert "active" not in bands["m1"], "two references cannot give a range"
+    assert "inactive" in bands["m1"]
+
+
+def test_a_motif_no_reference_resolves_gets_no_entry():
+    module = _analyse_run_module()
+    built = _spread_ensembles(active=5, inactive=5)
+    assert module.reference_spread(built, {"absent": [9]}) == {}
+
+
+def test_the_motif_timelines_let_the_container_set_the_size():
+    """Setting a height in the layout as well pinned it before the grid ran.
+
+    Each panel drew its content into the top half of its box, with the axis
+    titles clipped and no x axis at all, because `newPlot` reads the container
+    in the same tick the div is appended and the row had not been laid out. The
+    container carries the height in CSS and the plots are resized once the
+    browser has placed them.
+    """
+    root = Path(__file__).resolve().parents[1]
+    page = (root / "flexappeal" / "templates" / "refstates_run.html").read_text()
+    block = page[page.index("motif-timelines"):]
+    block = block[:block.index("})();")]
+    assert "height: 200," not in block, (
+        "the layout must not pin a height the container also sets")
+    assert "Plotly.Plots.resize" in block
+    assert "requestAnimationFrame" in block
+
+    css = (root / "flexappeal" / "static" / "brand.css").read_text()
+    assert ".md-smallmultiples" in css
+    assert "height: 200px" in css[css.index(".md-smallmultiples"):]
+
+
+def test_the_timeline_panels_are_drawn_per_motif():
+    """One panel per motif, not one chart with every motif on it.
+
+    The distances run from a tenth of an angstrom to ten, so a shared axis
+    flattens five of the six motifs into the floor.
+    """
+    page = (Path(__file__).resolve().parents[1] / "flexappeal" / "templates"
+            / "refstates_run.html").read_text()
+    block = page[page.index("const host = document.getElementById(\"motif-timelines\")"):]
+    block = block[:block.index("})();")]
+    assert "Object.keys(payload.motifs).sort().forEach" in block
+    assert "metrics.d_act_a" in block and "metrics.d_inact_a" in block, (
+        "the panels plot the two distances the state score is built from")
