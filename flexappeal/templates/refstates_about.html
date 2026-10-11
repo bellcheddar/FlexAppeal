@@ -96,6 +96,27 @@
       new.
     </li>
     <li>
+      <strong>The bilayer is pure POPC, and helix 8 is not anchored.</strong>
+      A real plasma membrane has cholesterol, mixed chain lengths and charged
+      headgroups, and cholesterol is known to occupy grooves on
+      &#946;<sub>2</sub>AR and change how it moves. The receptor is also
+      palmitoylated at Cys341 in life, which tethers helix 8 to the inner
+      leaflet; that is not modelled here. Helix 8's score and its angle to the
+      membrane plane are therefore measured on a receptor that is freer at that
+      end than the real one.
+    </li>
+    <li>
+      <strong>The apo runs start from structures that had something bound.</strong>
+      <code>b2ar_apo</code> starts from 4LDE, solved with an agonist and a
+      nanobody, and <code>abl1_apo</code> from 2GQG. Neither ligand is present,
+      so the first part of each run is the protein relaxing out of a bound
+      pose. On the receptor this is visible within the first nanoseconds: the
+      TM3&ndash;TM6 cleft leaves the active reference cluster and runs between
+      11 and 15 &#8491;. That is the apo system behaving correctly, but it
+      means the early frames of an apo row are not a sample of the state its
+      start structure was labelled with.
+    </li>
+    <li>
       <strong>The kinase set is small.</strong> KLIFS lists 12 active and 45
       inactive ABL1 entries, but those are rows for individual chains: they
       collapse onto <strong>5</strong> active and <strong>14</strong> inactive
