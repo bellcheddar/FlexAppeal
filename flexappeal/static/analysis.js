@@ -431,6 +431,12 @@
       pdbProvider: 'rcsb',
       emdbProvider: 'rcsb'
     }).then(function (viewer) {
+      /* Labelled as soon as the viewer exists, not after the structure loads.
+       * Mol* builds its viewport controls, logo included, during creation, so
+       * a structure that fails to load still leaves the logo on the page and
+       * the labelling inside the load handler never ran: axe reported the
+       * link-name violation again on exactly that path. */
+      nameTheMolstarLogo(host);
       /* Topology plus coordinates: Mol* reads the PDB for connectivity and the
        * XTC for the frames, which is exactly how the .fxa stores them. */
       return viewer.loadTrajectory({
@@ -451,7 +457,6 @@
          *
          * Mol*'s animation stays as the fallback for a page without the slider,
          * which is any single-frame structure. */
-        nameTheMolstarLogo(host);
         applyNeon(viewer);
         const scrubbing = wireSlider(viewer, frames, duration);
         const playing = scrubbing || (frames > 1 && autoplay(viewer));

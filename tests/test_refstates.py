@@ -501,7 +501,11 @@ def test_the_viewer_panel_is_hidden_without_its_files(tmp_path: Path):
     app = create_app()
     app.config["REFSTATES_DB"] = str(path)
     page = app.test_client().get("/refstates/run/r").get_data(as_text=True)
-    assert "molstar-viewer" not in page
+    # The element, not the string: the click handler references the id by name
+    # in JavaScript whether or not the panel renders, and a substring check
+    # matched that instead of the panel.
+    assert 'id="molstar-viewer"' not in page
+    assert "<h3>The structure</h3>" not in page
     # The rest of the page still renders.
     assert "xDFG" in page
 

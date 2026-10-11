@@ -349,3 +349,49 @@ def backbone_flags(chain, reference_chain, numbers: list[int],
                               "change_deg": round(change, 1)})
     return {"threshold_deg": threshold_deg, "n_measured": measured,
             "n_flagged": len(moved), "flagged": moved[:12]}
+
+
+def dfg_plane(chain, pocket) -> dict:
+    """The two Dunbrack distances, from a chain and its KLIFS pocket map.
+
+    The same geometry `dfg_distances` reads through the vendored comparison
+    frame, computed directly here because a trajectory frame has no comparison
+    frame to read it through: the state map needs these per frame to draw the
+    trajectory's path across the plane its references are plotted on.
+
+    The ring atom falls back through CZ, CE1, CD1 exactly as the vendored
+    `_atom_pos` does, so the two routes agree on a structure where both can run.
+    """
+    xdfg = pocket.region("xDFG")
+    catalytic = pocket.at(17)
+    glu = pocket.at(24)
+    if len(xdfg) < 3 or catalytic is None or glu is None:
+        return {"status": "positions not resolved"}
+
+    phe = _residue(chain, xdfg[2])
+    ring = None
+    for name in ("CZ", "CE1", "CD1"):
+        found = _atoms(phe, (name,))
+        if found:
+            ring = found[0]
+            break
+    # The alphaC anchor is the glutamate plus four, which is how the criterion
+    # is defined rather than the glutamate itself.
+    near = _atoms(_residue(chain, glu + 4), ("CA",))
+    far = _atoms(_residue(chain, catalytic), ("CA",))
+    if ring is None or not near or not far:
+        return {"status": "atoms missing"}
+
+    d_alphac = ring.pos.dist(near[0].pos)
+    d_lys = ring.pos.dist(far[0].pos)
+    separation = d_alphac - d_lys
+    return {
+        "status": "ok",
+        "d_alphac_a": round(d_alphac, 2),
+        "d_lys_a": round(d_lys, 2),
+        "separation_a": round(separation, 2),
+        # D010's rule: which anchor the ring is nearer, with the margin placed
+        # where the reference classes leave an 8.5 A gap.
+        "state": ("other" if abs(separation) < AMBIGUOUS_MARGIN_A
+                  else "out" if separation > 0 else "in"),
+    }

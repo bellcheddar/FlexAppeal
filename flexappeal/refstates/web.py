@@ -20,7 +20,7 @@ from pathlib import Path
 from typing import Any
 
 from flask import (Blueprint, abort, current_app, jsonify, render_template,
-                   send_from_directory)
+                   request, send_from_directory)
 
 from ..webapp import _RUN_ID
 
@@ -368,7 +368,38 @@ def state_map(system_id: str):
 
     if not points:
         abort(404)
+
+    # Section 6.2 asks for the trajectory's path across the same plane, and for
+    # clicking a point to jump the viewer to that frame, so each point carries
+    # its frame index as well as its coordinates.
+    path = []
+    run_id = request.args.get("run")
+    if run_id and _RUN_ID.match(run_id):
+        analysis = analysis_file(run_id)
+        if analysis.is_file():
+            try:
+                frames = json.loads(analysis.read_text()).get("frames") or []
+            except json.JSONDecodeError:
+                frames = []
+            for index, frame in enumerate(frames):
+                found = frame.get("measurements") or {}
+                if system_id == "abl1":
+                    plane = found.get("dfg_plane") or {}
+                    x, y = plane.get("d_alphac_a"), plane.get("d_lys_a")
+                else:
+                    x = (found.get("micro_switches") or {}).get("tm3_tm6_a")
+                    # The NPxxY distance to the nearest inactive reference is
+                    # already computed as that motif's score, so it is read
+                    # from there rather than measured twice.
+                    y = next((m.get("d_inact_a") for m in frame.get("motifs", [])
+                              if m.get("motif") == "NPxxY"), None)
+                if x is None or y is None:
+                    continue
+                path.append({"frame": index, "time_ns": frame.get("time_ns"),
+                             "x": x, "y": y})
+
     return jsonify({"system_id": system_id, "axes": axes, "points": points,
+                    "path": path,
                     # D010's line, drawn so a reader can see where it falls
                     # rather than being told about it.
                     "published_threshold": 11.0 if system_id == "abl1" else None})

@@ -31,7 +31,20 @@
          data-structure="{{ url_for('refstates.viewer_file', run_id=run.run_id, kind='pdb') }}"
          data-trajectory="{{ url_for('refstates.viewer_file', run_id=run.run_id, kind='xtc') }}"
          data-frames="{{ viewer.n_frames }}"
-         data-duration="{{ (viewer.n_frames * viewer.frame_ns) | round(1) }}"></div>
+         {# (n - 1), not n: five frames at a 1 ns stride span 0 to 4 ns, and
+            the slider's own readout divides by (frames - 1). Using n made every
+            time overstate by one stride, so a frame at 4.2 ns read as 5.0. #}
+         data-duration="{{ ((viewer.n_frames - 1) * viewer.frame_ns) | round(3) }}"></div>
+    {% if viewer.n_frames and viewer.n_frames > 1 %}
+      {# The ids analysis.js already looks for, so the slider is wired by the
+         same code the Analysis tab uses rather than a second copy. #}
+      <div class="md-scrub">
+        <button type="button" id="scrub-play" class="md-button is-small">Play</button>
+        <input type="range" id="scrub" min="0" max="{{ viewer.n_frames - 1 }}"
+               value="0" step="1" aria-label="Trajectory frame">
+        <output id="scrub-readout" class="md-note">0.0 ns</output>
+      </div>
+    {% endif %}
     <p id="viewer-status" class="md-note"></p>
     <h4>Where the motifs are</h4>
     <table class="md-table">
@@ -433,9 +446,11 @@
   const target = document.getElementById("state-map");
   if (!target || typeof Plotly === "undefined") return;
   const system = {{ run.system_id | tojson }};
+  const runId = {{ run.run_id | tojson }};
   let payload;
   try {
-    const response = await fetch(`/refstates/map/${system}.json`);
+    const response = await fetch(
+      `/refstates/map/${system}.json?run=${encodeURIComponent(runId)}`);
     if (!response.ok) throw new Error(response.status);
     payload = await response.json();
   } catch (err) {
@@ -475,7 +490,46 @@
                            text: `published ${v} A`, showarrow: false,
                            font: {size: 11}, xanchor: "left"}];
   }
+  // The trajectory's own path across the same plane, drawn last so it reads on
+  // top of the reference cloud, and coloured by time so the direction of travel
+  // is visible rather than implied.
+  const path = payload.path || [];
+  if (path.length) {
+    traces.push({
+      x: path.map(p => p.x), y: path.map(p => p.y),
+      customdata: path.map(p => [p.frame, p.time_ns]),
+      mode: "lines+markers", type: "scatter", name: "this run",
+      line: {color: "rgba(20,22,31,0.35)", width: 1},
+      marker: {size: 6, color: path.map(p => p.time_ns),
+               colorscale: "Viridis", showscale: true,
+               colorbar: {title: "ns", thickness: 12, x: 1.02}},
+      hovertemplate: "frame %{customdata[0]} at %{customdata[1]:.1f} ns"
+                     + "<br>%{x:.2f}, %{y:.2f}<extra>this run</extra>",
+    });
+  }
+
   Plotly.newPlot(target, traces, layout, {displayModeBar: false, responsive: true});
+
+  // Section 6.2: clicking a point jumps the viewer to that frame. Driven
+  // through the slider rather than by reaching into the viewer, so one control
+  // owns the model index and the two cannot disagree about which frame shows.
+  target.on("plotly_click", function (event) {
+    const point = event.points && event.points[0];
+    if (!point || !point.customdata) return;
+    const slider = document.getElementById("scrub");
+    if (!slider) return;
+    const frame = point.customdata[0];
+    const viewerFrames = parseInt(slider.max, 10) + 1;
+    // The viewer holds a strided subset, so a trajectory frame maps onto the
+    // nearest frame the viewer actually has rather than onto its own index.
+    const mapped = path.length > 1
+      ? Math.round((frame / (path.length - 1)) * (viewerFrames - 1))
+      : 0;
+    slider.value = String(Math.max(0, Math.min(viewerFrames - 1, mapped)));
+    slider.dispatchEvent(new Event("input", {bubbles: true}));
+    const host = document.getElementById("molstar-viewer");
+    if (host) host.scrollIntoView({behavior: "smooth", block: "center"});
+  });
 })();
 
 // The DSSP ribbon. Classes are mapped to a small integer scale so one heatmap

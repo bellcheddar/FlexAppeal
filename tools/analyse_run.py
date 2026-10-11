@@ -473,6 +473,7 @@ def main() -> int:
             alpha_c = own.region("alphaC")
             hinge = own.region("hinge")
             found = {
+                "dfg_plane": _K.dfg_plane(chain, own),
                 "alphac_salt_bridge": _K.alphac_salt_bridge(chain, own),
                 "p_loop": _K.p_loop(chain, own),
                 "r_spine": r_spine_state(chain, r_spine(own, chain)),
