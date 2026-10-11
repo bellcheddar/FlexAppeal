@@ -1493,3 +1493,29 @@ classes. Changed to `md-run-commands`, which is the design system's existing
 class for a command block and is what the other three pages use.
 
 1035 passed, 3 skipped.
+
+### 11 October, 19:35. Sections 5.4 and 5.5, metric by metric
+
+Checked every row of both per-frame metric tables against what the analyses
+actually produce, rather than against the code that is supposed to produce it.
+All eighteen are accounted for, several not where a reader would first look:
+
+Kinase (5.4): DFG spatial label is `dfg_plane`; the dihedral label is `N/A`
+per D033; the αC salt bridge and αC displacement are their own measurements;
+the A-loop is a **motif** rather than a measurement, so its RMSD to the nearest
+active and inactive reference is the motif's own `d_act_a` and `d_inact_a`, and
+its SSE content is in `report.sse_profiles`; the P-loop is both the `g.l` motif
+and a `p_loop` measurement that records which of the two definitions it used;
+the hinge likewise; the R-spine reports its pairs and threshold.
+
+GPCR (5.5): the TM6 outward swing, the ionic lock, the toggle switch, the
+sodium pocket and both NPxxY distances are all fields of `micro_switches`,
+which is why none of them appears as a top-level measurement. Both TM6
+distances the spec asks for are there, `tm3_tm6_a` and `tm3_tm6_alt_a`. TM6
+rotation, the PIF connector, helix 8 and the two proline kinks are their own
+measurements. The activation index is omitted per D032.
+
+Nothing was missing, so there is no finding to write. It is recorded here
+because "the verifier says every motif metric has a reading" answers a
+different question from "every metric the spec lists exists", and only the
+second one was outstanding.
