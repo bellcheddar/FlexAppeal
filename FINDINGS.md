@@ -1138,6 +1138,41 @@ Not re-run. Adding phosphotyrosine means a parameter set amber14 does not ship,
 and the four rows are already most of the compute budget. Recorded as a
 limitation, which is what section 0.1 asks for when a choice is forced.
 
+## 4k. Measured at the size a finished row will actually be
+
+Every performance number in section 4 had been taken on a partial run: 43
+frames of the kinase and 26 of the receptor. A finished 50 ns row at 100 ps is
+500 frames, so none of those numbers answered the question that matters. Tiled
+the receptor trajectory to 500 frames, which repeats coordinates and so measures
+cost rather than science, and ran the real analysis and the real endpoints
+against it.
+
+**The analysis**, on 194,032 atoms and 500 frames: 19.8 s wall, DSSP over 322
+residues, and a viewer bundle of 50 frames at 1.4 MB against section 6.3's
+150 MB ceiling. The analysis JSON comes to 1.9 MB.
+
+**The endpoints**, against a database holding the full 5,000 motif rows:
+
+| route | time | payload |
+|---|---|---|
+| `/refstates/run/b2ar_apo` | 33.7 ms | 27.9 KB |
+| `.../frames.json` | 17.1 ms | 97.5 KB |
+| `.../dssp.json` | 7.5 ms | 161.5 KB |
+| `/refstates/map/b2ar.json?run=` | 8.2 ms | 31.4 KB |
+| `/refstates/references/b2ar` | 1.3 ms | 39.0 KB |
+| `/refstates/` | 6.5 ms | 5.6 KB |
+
+Against a two second budget, so there is nothing to do here. A run page plus its
+three fetches is about 290 KB.
+
+**And one measurement I nearly reported without having made.** The first pass
+timed `frames.json` at 12 KB and 8 ms and I almost wrote that down as the
+500-frame figure. It reads the SQLite table, not the analysis file, and the
+database still held the real run's ten frames, so the number was the old one
+measured twice. Ingesting the tiled analysis first gives 97.5 KB and 17.1 ms.
+Pointing a test at the big input is not the same as the code under test reading
+it, and the only thing that caught it was the payload looking too small.
+
 ## 5. Production runs
 
 Tier 2 started at 17:04 on 10 October, in section 5.3's priority order: β2AR

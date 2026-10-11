@@ -353,3 +353,13 @@ Timestamped, one line per meaningful event, for the reference-state build
   that script the reference browser, both state maps and P3's threshold could
   not be reproduced on any other machine. Corrected in FINDINGS 4g and in the
   script's own wording, which now says "on disk" rather than "committed".
+- `22:2x` Measured the analysis and the explorer at the size a finished row will
+  be, since every performance figure so far came from a partial run. Tiled the
+  receptor trajectory to 500 frames: analysis 19.8 s, viewer bundle 50 frames at
+  1.4 MB against a 150 MB ceiling, analysis JSON 1.9 MB, and every endpoint
+  between 1 and 34 ms with the largest payload 161 KB. Nothing to do.
+- `22:2x` Nearly recorded a number I had not measured. `frames.json` came back
+  at 12 KB and 8 ms, which I took for the 500-frame figure; it reads the SQLite
+  table and the database still held the real run's ten frames. Ingesting the
+  tiled analysis first gives 97.5 KB and 17.1 ms. Pointing a test at a large
+  input is not the same as the code under test reading it.
