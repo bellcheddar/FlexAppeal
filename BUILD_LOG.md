@@ -1205,3 +1205,50 @@ first code as the target; it now fits every core onto the first, as the real
 alignment does.
 
 1012 passed, 1 skipped.
+
+### 11 October, 15:30. Spec re-read against the code, for what the landing data needs
+
+Queue state and projection from measured speeds (membrane 59.7 ns/day, water
+202 ns/day), equilibration included for the two unstarted rows:
+
+    b2ar_apo        44.7 of 50 ns   2.1 h   Sun 11 Oct 17:38
+    abl1_apo         4.0 of 50 ns   5.5 h   Sun 11 Oct 23:06
+    b2ar_carazolol   0.0 of 50 ns  24.1 h   Mon 12 Oct 23:13
+    abl1_imatinib    0.0 of 50 ns   6.1 h   Tue 13 Oct 05:20
+
+Sections 5.4 and 5.5 re-read metric by metric against the stored payloads. Both
+are complete: the kinase has the DFG plane, alphaC salt bridge, alphaC
+displacement, A-loop, P-loop (fallback definition, logged), hinge backbone
+flags and R-spine; the receptor has TM3-TM6 and its alternate pair, the ionic
+lock, TM6 rotation and centroid shift, NPxxY and toggle chi1/chi2, the PIF
+connector, helix 8's angle to the membrane plane, the kinks at 6.50 and 7.50
+and the sodium pocket distances.
+
+**Three gaps found, one of which fires when the remaining rows land.**
+
+1. **Ligand RMSD and contact persistence (5.7) are not implemented.** Both
+   remaining rows are ligand-bound, b2ar_carazolol with CAU and abl1_imatinib
+   with STI, and 5.7 asks for "the same analysis plus ligand RMSD and contact
+   persistence". `flexappeal/measure.py` already has `residue_contacts`,
+   `fingerprint` and the pose machinery, and `traj.kept_atoms` keeps the ligand
+   deliberately, so this is wiring rather than a new measurement.
+
+2. **The sodium pocket cannot report its ion.** `gpcr.sodium_pocket` takes
+   `ions` and reports `sodium_present` only when given positions, which is
+   right. But `traj.load` drops solvent, ions and bilayer on load, so no ion
+   positions ever reach it and 5.5's "record whether a Na+ ion sits within
+   3.5 A of D2.50" is unreachable as the pipeline stands.
+
+3. **The motif timelines are not 6.2's small multiples.** The spec asks for one
+   small panel per motif metric with shaded 5th-95th percentile bands from each
+   reference ensemble; what exists is one combined state-score chart. Recorded
+   as a deviation in 4u and still open.
+
+Optional and explicitly deferrable: the Kincore DFG dihedral label (5.4 says
+"or N/A") and the GPCRdb activation index (5.5 says implement only if the
+published definition can be verified).
+
+Checked and already working for the landing data: the pair comparison needs a
+second run per system and both `start_state` values are already in
+`tools/ingest.py`; clicking a state-map point jumps the viewer; the final pass,
+P5 and P6 are built and rehearsed.
