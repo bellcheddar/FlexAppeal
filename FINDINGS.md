@@ -2066,6 +2066,100 @@ What is corrected is the reason recorded beside them.
 
 ---
 
+## 4aa. A clean page called broken by a screenshot
+
+Three of the sixteen page tests failed on a run while the GPU was carrying a
+50 ns membrane row, and all sixteen passed in isolation a minute later. The
+failure was not what the test is for. Its assertion is that the page loads
+with no console errors, and that passed; what failed was capturing the
+screenshot afterwards, with the browser protocol's "Unable to capture
+screenshot" under load.
+
+The test already knew about this shape of problem. It falls back from a
+full-page capture to a viewport one, with a comment saying why:
+
+> A viewport shot is still the artefact section 10 asks for, and failing the
+> console-error assertion over a screenshot would be the tail wagging the dog.
+
+The fallback had no fallback. When the viewport capture failed too, the
+exception propagated and a clean page was reported as broken, which is the
+exact thing that comment argued against, one level further down.
+
+The capture is best effort now: both attempts are tried, a failure prints what
+the browser said, and the test passes or fails on the page rather than on the
+artefact. A missing screenshot is worth saying out loud and is not evidence of
+anything being wrong with the page.
+
+Worth recording because of what it nearly cost. I had committed on the previous
+run and read "3 failed" afterwards, and the first plausible reading of three
+page tests failing is that something I had just changed broke three pages. It
+had not; the machine was busy. A test that fails for a reason unrelated to its
+assertion spends someone's attention every time it does, and the cheapest
+moment to fix that is the first time it happens.
+
+## 4ab. Section 12's two files, one written and one not
+
+Section 12 gives the contents of `.claude/settings.json` and a project
+`CLAUDE.md`. Neither existed. One is written now and one is not, and D024 has
+the reasoning: `CLAUDE.md` is standing instructions and is written, with the
+two lines the user overrode during the build changed and marked;
+`.claude/settings.json` is a permissions policy whose deny list includes
+`Bash(git push:*)`, which the user has explicitly overridden, so writing it
+either breaks the authorised workflow or means choosing what a future session
+may do on this machine without being asked.
+
+## 4ac. The fifth test in section 10's list
+
+Section 10 names five pytest items. Four existed: the numbering maps against
+BoltzMaker's fixtures, the helix rotated by a known angle, the salt bridge at
+3.5 angstrom, the state-score symmetry, and the resume. The fifth, "membrane
+builder smoke test on a 5 ps run", did not.
+
+Section 5.3's Tier 1 smoke covered the same ground two hundred times over, at
+1 ns on the same system, and `run.json` has the result. What was missing is the
+version that lives in the suite and runs again whenever anyone changes the
+builder.
+
+It runs against the system the membrane builder actually produced rather than
+a fixture, because the builder's output is the thing being tested. That needs
+the GPU, which has been carrying a 50 ns row for most of this build, so it
+skips with a stated reason while a run is in flight rather than competing for
+the device or spending ten minutes on 187,848 atoms on the CPU.
+
+**A test that has only ever skipped is not a test**, which is most of what this
+section has been about, so the body was proved separately: the same code on the
+CPU platform with ten steps instead of 2,500, to show the XML deserialises, the
+topology matches the positions, a context builds and stepping does not raise.
+It loads 187,848 particles, which is `build.json`'s figure for that system to
+the atom, and comes out at −2,353,259 kJ/mol with every coordinate finite. All
+three of the test's assertions hold on that run.
+
+## 4ad. Phase 0's acceptance criteria, checked at last
+
+Section 8's phase 0 has two testable criteria and neither had been run as
+written.
+
+The first is literal: `pixi run python -c "import openmm, mdtraj, MDAnalysis,
+gemmi"`. It passes, which is slightly funny given section 4z: MDAnalysis is in
+that import line and nothing else in the build uses it.
+
+The second is "BoltzMaker's own `sse_comparison` tests pass from the vendored
+copy". **They do, 50 of 50.** I had never run them. What I had run was the
+whole vendored suite, which reports 17 failures because parts of it shell out
+to `vendor/boltzmaker/.venv/bin/python3`, an interpreter that does not exist
+inside this pixi environment. `pytest.ini` excludes the vendored tree for
+exactly that reason, and the comment in it, as written, reads as though
+BoltzMaker's tests are unusable here. The ones this build depends on are not:
+they pass completely, and the file now says so with the command to repeat it.
+
+The distinction matters because `sse_comparison` is the thing section 4.1 says
+to reuse and never reimplement. "Its tests fail in our environment" and "its
+tests pass, and a different part of its suite needs an interpreter we do not
+have" are different claims about a dependency the whole build rests on, and
+only the second one is true.
+
+---
+
 ## 5. Production runs
 
 Tier 2 started at 17:04 on 10 October, in section 5.3's priority order: β2AR

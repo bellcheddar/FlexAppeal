@@ -815,3 +815,35 @@ So it takes the position the cartoon colouring already takes: not built, said
 out loud, and the numbers it would illustrate are on the page in the motif
 table, which gives the nearest reference PDB and the distance to it for every
 motif. That is the same information without the opportunity to mislead.
+
+## D024: `CLAUDE.md` written with two lines changed, `.claude/settings.json` left for the user
+
+Section 12 gives both files verbatim. One is written and one is not, and the
+difference is what the file does.
+
+**`CLAUDE.md` is standing instructions**, so it is written, with two lines
+changed from the spec's text and both changes marked in the file itself:
+
+- The spec lists `PROGRESS.md` among the logs. The user waived that cadence on
+  10 October and `tools/progress.py` was deleted, so reinstating it in a file
+  that tells the next session what to do would quietly undo an instruction.
+- The spec says "never push". The user authorised pushing to the public
+  repository on 10 October. Writing "never push" would contradict what has been
+  happening since, and the file would be wrong the first time anyone read it.
+
+The rest is the spec's, with the security rules the user gave during the build
+added underneath, because the repository is public and those rules are the
+reason that is safe.
+
+**`.claude/settings.json` is a permissions policy**, and it is not written.
+Section 12.1's version has `"deny": ["Bash(git push:*)", ...]`, which the user
+has explicitly overridden. There are two ways to write it and both are wrong:
+verbatim would deny the pushes the user asked for and break the workflow that
+has been running all build, and amended would mean choosing what a future
+session is allowed to do on this machine without being asked. Broadening an
+agent's permissions is the user's decision and not a build step.
+
+So it is left undone and said out loud here, which is the same position
+sections 4r and 4u take on the viewer overlay and the motif timelines. The
+spec's text is in section 12.1 and applying it, with or without the push rule,
+is one copy away whenever the user wants it.

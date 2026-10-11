@@ -552,3 +552,26 @@ Timestamped, one line per meaningful event, for the reference-state build
   two dependencies was never checked against a file. D004 amended, 4z written,
   packages left installed because removing them from a lock that serves the
   deployed app saves nothing.
+- `03:1x` Three page tests failed on a loaded machine and all sixteen passed in
+  isolation. The failure was the screenshot, not the assertion: the test falls
+  back from full-page to viewport capture and the fallback had no fallback, so
+  a clean page was reported broken. Capture is best effort now, which is what
+  its own comment had already argued for.
+- `03:1x` Section 12's two files. `CLAUDE.md` written, with the PROGRESS.md
+  cadence and the "never push" line changed to match the user's overrides and
+  both changes marked in the file. `.claude/settings.json` left undone and
+  recorded in D024: its deny list blocks `git push`, which the user authorised,
+  and amending a permissions policy for future sessions is their call.
+- `03:1x` Section 10 names five pytest items and four existed. Wrote the fifth,
+  the membrane builder smoke on a 5 ps run, against the system the builder
+  produced rather than a fixture. It skips with a stated reason while a
+  production run holds the GPU, so the body was proved separately on the CPU
+  platform with ten steps: 187,848 particles, which matches build.json to the
+  atom, -2,353,259 kJ/mol, every coordinate finite. A test that has only ever
+  skipped is not a test.
+- `03:2x` Ran section 8's phase 0 acceptance criteria as written for the first
+  time. The import line passes. BoltzMaker's own `sse_comparison` tests pass
+  50 of 50 from the vendored copy, which I had never checked: what I had
+  measured was the whole vendored suite, whose 17 failures are elsewhere and
+  are about its own interpreter path. `pytest.ini`'s comment implied the
+  vendored tests were unusable; sharpened, with the command to repeat it.

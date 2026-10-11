@@ -35,6 +35,9 @@ section deleted the whole table, which is a poor place to keep the results.
 | Section 6.1 state palette | `--state-active` and its three siblings defined and read by the badges, the page's state map and the figures |
 | Section 2 hardware files | `tools/hwprobe.py` writes `config/hardware.toml`, `tuning.toml` and `benchmarks.toml`; none of the three had existed |
 | Section 2.3 MD manifest | `data/manifests/md.jsonl`, append-only, written by the queue on start, finish and failure |
+| Section 12.2 `CLAUDE.md` | written, with the two lines the user overrode changed and marked |
+| Section 12.1 `.claude/settings.json` | not written; its deny list blocks the push the user authorised (D024) |
+| Section 10's five pytest items | all five present; the membrane 5 ps smoke skips while production holds the GPU, body proved on CPU |
 | Section 6.2 badge strip | one badge per motif, server-rendered at frame 0, following the scrubber; shape, colour and label |
 | Section 7 `systems` columns | `uniprot`, `n_atoms`, `forcefield` now written; all three had been NULL since the schema was created |
 | Test suite | 896 pass, 0 fail (`pixi run test`) |

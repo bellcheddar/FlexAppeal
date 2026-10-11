@@ -2139,6 +2139,52 @@ def test_the_toml_writer_refuses_what_it_cannot_represent():
         module.as_toml({"outer": {"inner": {"deeper": 1}}}, header="x")
 
 
+def test_the_membrane_system_integrates_for_five_picoseconds():
+    """Section 10's "membrane builder smoke test on a 5 ps run".
+
+    The one test in section 10's pytest list that did not exist. The others do:
+    the numbering maps, the rotated helix, the salt bridge at 3.5 angstrom, the
+    state-score symmetry and the resume.
+
+    It runs on the system the membrane builder actually produced rather than on
+    a fixture, because the thing being smoke-tested is that builder's output.
+    That means it needs the GPU, which for most of this build has been carrying
+    a 50 ns row, so it skips while a run is in flight rather than competing for
+    the device or spending ten minutes on 194,032 atoms on the CPU. Section 5.3
+    already smoke-tested the same system at 1 ns, two hundred times longer, and
+    that result is in `run.json`; this is the version that lives in the suite.
+    """
+    import subprocess
+
+    root = Path(__file__).resolve().parents[1]
+    built = root / "data" / "md" / "b2ar_carazolol"
+    if not (built / "system.xml").is_file():
+        pytest.skip("no built membrane system in this checkout")
+    if subprocess.run(["pgrep", "-f", "tools/run_md.py"],
+                      capture_output=True).returncode == 0:
+        pytest.skip("a production run holds the GPU; this needs the device")
+
+    import openmm as mm
+    from openmm import app, unit
+
+    pdb = app.PDBFile(str(built / "solvated.pdb"))
+    system = mm.XmlSerializer.deserialize((built / "system.xml").read_text())
+    integrator = mm.LangevinMiddleIntegrator(
+        303.15 * unit.kelvin, 1.0 / unit.picosecond, 0.002 * unit.picoseconds)
+    simulation = app.Simulation(pdb.topology, system, integrator)
+    simulation.context.setPositions(pdb.positions)
+    simulation.minimizeEnergy(maxIterations=200)
+    simulation.step(2500)                       # 5 ps at 2 fs
+
+    state = simulation.context.getState(getEnergy=True, getPositions=True)
+    energy = state.getPotentialEnergy().value_in_unit(
+        unit.kilojoule_per_mole)
+    assert energy == energy, "the potential energy is NaN after 5 ps"
+    assert energy < 0, f"a solvated bilayer should be bound, not {energy:.3g}"
+    coordinates = state.getPositions(asNumpy=True).value_in_unit(unit.nanometer)
+    assert np.isfinite(coordinates).all(), "a coordinate went non-finite"
+
+
 # ===========================================================================
 #  Resuming without duplicating frames
 # ===========================================================================
