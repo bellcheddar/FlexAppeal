@@ -27,10 +27,11 @@ is drafted. The spec's own acceptance criteria are met for every finished phase:
 | P2 αC label against KLIFS | 17 / 17 (≥ 85 %) |
 | P3 TM3–TM6 state separation, leave-one-out | 100 / 100 at 11.39 Å (≥ 90 %) |
 | P4 each start scores as its own state | 4 / 4 |
+| All four rows buildable | yes; `abl1_imatinib` built after D019 fixed it |
 | P6 membrane integrity | passes on a real bilayer: APL 68.9 Å², thickness 37.6 Å |
 | P5 inactive start stays inactive | the one control still genuinely waiting; needs `b2ar_carazolol` or `abl1_imatinib`, which are 3rd and 4th in the queue |
 | Manifests re-derived from source | ABL1 20/20, β2AR 116/116, 0 changed |
-| Test suite | 880 pass, 0 fail (`pixi run test`) |
+| Test suite | 881 pass, 0 fail (`pixi run test`) |
 | axe-core, 8 pages | zero serious or critical |
 | Playwright, 8 pages x 2 viewports | no console errors |
 | First paint | 396 ms median against a 2 s budget |
@@ -40,7 +41,7 @@ is drafted. The spec's own acceptance criteria are met for every finished phase:
 
 The test figure in this file has now been wrong twice, at 833 and at 837, both
 times because I wrote it from memory or from arithmetic rather than from a run.
-880 is measured, and it moves as tests are added. A bare `pytest` from the repository root also used to collect
+881 is measured, and it moves as tests are added. A bare `pytest` from the repository root also used to collect
 the vendored BoltzMaker suite, whose 17 environment failures I briefly read as a
 regression of this project; `pytest.ini` now scopes collection so that the plain
 command and `pixi run test` agree.

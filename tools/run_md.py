@@ -33,6 +33,15 @@ import time
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
+# The repository root for `flexappeal`, and this directory for the sibling
+# tool below.
+sys.path.insert(0, str(ROOT))
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+
+# Imported rather than reimplemented. `build_membrane.py` worked this out
+# against carazolol and the water rows need exactly the same thing for
+# imatinib; a second copy would be a second thing to get wrong.
+from build_membrane import ligand_molecule        # noqa: E402
 
 # Section 5.2. Lengths are in nanoseconds; D009 set production to 50.
 HEAT_NS, EQUIL_NS, PRODUCTION_NS = 0.5, 1.0, 50.0
@@ -74,7 +83,7 @@ def log(message: str) -> None:
     print(f"[{time.strftime('%H:%M:%S')}] {message}", flush=True)
 
 
-def build(start_pdb: Path, out_dir: Path, ligand_sdf: Path | None,
+def build(start_pdb: Path, out_dir: Path, ligand_code: str | None,
           system_dir: Path | None = None):
     """Solvate and parameterise, or reload what a previous run already built.
 
@@ -116,26 +125,87 @@ def build(start_pdb: Path, out_dir: Path, ligand_sdf: Path | None,
         if key[1] == 0 or key[1] == len(list(chain.residues())):
             del fixer.missingResidues[key]
     fixer.findNonstandardResidues()
+    # Said out loud, because replacing a residue changes the protein and this
+    # one changes its regulation. On ABL1 the list is `PTR 393 -> TYR`: the
+    # activation-loop phosphotyrosine, replaced with plain tyrosine. That is a
+    # defensible choice, since amber14 ships no phosphotyrosine, but it is a
+    # different molecule from the one that was deposited and it was happening
+    # without a word.
+    if fixer.nonstandardResidues:
+        swaps = ", ".join(f"{r[0].name} {r[0].id} -> {r[1]}"
+                          for r in fixer.nonstandardResidues)
+        log(f"replacing nonstandard residues: {swaps}")
     fixer.replaceNonstandardResidues()
+
+    forcefield_files = ["amber14-all.xml", "amber14/tip3p.xml"]
+    generator = None
+    ligand = None
+    if ligand_code:
+        from openmmforcefields.generators import SMIRNOFFTemplateGenerator
+
+        from flexappeal import sources
+
+        # The same recipe `tools/build_membrane.py` uses, and for the same
+        # reason: handing the generator the CCD SDF on its own does not work.
+        # Tried, and it fails with "No template found for residue 262 (STI)"
+        # even though the SDF and the topology both hold 68 atoms, because the
+        # generator matches on a chemical graph and a PDB-derived ligand has
+        # bonds inferred by distance. Topology and template have to be built
+        # from one molecule, so the ligand is taken out before the hydrogens go
+        # on and merged back from the object the generator was given.
+        sdf_path = ROOT / "data" / "systems" / f"{ligand_code}.sdf"
+        if not sdf_path.is_file():
+            log(f"fetching the chemical definition for {ligand_code} from the RCSB")
+            sdf_path.parent.mkdir(parents=True, exist_ok=True)
+            sdf_path.write_bytes(sources.fetch_ccd_ideal(ligand_code).data)
+        ligand = ligand_molecule(start_pdb, ligand_code, sdf_path)
+        log(f"{ligand_code}: {ligand.n_atoms} atoms with hydrogens, formal "
+            f"charge {ligand.total_charge.m:+.0f}")
+        # PDBFixer has no template for a ligand, so it must not be holding one
+        # when the hydrogens are added.
+        fixer.removeHeterogens(keepWater=False)
+
     fixer.findMissingAtoms()
     fixer.addMissingAtoms()
     fixer.addMissingHydrogens(7.4)
 
-    forcefield_files = ["amber14-all.xml", "amber14/tip3p.xml"]
-    generator = None
-    if ligand_sdf is not None:
-        from openff.toolkit import Molecule
-        from openmmforcefields.generators import SMIRNOFFTemplateGenerator
-
-        log(f"parameterising {ligand_sdf.name} with openff-2.2.1 (AM1-BCC, a minute or two)")
+    if ligand is not None:
+        log(f"parameterising {ligand_code} with openff-2.2.1 "
+            f"(AM1-BCC, a minute or two)")
         generator = SMIRNOFFTemplateGenerator(
-            molecules=[Molecule.from_file(str(ligand_sdf))], forcefield="openff-2.2.1")
+            molecules=[ligand], forcefield="openff-2.2.1")
 
     forcefield = app.ForceField(*forcefield_files)
     if generator is not None:
         forcefield.registerTemplateGenerator(generator.generator)
 
     modeller = app.Modeller(fixer.topology, fixer.positions)
+    if ligand is not None:
+        modeller.add(ligand.to_topology().to_openmm(),
+                     ligand.conformers[0].to_openmm())
+
+    # Refused here rather than discovered inside `addSolvent`, which reports it
+    # as a nearest-match guess against an unrelated residue: the real message
+    # for STI named cholesterol, "similar to CHL1, but missing 15 H atoms". A
+    # row that cannot be parameterised should say which residue and what would
+    # fix it, before it has spent any GPU time.
+    #
+    # Only when nothing is generating templates. `getUnmatchedResidues` reports
+    # against the static templates alone and does not consult a registered
+    # generator, so with one in place it reports the ligand as unmatched even
+    # though the system builds. That is how this check first read, and it
+    # refused a setup that worked.
+    if generator is None:
+        unmatched = forcefield.getUnmatchedResidues(modeller.topology)
+        if unmatched:
+            names = sorted({r.name for r in unmatched})
+            raise SystemExit(
+                f"no force-field template for {', '.join(names)} in "
+                f"{start_pdb.name}, and no ligand was given. A bound ligand "
+                f"needs --ligand <CCD code> so its chemistry can come from "
+                f"the chemical component dictionary; amber14 has no template "
+                f"for a drug.")
+
     log(f"solvating: {PADDING_NM} nm padding, {IONIC_STRENGTH_M} M NaCl")
     modeller.addSolvent(forcefield, model="tip3p",
                         padding=PADDING_NM * unit.nanometer,
@@ -372,7 +442,12 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--name", required=True, help="run id, e.g. abl1_apo")
     parser.add_argument("--start", type=Path, required=True)
-    parser.add_argument("--ligand", type=Path, default=None)
+    parser.add_argument("--ligand", default=None, metavar="CCD_CODE",
+                        help="the CCD residue name of a bound ligand, for "
+                             "example STI. Its chemistry is taken from the "
+                             "chemical component dictionary, not from the "
+                             "deposited coordinates, which carry no bond "
+                             "orders")
     parser.add_argument("--production-ns", type=float, default=PRODUCTION_NS)
     parser.add_argument("--system-dir", type=Path, default=None,
                         help="reuse the system.xml and solvated.pdb in this "

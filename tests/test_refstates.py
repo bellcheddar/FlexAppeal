@@ -2124,3 +2124,49 @@ def test_saving_a_checkpoint_records_the_phase_beside_it(tmp_path: Path):
     module.save_checkpoint(simulation, tmp_path, "production")
     written = _json.loads((tmp_path / "checkpoint_phase.json").read_text())
     assert written == {"phase": "production"}
+
+
+def test_every_queued_row_declares_the_ligand_its_start_model_contains():
+    """A row with a bound ligand cannot be built without its chemistry.
+
+    `abl1_imatinib` had no `ligand` field, and amber14 has no template for
+    imatinib, so the row would have failed at build time after the three rows
+    ahead of it had already spent their GPU hours. Checked against the start
+    models rather than against a list, because the list is the thing that was
+    wrong.
+    """
+    import importlib.util
+    from pathlib import Path
+
+    root = Path(__file__).resolve().parents[1]
+    spec = importlib.util.spec_from_file_location(
+        "_queue_md_for_tests", root / "tools" / "queue_md.py")
+    queue = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(queue)
+
+    # Water, ions and lipids are not ligands: amber14 and lipid17 template them.
+    solvent = {"HOH", "WAT", "NA", "CL", "K", "MG", "ZN", "SO4", "PO4",
+               "GOL", "EDO", "POPC", "PC", "OL", "PA"}
+    # Nor are the modified amino acids PDBFixer rewrites to a standard one.
+    # Taken from PDBFixer's own table rather than listed here, so this stays
+    # true if that table changes. ABL1's start model carries PTR 393, which is
+    # why it matters: it is phosphotyrosine and it becomes plain tyrosine.
+    from pdbfixer.pdbfixer import substitutions
+
+    replaced = set(substitutions)
+    checked = 0
+    for row in queue.QUEUE:
+        start = root / "data" / "systems" / row["start"]
+        if not start.is_file():
+            continue            # the start models are gitignored
+        checked += 1
+        found = {line[17:20].strip() for line in start.read_text().splitlines()
+                 if line.startswith("HETATM")} - solvent - replaced
+        declared = {row["ligand"]} if row.get("ligand") else set()
+        assert found <= declared, (
+            f"{row['name']}: its start model contains {sorted(found - declared)} "
+            f"but the row declares {sorted(declared) or 'no ligand'}")
+    if checked:
+        # One row at least must actually have a ligand, or this test would pass
+        # by finding nothing anywhere.
+        assert any(r.get("ligand") for r in queue.QUEUE)

@@ -266,6 +266,16 @@ def main() -> int:
         if key[1] == 0 or key[1] == len(list(chain.residues())):
             del fixer.missingResidues[key]
     fixer.findNonstandardResidues()
+    # Said out loud, because replacing a residue changes the protein and this
+    # one changes its regulation. On ABL1 the list is `PTR 393 -> TYR`: the
+    # activation-loop phosphotyrosine, replaced with plain tyrosine. That is a
+    # defensible choice, since amber14 ships no phosphotyrosine, but it is a
+    # different molecule from the one that was deposited and it was happening
+    # without a word.
+    if fixer.nonstandardResidues:
+        swaps = ", ".join(f"{r[0].name} {r[0].id} -> {r[1]}"
+                          for r in fixer.nonstandardResidues)
+        log(f"replacing nonstandard residues: {swaps}")
     fixer.replaceNonstandardResidues()
     # Taken out before the hydrogens go on, and merged back below. PDBFixer has
     # no "keep these heteroatoms" switch and cannot protonate a residue it has

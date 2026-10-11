@@ -282,3 +282,28 @@ Timestamped, one line per meaningful event, for the reference-state build
   topology is not beside its trajectory, a membrane row whose topology has no
   lipid phosphorus, and a missing manifest. Each now says so, and a water row
   stays quiet so the warning keeps its meaning. All four cases tested.
+- `21:5x` `abl1_imatinib` would have crashed at build time. The queue had no
+  `ligand` field, its start model contains imatinib, and amber14 has no template
+  for a drug: the row is fourth, so this was about twenty hours away. Passing
+  the CCD SDF is not enough and fails as "similar to CHL1", naming cholesterol,
+  because the generator matches a chemical graph and a PDB ligand's bonds are
+  inferred from distance. `run_md.py` now imports `ligand_molecule` from
+  `build_membrane.py` rather than keeping a second copy (D019). System built in
+  place: 48,185 atoms, formal charge zero.
+- `21:5x` A guard I added was wrong in a useful way: `getUnmatchedResidues`
+  reports against static templates only and ignores a registered generator, so
+  the refusal rejected a working setup. It now runs only when nothing is
+  generating templates, which is the real hazard.
+- `21:5x` The test written to stop that recurring found a second undeclared
+  residue, and a more important one. `abl1_apo_start.pdb` carries PTR 393,
+  activation-loop phosphotyrosine, and PDBFixer rewrites it to TYR: both ABL1
+  rows simulate a dephosphorylated kinase domain started from a phosphorylated
+  structure, and nothing said so. Kept, since amber14 ships no phosphotyrosine
+  and the choice is the usual one, but now logged by both builders and written
+  up as a limitation (D018, FINDINGS 4j). Tyr393 phosphorylation is one of the
+  main things that holds ABL1 active, so this is not a packaging detail.
+- `21:5x` Noted while checking it: the built systems are renumbered 1 to 262
+  where the start model is 233 to 498, and the analysis restores the deposited
+  numbering through `traj.deposited_numbering` and `traj.renumber`. Verified
+  rather than assumed, since every motif in this package is addressed by its
+  deposited number.

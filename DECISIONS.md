@@ -606,3 +606,51 @@ The alternative was resuming the ladder at the recorded rung. Rejected for now:
 it needs the heating stages and the barostat to be reconstructed in exactly the
 state the rung expects, and a resume path that is itself hard to verify is not
 an improvement on one that starts again from a known point.
+
+## D018: the ABL1 rows are dephosphorylated, and that is now written down
+
+`abl1_apo_start.pdb` carries PTR 393, the activation-loop phosphotyrosine.
+PDBFixer's `replaceNonstandardResidues` rewrites it to TYR, so both ABL1 rows
+simulate the dephosphorylated kinase domain started from a phosphorylated
+crystal structure. Deposited residue 393 reads TYR in the built system and the
+system contains no PTR at all.
+
+**Kept, not re-run.** Amber14 ships no phosphotyrosine, so phosphorylating it
+means bringing in a separate parameter set, and the four rows are already most
+of a 96-hour budget with abl1_apo 4 ns in. Simulating the dephosphorylated
+domain is also the common choice in the ABL1 literature, so this is a defensible
+state rather than a broken one.
+
+**What was wrong was the silence.** Nothing recorded the substitution, in a
+build whose whole subject is which conformational state a kinase is in and where
+Tyr393 phosphorylation is one of the main things that decides it. Both builders
+now log every replacement, and FINDINGS 4j states what it means for the results:
+the ABL1 rows measure a dephosphorylated kinase, P4 is unaffected because it
+reads crystal geometry, and a drift towards inactive in the apo DFG-in row now
+has a physical explanation that has to be offered before any other.
+
+The spec does not mention phosphorylation, so this is not a departure from it.
+It is a choice the spec left open, and the build had made it without noticing.
+
+## D019: `run_md.py` imports the ligand recipe rather than keeping its own
+
+A water row with a bound ligand needs a SMIRNOFF template built from the same
+molecule object as the topology. Handing the generator the CCD SDF fails with
+"No template found for residue 262 (STI)" even though both hold 68 atoms,
+because the generator matches a chemical graph and a PDB-derived ligand has
+bonds inferred from distance.
+
+`tools/build_membrane.py` had already solved this for carazolol. `run_md.py` now
+imports `ligand_molecule` from it instead of carrying a second implementation,
+and follows the same sequence: replace nonstandard residues, take the ligand out
+before the hydrogens go on, add hydrogens to the protein, then merge the ligand
+back from the object the generator was given.
+
+`--ligand` therefore takes a CCD residue code, not an SDF path. The old
+signature could not express what is needed, since the chemistry has to come from
+the dictionary and the coordinates from the deposition.
+
+The queue now carries a `ligand` field per row, and a test reads each start
+model and asserts that every het residue is either that row's declared ligand or
+one PDBFixer rewrites. Without it `abl1_imatinib` would have crashed at build
+time twenty hours into the queue.

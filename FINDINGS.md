@@ -1040,6 +1040,85 @@ skipped the force it needed. None of them raised, none of them logged, and each
 produced output that looked entirely normal. The ones left to find are the ones
 that still look normal.
 
+## 4j. The imatinib row would have failed, and ABL1 is dephosphorylated
+
+Two findings from checking the three rows that have not run yet, rather than the
+one that is running.
+
+### abl1_imatinib had no ligand and would have crashed at build time
+
+`queue_md.py` had no `ligand` field at all. `abl1_imatinib_start.pdb` contains
+STI, imatinib, 37 heavy atoms, and amber14 has no template for a drug, so the
+row would have failed the moment it tried to build, after the three rows ahead
+of it had spent their GPU hours. It is fourth in the queue, so this was about
+twenty hours from happening.
+
+Proved rather than assumed: after PDBFixer, STI is the only unmatched residue in
+the topology, at 68 atoms once hydrogens are on.
+
+**Passing the CCD definition is not enough**, which is worth recording because
+it was my first attempt and it fails in a way that reads as something else:
+
+    No template found for residue 262 (STI). The set of atoms is similar to
+    CHL1, but is missing 15 H atoms and has 2 C atoms and 7 N atoms too many.
+
+CHL1 is cholesterol. The SDF and the topology both hold 68 atoms, but the
+generator matches on a chemical graph and a PDB-derived ligand has its bonds
+inferred from distances, so the graphs differ. `tools/build_membrane.py` had
+already worked this out for carazolol: take the chemistry from the CCD, the
+coordinates from the deposition, add the hydrogens, and build topology and
+template from one molecule. `run_md.py` now imports that same function rather
+than keeping a second copy, takes the ligand out before PDBFixer adds hydrogens
+and merges it back from the object the generator was given. The imatinib system
+builds: 48,185 atoms, formal charge zero.
+
+**And one guard that was wrong in an instructive way.** I added a refusal using
+`getUnmatchedResidues`, and it rejected a setup that worked, because that method
+reports against the static templates only and does not consult a registered
+template generator. It now runs only when nothing is generating templates, which
+is the actual hazard: a ligand in the start model and no `--ligand` given.
+
+A test now reads each row's start model and asserts that any het residue is
+either declared as that row's ligand or is one PDBFixer rewrites, taking the
+second list from PDBFixer's own table rather than hard-coding it.
+
+### ABL1's activation-loop phosphotyrosine is silently replaced
+
+That test immediately found a second undeclared residue, and this one is not a
+packaging detail. `abl1_apo_start.pdb` carries **PTR 393**, phosphotyrosine, and
+PDBFixer reports and performs `PTR 393 -> TYR`. The built system contains no
+PTR, and deposited residue 393 reads `TYR` in it.
+
+Tyr393 is the ABL1 activation-loop tyrosine, and its phosphorylation is one of
+the main things that holds the kinase active. So `abl1_apo`, already 4 ns in, is
+a simulation of **dephosphorylated** ABL1 started from a phosphorylated crystal
+structure.
+
+This is a defensible choice and it is the usual one: amber14 ships no
+phosphotyrosine, and simulating the dephosphorylated kinase domain is what most
+ABL1 work does. It is not defensible to do it without saying so, and nothing
+anywhere recorded it. Both builders now log every replacement, so the line
+`replacing nonstandard residues: PTR 393 -> TYR` appears in the build log.
+
+**What it means for the results**, stated plainly rather than left for a reader
+to work out:
+
+- The ABL1 rows measure a dephosphorylated kinase domain. Any statement about
+  the activation loop or the DFG state holding is a statement about that, not
+  about the phosphorylated protein the structure came from.
+- P4 is unaffected: it scores the start structure's geometry at t = 0, and the
+  geometry is the crystal's whatever the residue is called.
+- It gives the apo DFG-in row a reason to drift towards inactive that is
+  physical rather than an artefact, since the phosphate that would hold the
+  loop is absent. If that drift appears, this is the first thing to say about
+  it, and the honest reading is a limitation rather than a result.
+- The spec does not mention phosphorylation, so this is not a departure from
+  it. It is a choice the spec left open and the build made without noticing.
+
+Not re-run. Adding phosphotyrosine means a parameter set amber14 does not ship,
+and the four rows are already most of the compute budget. Recorded as a
+limitation, which is what section 0.1 asks for when a choice is forced.
+
 ## 5. Production runs
 
 Tier 2 started at 17:04 on 10 October, in section 5.3's priority order: β2AR

@@ -31,14 +31,27 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 
 # Section 5.3's priority order. Each row is what `run_md.py` needs to run it.
+#
+# `ligand` is the CCD residue name of a bound ligand, and a row that has one
+# cannot be built without it: amber14 has no template for imatinib, so the
+# ligand needs a SMIRNOFF one generated from its chemical definition. This
+# field was missing and `abl1_imatinib` would have failed at build time, after
+# the three rows ahead of it had already spent their GPU hours. The membrane
+# rows carry their ligand too, for the refusal below rather than for the build:
+# their system is built once by `tools/build_membrane.py`, which does its own
+# ligand handling, and `run_md.py` reloads it.
 QUEUE = [
     {"name": "b2ar_apo", "start": "b2ar_apo_start.pdb", "membrane": True,
+     "ligand": None,
      "note": "active, apo: the clearest expected relaxation"},
     {"name": "abl1_apo", "start": "abl1_apo_start.pdb", "membrane": False,
+     "ligand": None,
      "note": "DFG-in, apo"},
     {"name": "b2ar_carazolol", "start": "b2ar_carazolol_start.pdb", "membrane": True,
+     "ligand": "CAU",
      "note": "inactive, carazolol bound"},
     {"name": "abl1_imatinib", "start": "abl1_imatinib_start.pdb", "membrane": False,
+     "ligand": "STI",
      "note": "DFG-out, imatinib bound"},
 ]
 
@@ -79,6 +92,11 @@ def run_row(row: dict, *, out_dir: Path, production_ns: float,
         "--production-ns", str(production_ns),
         "--out", str(out_dir),
     ]
+    # A water row with a ligand needs its chemistry, because `run_md.py` builds
+    # the system itself and amber14 has no template for a drug.
+    if row.get("ligand") and not row["membrane"]:
+        command += ["--ligand",
+                    str(ROOT / "data" / "systems" / f"{row['ligand']}.sdf")]
     if row["membrane"]:
         command.append("--membrane")
         # Built once by tools/build_membrane.py, under the row's own name. The
