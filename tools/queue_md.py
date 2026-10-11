@@ -96,6 +96,137 @@ def complete(out_dir: Path, name: str, target_ns: float) -> bool:
     return float(reached) >= target_ns - SHORT_ROW_TOLERANCE_NS
 
 
+def production_ns_on_disk(run_dir: Path) -> float | None:
+    """How far this row's production clock has got, from its own state file.
+
+    `run_md.py` resets the clock at production start, so the last `Time (ps)`
+    column is production time and not production plus equilibration. Checked
+    rather than assumed: the reset and the phase marker were both added while
+    rows were already in flight, and a row runs the code it started with, so
+    the only trustworthy statement about a row on disk comes from the row. A
+    step count times the timestep agreeing with the recorded time is what
+    confirms the reset happened.
+
+    None when there is no state file or it has no rows yet.
+    """
+    import csv
+
+    path = run_dir / "state_data.csv"
+    if not path.is_file():
+        return None
+    try:
+        with path.open() as handle:
+            rows = list(csv.DictReader(handle))
+    except OSError:
+        return None
+    if not rows:
+        return None
+    time_key = next((k for k in rows[-1] if k and "Time" in k), None)
+    if time_key is None:
+        return None
+    try:
+        return float(rows[-1][time_key]) / 1000.0
+    except (TypeError, ValueError):
+        return None
+
+
+def frames_on_disk(run_dir: Path) -> int | None:
+    """Frames in the trajectory, from the DCD header rather than by loading it."""
+    path = run_dir / "trajectory.dcd"
+    if not path.is_file():
+        return None
+    try:
+        from mdtraj.formats import DCDTrajectoryFile
+
+        with DCDTrajectoryFile(str(path)) as handle:
+            return len(handle)
+    except Exception:
+        return None
+
+
+def preflight(out_dir: Path, target_ns: float) -> int:
+    """Report what each queued row will do, without taking the GPU.
+
+    Written because every pre-flight question worth asking was being asked by
+    hand, one `sed` at a time, and the answers are what decide whether a row
+    resumes or quietly starts again. Reads only; builds nothing, steps nothing
+    and opens no OpenMM context, so it is safe to run beside a production row.
+
+    Returns non-zero when a row cannot run at all, so this can gate a queue.
+    """
+    blocked = 0
+    for row in QUEUE:
+        name = row["name"]
+        run_dir = out_dir / name
+        start = ROOT / "data" / "systems" / row["start"]
+        log(f"{name}: {row['note']}")
+
+        if complete(out_dir, name, target_ns):
+            log(f"  complete; the queue will skip it")
+            continue
+
+        built = ((run_dir / "system.xml").is_file()
+                 and (run_dir / "solvated.pdb").is_file())
+        if built:
+            log(f"  system: reusing the one in {name}/")
+        elif start.is_file():
+            log(f"  system: will be built from {row['start']}")
+        else:
+            log(f"  system: BLOCKED, no built system and no {row['start']}")
+            blocked += 1
+            continue
+        if row["membrane"] and not built:
+            log(f"  BLOCKED: a membrane row needs tools/build_membrane.py "
+                f"first; --membrane on an unbuilt system is refused")
+            blocked += 1
+            continue
+
+        checkpoint = run_dir / "state.chk"
+        if not checkpoint.is_file():
+            log(f"  no checkpoint; starts from minimisation and equilibration")
+            continue
+
+        phase = "equil" if (run_dir / "checkpoint_phase.json").is_file() and \
+            "equil" in (run_dir / "checkpoint_phase.json").read_text() \
+            else "production"
+        if phase == "equil":
+            log(f"  checkpoint is from equilibration; the equilibration "
+                f"repeats rather than resuming into it")
+            continue
+
+        done = production_ns_on_disk(run_dir)
+        frames = frames_on_disk(run_dir)
+        if done is None:
+            log(f"  production checkpoint, but no state rows to date it by")
+            continue
+        # Deliberately not an estimate of the resume point. A row written before
+        # the checkpoint and frame intervals were matched has its checkpoint on
+        # the old 1 ns boundary, so arithmetic from the current interval is
+        # wrong on exactly the rows that still need resuming: it put abl1_apo at
+        # 4.2 ns when its checkpoint is at 4.0. What can be measured is how far
+        # the trajectory ran on after the checkpoint was written, which is what
+        # decides whether a resume has frames to drop at all.
+        lag = 0.0
+        traj = run_dir / "trajectory.dcd"
+        if traj.is_file():
+            lag = max(0.0, traj.stat().st_mtime - checkpoint.stat().st_mtime)
+        log(f"  production checkpoint, at or below {done:.1f} ns of "
+            f"{target_ns:.0f}; the resume logs the exact figure")
+        if frames is not None:
+            log(f"  trajectory at {frames} frames, {done:.1f} ns, last "
+                f"written {lag / 60:.0f} min after the checkpoint"
+                + ("; those frames are dropped on resume" if lag > 1
+                   else "; nothing to drop"))
+        log(f"  barostat re-added as "
+            f"{'MonteCarloMembraneBarostat' if row['membrane'] else 'MonteCarloBarostat'}")
+        log(f"  needs the platform that wrote the checkpoint; a GPU that has "
+            f"gone away stops the row rather than restarting it")
+
+    if blocked:
+        log(f"{blocked} row(s) cannot run as things stand")
+    return 1 if blocked else 0
+
+
 def run_row(row: dict, *, out_dir: Path, production_ns: float,
             equil_ns: float | None, smoke: bool) -> dict:
     """One row, as a subprocess so a crash cannot take the queue with it."""
@@ -131,7 +262,17 @@ def run_row(row: dict, *, out_dir: Path, production_ns: float,
     note("started", name, production_ns=production_ns,
          membrane=bool(row["membrane"]), ligand=row.get("ligand"))
     started = time.time()
-    with row_log.open("w") as handle:
+    # Appended, not truncated. Opening this "w" meant a resumed row erased its
+    # own history: b2ar_apo's five hours of staged equilibration went when its
+    # resume opened the same path, and survived only because the queue echoes
+    # every row line into its own log. Nothing parses these files, so a second
+    # run's lines appended after a separator cost nothing and keep the row's
+    # account of itself in one place. Section 4ag.
+    if row_log.is_file() and row_log.stat().st_size:
+        with row_log.open("a") as handle:
+            handle.write(f"[{time.strftime('%H:%M:%S')}] ---- {name} started "
+                         f"again; lines below continue the same row ----\n")
+    with row_log.open("a") as handle:
         process = subprocess.Popen(command, cwd=ROOT, stdout=subprocess.PIPE,
                                    stderr=subprocess.STDOUT, text=True,
                                    bufsize=1)
@@ -254,6 +395,10 @@ def main() -> int:
     parser.add_argument("--only", default=None,
                         help="run one named row rather than the whole queue")
     parser.add_argument("--production-ns", type=float, default=PRODUCTION_NS)
+    parser.add_argument("--preflight", action="store_true",
+                        help="report what each row will do and exit, without "
+                             "building or stepping anything. Safe to run "
+                             "beside a production row.")
     parser.add_argument("--out", type=Path, default=ROOT / "data" / "md")
     parser.add_argument("--wait-for", default=None,
                         help="a run name to wait for before starting, so this "
@@ -269,6 +414,9 @@ def main() -> int:
         while not waiting.is_file():
             time.sleep(60)
         log(f"{args.wait_for} is done; starting")
+
+    if args.preflight:
+        return preflight(out_dir, SMOKE_NS if args.smoke else args.production_ns)
 
     rows = [r for r in QUEUE if args.only is None or r["name"] == args.only]
     if not rows:

@@ -2448,6 +2448,55 @@ carries the old `complete`; that one is harmless, because `complete` only
 decides what to skip at the head of a row and each of the four runs once per
 invocation. The next invocation gets both fixes.
 
+## 4ah. A pre-flight check, because the questions kept being asked by hand
+
+Deciding whether the restart in section 4ag was safe meant asking the same
+questions of a row on disk, one `sed` at a time: is there a built system or will
+it be built, is there a checkpoint, was it written during equilibration or
+production, where has the production clock got to, how many frames ran on past
+the checkpoint, which barostat does the resume add, and which platform does the
+checkpoint need. Every one of those decides whether a row resumes or quietly
+starts again, and the queue had no way to state any of them.
+
+`tools/queue_md.py --preflight` states all of them and exits. It reads only: it
+builds nothing, steps nothing and opens no OpenMM context, so it is safe beside
+a production row, which is the only time anyone wants it. A row that cannot run
+at all gives a non-zero exit, so it can gate a queue rather than merely inform
+one.
+
+On the four rows as they stand:
+
+    b2ar_apo:       production checkpoint, at or below 17.4 ns of 50
+                    174 frames, last written 0 min after the checkpoint
+                    MonteCarloMembraneBarostat re-added
+    abl1_apo:       production checkpoint, at or below 4.3 ns of 50
+                    43 frames, last written 3 min after the checkpoint;
+                    those frames are dropped on resume
+                    MonteCarloBarostat re-added
+    b2ar_carazolol: no checkpoint; starts from minimisation
+    abl1_imatinib:  no checkpoint; starts from minimisation
+
+Two things came out of running it that were worth knowing before the rows do.
+
+**The two unstarted rows are already built.** Both carry `system.xml` and
+`solvated.pdb`, and their ligands are in them: 45 CAU atom lines for carazolol
+and 69 STI for imatinib. The `ligand` field's own comment in `queue_md.py`
+records that `abl1_imatinib` would once have failed at build time after the
+three rows ahead of it had spent their GPU hours. It will not: there is nothing
+left to build, and the ligand that amber14 has no template for is already
+parameterised and serialised.
+
+**The frame-drop figure had to stop being arithmetic.** The first version
+derived the resume point from the current checkpoint interval, and reported
+abl1_apo at 4.2 ns when its checkpoint is at 4.0: that row was written before
+the checkpoint and frame intervals were matched, so its checkpoint sits on the
+old 1 ns boundary. Arithmetic from the current interval is wrong on exactly the
+rows that still need resuming. What can actually be measured is how long the
+trajectory went on being written after the checkpoint was, and that is what it
+reports now, with the exact count left to the resume, which logs it. The
+difference between the two versions is the difference between a check and a
+restatement of an assumption.
+
 ## 5. Production runs
 
 Tier 2 started at 17:04 on 10 October, in section 5.3's priority order: β2AR

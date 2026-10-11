@@ -3762,3 +3762,108 @@ def test_a_short_row_records_itself_as_short_rather_than_complete(
     assert "40" in written["status"] and "50" in written["status"], (
         "the status should name both numbers, as failed:<reason> does")
     assert written["ns_per_day"] == 59.7, "a short row still measured a speed"
+
+
+def test_a_resumed_row_does_not_erase_its_own_log(tmp_path: Path, monkeypatch):
+    """`row_log.open("w")` truncated the row's history on every restart.
+
+    b2ar_apo's five hours of staged equilibration went when its resume opened
+    the same path, and survived only because the queue echoes row lines into its
+    own log. Nothing reads these files, so appending after a separator costs
+    nothing and keeps a row's account of itself in one place. Section 4ag.
+    """
+    import subprocess as sp
+
+    queue = _queue_md()
+    out_dir = tmp_path
+    (out_dir / "abl1_apo.log").write_text(
+        "[14:47:00] minimising\n[14:52:00] equilibrating 1.0 ns (NPT)\n")
+
+    class FakeProcess:
+        def __init__(self, *a, **k):
+            self.stdout = iter(["[17:35:00] resumed from checkpoint at 4.000 ns\n"])
+
+        def wait(self):
+            return 0
+
+    monkeypatch.setattr(sp, "Popen", FakeProcess)
+    monkeypatch.setattr(queue, "MANIFEST", tmp_path / "md.jsonl")
+    queue.run_row({"name": "abl1_apo", "start": "abl1_apo_start.pdb",
+                   "membrane": False, "ligand": None, "note": "DFG-in, apo"},
+                  out_dir=out_dir, production_ns=50.0, equil_ns=None,
+                  smoke=False)
+
+    written = (out_dir / "abl1_apo.log").read_text()
+    assert "minimising" in written, (
+        "the resume must not take the row's earlier log with it")
+    assert "resumed from checkpoint at 4.000 ns" in written
+    assert "started again" in written, (
+        "a reader needs to see where one attempt ends and the next begins")
+
+
+def test_the_production_clock_is_read_from_the_row_not_assumed(tmp_path: Path):
+    """A row runs the code it started with, so only the row can be believed.
+
+    The clock reset at production start and the phase marker were both added
+    while rows were already in flight. A resume that mistook production time for
+    production plus equilibration would have ended b2ar_apo 10 ns short with
+    every log line looking ordinary, and what settled it was the row's own
+    `state_data.csv`: step 4,300,000 at 4 fs is 17,200 ps exactly. Section 4ag.
+    """
+    queue = _queue_md()
+    run_dir = tmp_path / "b2ar_apo"
+    run_dir.mkdir()
+    assert queue.production_ns_on_disk(run_dir) is None, (
+        "no state file is not a reading of zero")
+    (run_dir / "state_data.csv").write_text(
+        '#"Step","Time (ps)","Temperature (K)"\n'
+        '25000,100.0,303.1\n'
+        '4300000,17200.0,304.4\n')
+    assert queue.production_ns_on_disk(run_dir) == 17.2
+    # 4,300,000 steps at 4 fs is 17,200 ps, so the clock had been reset: had it
+    # carried the 10 ns equilibration the two would disagree by exactly that.
+    assert 4_300_000 * 4e-6 == 17.2
+
+
+def test_a_state_file_with_a_header_and_no_rows_reads_as_unknown(tmp_path: Path):
+    """Section 0.3: no reading is None, never a stand-in zero."""
+    queue = _queue_md()
+    run_dir = tmp_path / "abl1_apo"
+    run_dir.mkdir()
+    (run_dir / "state_data.csv").write_text('#"Step","Time (ps)"\n')
+    assert queue.production_ns_on_disk(run_dir) is None
+
+
+def test_preflight_blocks_a_row_it_can_neither_reuse_nor_build(
+        tmp_path: Path, monkeypatch, capsys):
+    """The point of the check is to fail before the GPU hours, not after."""
+    queue = _queue_md()
+    monkeypatch.setattr(queue, "QUEUE", [
+        {"name": "nothing_here", "start": "no_such_system.pdb",
+         "membrane": False, "ligand": None, "note": "a row with no system"}])
+    assert queue.preflight(tmp_path, 50.0) == 1, (
+        "a row that cannot run should give a non-zero exit, so this can gate "
+        "a queue"
+    )
+    assert "BLOCKED" in capsys.readouterr().out
+
+
+def test_preflight_reads_and_writes_nothing(tmp_path: Path, monkeypatch):
+    """Safe to run beside a production row, which is the only time it is wanted.
+
+    Nothing here may build a system, step an integrator or open an OpenMM
+    context: there is one GPU and section 2.2's `concurrent_md: 1` exists
+    because two contexts on it helped neither row.
+    """
+    queue = _queue_md()
+    run_dir = tmp_path / "abl1_apo"
+    run_dir.mkdir()
+    (run_dir / "system.xml").write_text("<System/>")
+    (run_dir / "solvated.pdb").write_text("END\n")
+    monkeypatch.setattr(queue, "QUEUE", [
+        {"name": "abl1_apo", "start": "abl1_apo_start.pdb",
+         "membrane": False, "ligand": None, "note": "DFG-in, apo"}])
+    before = sorted(p.name for p in run_dir.iterdir())
+    assert queue.preflight(tmp_path, 50.0) == 0
+    assert sorted(p.name for p in run_dir.iterdir()) == before, (
+        "preflight must not leave anything behind in a row's directory")

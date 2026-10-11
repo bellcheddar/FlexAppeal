@@ -689,3 +689,27 @@ the default been `equil` the restart would have discarded 17 ns and silently
 repeated a 10 ns equilibration.
 
 FINDINGS 4ag. Seven tests added, 939 passed, 1 skipped.
+
+### 11 October, 04:28 to 05:00
+
+`tools/queue_md.py --preflight`: reports, for each queued row, whether its
+system is built, whether its checkpoint is from equilibration or production,
+where the production clock has reached, how far the trajectory ran on past the
+checkpoint, which barostat the resume adds and which platform the checkpoint
+needs. Read-only, no OpenMM context, safe beside a production row, non-zero exit
+on a row that cannot run.
+
+Also fixed: the row log was opened `"w"`, so a resume erased the row's own
+history. b2ar_apo's five hours of equilibration went that way at 04:20 and
+survive only in production.log. Now appended, with a separator. The live queue
+holds the old code, so the four existing row logs are copied to
+`data/md/rowlogs/` before it truncates them.
+
+Found by running it: both unstarted rows are already built, ligands included
+(45 CAU atom lines, 69 STI), so neither can fail at build time, which was the
+risk the `ligand` field's comment records. And the first version of the
+frame-drop figure was arithmetic from the current checkpoint interval, which put
+abl1_apo at 4.2 ns when its checkpoint is at 4.0; replaced with the measurable
+thing, how long the trajectory went on after the checkpoint was written.
+
+FINDINGS 4ah. Five tests added, 944 passed, 1 skipped.
