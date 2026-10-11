@@ -3206,6 +3206,49 @@ Treating a missing key as null is the right instinct in a template. Putting
 them together needs the template to test for absence and not for null, and
 `is not none` reads like it does that and does not.
 
+### 5.0c Per motif at 30.8 ns, and a trend I read off the figure that is not there
+
+The reading in 5.0b was at 14.6 ns. The run has since more than doubled, so
+here it is again at 30.8 ns, 309 scored frames:
+
+| motif | start | final tenth | sd | first half | second half |
+|---|---|---|---|---|---|
+| H8 | +0.474 | +0.242 | 0.157 | +0.216 | +0.203 |
+| NPxxY | +0.677 | +0.768 | 0.073 | +0.699 | +0.755 |
+| TM5 | −0.013 | −0.014 | 0.123 | −0.034 | +0.016 |
+| TM6 | +0.534 | +0.377 | 0.083 | +0.459 | +0.379 |
+| TM7 | +0.377 | +0.431 | 0.059 | +0.403 | +0.425 |
+
+Whole protein, residue weighted: **+0.319 to +0.266**, still active.
+
+**I read a trend off the figure that the numbers do not support.** Looking at
+the per-motif plot in section 4ap I described TM5 as drifting down and crossing
+zero repeatedly from about 12 ns on, and said as much twice. The crossing is
+real. The drift is not: TM5's halves are −0.034 and +0.016, which is flat, and
+its scatter is 0.123. It crosses zero because it sits on zero, not because it
+is going anywhere. A trace that oscillates about a line the eye is drawn to
+looks like it is moving across it, and the halves are the cheap check that says
+otherwise. They were already in the summary, from section 5.0b, and I looked at
+the picture instead.
+
+**What is moving, as far as anything is.** TM6 falls from +0.534 to +0.377, and
+between halves from +0.459 to +0.379. H8 falls from +0.474 to about +0.21 in
+the first few nanoseconds and then holds, its halves +0.216 and +0.203. Both
+changes are around one standard deviation of their own scatter, which by
+section 4's heuristic is inside it rather than beyond it. NPxxY rises slightly,
+TM7 is flat.
+
+**Nothing has crossed a state boundary.** Every motif that started active is
+still above +0.2 except TM5, which started at zero and has stayed there, and H8,
+which is now at +0.21 and so sits on the line. The whole-protein score has
+moved 0.053 in 31 ns.
+
+**Which is the expected result, and section 7 says why.** The active to
+inactive relaxation these runs look for was observed on the microsecond scale.
+At 31 ns of 50 the honest reading is that the receptor has not gone anywhere,
+and that TM6 and H8 have settled a little below where they started. This will
+be read again when the row finishes.
+
 ### 5.1 Measured speeds
 
 | row | atoms | ns/day |

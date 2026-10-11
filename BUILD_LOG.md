@@ -942,3 +942,18 @@ constants. Same shape as 4am and 4ap. The view passes them and the note renders
 them, so the sentence a reader checks is the one the badge was decided by.
 
 FINDINGS 4aq. Two tests added, 982 passed, 1 skipped.
+
+### 11 October, 09:58 to 10:20
+
+Read the per-motif numbers again at 30.8 ns, 309 frames, against 5.0b's reading
+at 14.6. Whole protein +0.319 to +0.266, still active. TM6 falls from +0.534 to
++0.377 and H8 from +0.474 to about +0.21 in the first few nanoseconds and then
+holds; both are about one standard deviation of their own scatter. NPxxY rises
+slightly, TM7 flat. Nothing has crossed a state boundary.
+
+And a correction to myself. I described TM5 as drifting down and crossing zero
+from about 12 ns on, twice, having read it off the figure. Its halves are -0.034
+and +0.016, so it is flat: it crosses zero because it sits on zero. The halves
+were already in the summary and I looked at the picture instead.
+
+FINDINGS 5.0c. 982 passed, 1 skipped.
