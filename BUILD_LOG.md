@@ -1183,3 +1183,25 @@ composition is right in general and this is specific. Not found. The tolerance
 stays at 0.005 A: a check tuned until it stops refusing is not a check.
 
 1012 passed, 1 skipped.
+
+### 11 October, 15:05 to 15:25
+
+Chased the open overlay discrepancy and ruled out the leading candidate. The
+own-frame to common-frame hop was refitting the reference onto the target core,
+where `align_to_common_frame` fits every reference onto the medoid, a different
+structure. It is taken from the reference's own stored core now, which recovers
+the alignment's transform exactly whatever target it used. abl1_apo's hinge
+moved 0.5593 to 0.5600, so that was not the cause; the change stays because it
+removes a dependency that should not have existed.
+
+A diagnostic written to isolate the rest was unfaithful, loading the raw
+solvated trajectory rather than the prepared one, so it never reproduced the
+analysis's core. Stopped there rather than building a bespoke harness: the
+system refuses what it cannot confirm, which is the behaviour that matters.
+
+Two test fixtures corrected along the way. The second gave every reference its
+own frame as the common one, which is incoherent when the overlay takes the
+first code as the target; it now fits every core onto the first, as the real
+alignment does.
+
+1012 passed, 1 skipped.

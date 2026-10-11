@@ -3301,10 +3301,19 @@ one motif**: verifiable first, then best. β2AR takes 8GE8 at 1.46 Å and 9RKI a
 
 ### One overlay is still withheld, and that is the honest outcome
 
-`abl1_apo`'s inactive ghost is refused: 6NPV's hinge measures 0.5593 Å against
+`abl1_apo`'s inactive ghost is refused: 6NPV's hinge measures 0.5600 Å against
 a stored 0.5053. The active ghost on the same run verifies to 0.005 Å, and both
 β2AR ghosts verify although neither is the alignment target, so the two-hop
 composition is right in general and this case is specific. I have not found it.
+
+One candidate was chased and ruled out. The reference's own-frame to
+common-frame hop was being refitted onto the target core, where
+`align_to_common_frame` fits every reference onto the **medoid**, which is a
+different structure: refitting put the reference where it would have gone under
+a different target. That is now taken from the reference's own stored core,
+which recovers the alignment's transform exactly whatever target it used. It
+moved the hinge from 0.5593 to 0.5600, so it was not the cause, and the change
+stays because it removes a dependency that should not have been there.
 
 The tolerance stays at 0.005 Å. Loosening it to 0.1 would make this pass and
 would be exactly the move D023 was warning about: the check exists to refuse

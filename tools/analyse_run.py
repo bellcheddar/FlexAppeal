@@ -570,6 +570,14 @@ def write_overlay_bundle(frame, name: str, out_dir, *, rows_by_state,
             run_motifs[motif] = np.asarray([run_ca[r] for r in residues],
                                            dtype=float)
 
+    # Every reference's core as the alignment left it, keyed by code.
+    by_code_core = {}
+    for holder in (built or {}).values():
+        for code, motifs in getattr(holder, "by_code", holder).items():
+            core = motifs.get("_core")
+            if core is not None:
+                by_code_core[code] = core
+
     out: dict = {}
     for state, rows in sorted(rows_by_state.items()):
         best = None
@@ -585,9 +593,27 @@ def write_overlay_bundle(frame, name: str, out_dir, *, rows_by_state,
             theirs_core = ens.motif_coordinates(ca, core_for(code))
             if theirs_core is None or len(theirs_core) != len(run_core):
                 continue
-            # Own frame to common, the same fit `align_to_common_frame` made.
+            # Own frame to common, taken from this reference's own stored
+            # core rather than refitted onto a target.
+            #
+            # Refitting onto the target core was wrong and the check caught it.
+            # `align_to_common_frame` fits every reference onto the *medoid*,
+            # while the target core the analysis superposes frames onto is the
+            # first code alphabetically. Those are different structures, so
+            # refitting put the reference where it would have gone had the
+            # alignment used a different target, off by the medoid's residual
+            # against that code: 0.054 A on abl1_apo's hinge.
+            #
+            # The stored core is already in the common frame, and it is the
+            # same atoms in the same order as the own-frame core, so fitting
+            # one onto the other recovers exactly the transform the alignment
+            # applied, whatever target it used.
+            stored_core = by_code_core.get(code)
+            if stored_core is None or len(stored_core) != len(theirs_core):
+                continue
             own_to_common = traj_mod.superpose(
-                np.asarray(theirs_core, dtype=float), target_core)
+                np.asarray(theirs_core, dtype=float),
+                np.asarray(stored_core, dtype=float))
             transform = _common_to_run(own_to_common, to_common)
 
             per_motif, weighted, weight = {}, 0.0, 0

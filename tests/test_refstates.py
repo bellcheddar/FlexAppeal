@@ -5214,6 +5214,37 @@ def _overlay_fixture(tmp_path: Path, shift=(0.0, 0.0, 0.0)):
     return frame, reference, numbers
 
 
+def _built_many(references: dict, core: list[int], chain: str = "A"):
+    """An aligned ensemble holding a stored core for each named reference.
+
+    The overlay recovers each reference's own-to-common transform by fitting
+    its own core onto the core stored here, so every code it may choose needs
+    an entry, and they all have to be in **one** frame. Giving each its own
+    frame looks simpler and is incoherent: the overlay takes the first code
+    alphabetically as the target, so the others would be reconstructed into a
+    frame nothing else is in.
+
+    So this does what `align_to_common_frame` does: fits every core onto the
+    first code's, which is then the common frame by construction.
+    """
+    import types
+
+    import numpy as np
+
+    from flexappeal.refstates import ensembles as ens
+    from flexappeal.refstates.traj import apply_transform, superpose
+
+    own = {code: np.asarray(ens.motif_coordinates(
+        ens.ca_by_residue(path, chain), core), dtype=float)
+        for code, path in references.items()}
+    target = own[min(own)]
+    return {"active": types.SimpleNamespace(by_code={
+        code: {ens.CORE_KEY: [tuple(p) for p in
+                              apply_transform(coords,
+                                              *superpose(coords, target))]}
+        for code, coords in own.items()})}
+
+
 def _built_from(reference: Path, core: list[int], chain: str = "A"):
     """A minimal aligned ensemble whose target core is this reference's own.
 
@@ -5337,7 +5368,7 @@ def test_the_overlay_prefers_a_reference_it_can_actually_check(
         motifs_for=lambda code: motifs, core_for=lambda code: core,
         core_residues=core, motif_residues=motifs,
         motif_records={"m1": {"nearest_active": "NEAR", "d_act_a": 0.0}},
-        built=_built_from(near, core))
+        built=_built_many({"NEAR": near, "FAR": far}, core))
     assert written["active"]["code"] == "NEAR", written
 
 
