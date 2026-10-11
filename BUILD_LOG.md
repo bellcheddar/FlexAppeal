@@ -586,3 +586,9 @@ Timestamped, one line per meaningful event, for the reference-state build
   29, core agreement 0.49 A mean. Production is bit-for-bit unchanged, which is
   the check that mattered: ABL1 19/19 onto 2F4J at 0.568, beta2AR 100 onto 3P0G
   at 0.829, P4 still +0.305, -0.368, +0.593, -0.934.
+- `03:4x` `abl1_apo` resumes unattended tonight and the only cover for 4i's
+  barostat fix was a source-order test that says so in its own docstring. Eight
+  argon particles on the Reference platform turn out to be enough to
+  demonstrate the trap: a checkpoint written with a barostat loads without
+  complaint into a system without one, and the context still reports
+  MonteCarloPressure. The source test stays; the two are different claims.

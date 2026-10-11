@@ -881,6 +881,87 @@ def test_a_resumed_run_adds_the_barostat_before_the_context_is_built():
     assert built < loaded, "the checkpoint is loaded before the context exists"
 
 
+def _argon_box(with_barostat: bool):
+    """Eight particles in a periodic box, with or without a barostat.
+
+    Small enough to run on the Reference platform in milliseconds, which is
+    what makes the behaviour below testable at all: the real fault was found on
+    a 194,032-atom membrane row.
+    """
+    import openmm as mm
+    from openmm import unit
+
+    system = mm.System()
+    for _ in range(8):
+        system.addParticle(39.948 * unit.amu)
+    system.setDefaultPeriodicBoxVectors(
+        mm.Vec3(2, 0, 0) * unit.nanometer,
+        mm.Vec3(0, 2, 0) * unit.nanometer,
+        mm.Vec3(0, 0, 2) * unit.nanometer)
+    nonbonded = mm.NonbondedForce()
+    nonbonded.setNonbondedMethod(mm.NonbondedForce.CutoffPeriodic)
+    nonbonded.setCutoffDistance(0.5 * unit.nanometer)
+    for _ in range(8):
+        nonbonded.addParticle(0.0, 0.34 * unit.nanometer,
+                              0.996 * unit.kilojoule_per_mole)
+    system.addForce(nonbonded)
+    if with_barostat:
+        system.addForce(mm.MonteCarloBarostat(1.0 * unit.bar, 300 * unit.kelvin))
+    return system
+
+
+def _context(system):
+    import openmm as mm
+    from openmm import unit
+
+    return mm.Context(
+        system,
+        mm.LangevinMiddleIntegrator(300 * unit.kelvin, 1 / unit.picosecond,
+                                    0.002 * unit.picoseconds),
+        mm.Platform.getPlatformByName("Reference"))
+
+
+def test_a_checkpoint_reports_a_barostat_it_does_not_have():
+    """Why the ordering above matters, demonstrated rather than asserted.
+
+    The test above reads the source, because the real path needs a built
+    membrane system and a GPU. What it cannot show is why getting the order
+    wrong is invisible, and that is the whole reason the fault survived: a
+    checkpoint written with a barostat loads without complaint into a system
+    that has none, and the context then reports `MonteCarloPressure` as though
+    it did. A resumed run printed the barostat's own pressure while
+    integrating at constant volume.
+
+    Eight particles are enough to show it.
+    """
+    import openmm as mm
+
+    source = _argon_box(with_barostat=True)
+    written = _context(source)
+    written.setPositions([mm.Vec3(0.3 * (i % 2), 0.3 * ((i // 2) % 2),
+                                  0.3 * (i // 4)) for i in range(8)])
+    checkpoint = written.createCheckpoint()
+
+    # The resume done wrongly: the force is never added back.
+    without = _argon_box(with_barostat=False)
+    assert not any(isinstance(f, mm.MonteCarloBarostat)
+                   for f in without.getForces()), "the fixture is wrong"
+    broken = _context(without)
+    broken.loadCheckpoint(checkpoint)
+    assert "MonteCarloPressure" in dict(broken.getParameters()), (
+        "if OpenMM ever stops restoring this parameter the fault becomes "
+        "visible on its own and this test should be revisited")
+
+    # The resume done the way `run_md.py` does it: the force first, then the
+    # context, then the checkpoint.
+    with_force = _argon_box(with_barostat=True)
+    fixed = _context(with_force)
+    fixed.loadCheckpoint(checkpoint)
+    assert any(isinstance(f, mm.MonteCarloBarostat)
+               for f in with_force.getForces())
+    assert "MonteCarloPressure" in dict(fixed.getParameters())
+
+
 # ===========================================================================
 #  Section 10's page QC, as far as it goes without a browser
 # ===========================================================================

@@ -2204,6 +2204,39 @@ tests pass, and a different part of its suite needs an interpreter we do not
 have" are different claims about a dependency the whole build rests on, and
 only the second one is true.
 
+## 4ae. The resumed-run fault, demonstrated instead of asserted
+
+Section 4i records a resumed run losing its barostat and nothing saying so. The
+fix was an ordering one: the force has to be on the System before the Context
+exists, and a resume skips the branch that adds it. The test for it reads the
+source and says so in its own docstring, because the real path needs a built
+membrane system and a GPU.
+
+What that test could not show is **why** getting the order wrong is invisible,
+which is the entire reason the fault survived long enough to produce four and a
+half nanoseconds at constant volume. `abl1_apo` resumes from its checkpoint
+tonight, unattended, so "the source is in the right order" felt like thin cover
+for a path that has never been executed since it was changed.
+
+It turns out eight particles are enough. A checkpoint written from a system
+with a barostat loads **without complaint** into a system that has none, and
+the context then reports the barostat's own parameters:
+
+    destination forces:      ['NonbondedForce']
+    destination parameters:  {'MonteCarloPressure': 1.0,
+                              'MonteCarloTemperature': 300.0}
+
+So a resumed run prints the pressure it is supposedly holding while having
+nothing to hold it. That is now a test on the Reference platform that runs in
+milliseconds, alongside the same sequence done correctly, which keeps the force
+and the parameter together.
+
+The source-order test stays. The two are different claims: one is that
+`run_md.py` is written correctly today, the other is that OpenMM really does
+restore a parameter whose force is gone. The second has an assertion attached
+saying that if OpenMM ever stops doing it, the fault becomes self-announcing
+and the test should be revisited.
+
 ---
 
 ## 5. Production runs
@@ -2252,6 +2285,23 @@ a line it falls. The threshold earns its place classifying crystal structures,
 where the two clusters are 7 Å apart and nothing sits between them. A
 trajectory does sit between them, which is the whole reason it is interesting,
 and that is where a single cut stops being informative.
+
+**And it is not drifting.** Measured again at 14.6 ns over 147 frames, the
+distance has gone nowhere: mean 13.02 Å over the whole run, 12.94 across the
+first half and 13.09 across the second, 13.03 over the final five nanoseconds.
+Still one frame below the threshold and it is an early one.
+
+That is a more interesting result than a drift would have been. The cleft
+closed during equilibration, when the agonist and the nanobody that 4LDE was
+solved with were taken away, and then stopped. What the run shows so far is an
+apo receptor sitting at a stable distance of its own, four angstrom below the
+active crystals and five above the inactive ones, rather than travelling
+between them. Section 7's timescale limitation still applies and this does not
+contradict it: nothing here is the microsecond relaxation, and a plateau at 15
+ns is not evidence that there is no slower motion. It does mean the early fall
+is relaxation out of a bound pose and not the beginning of a transition, which
+is what section 5.5 hedged about on the 1 ns data and can now be said with
+fifteen times as much of it.
 
 ### 5.1 Measured speeds
 
