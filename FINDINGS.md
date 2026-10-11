@@ -2951,6 +2951,40 @@ Python, and the check was splitting on commas without first dropping anything
 after a `#`. A fault in the check rather than in the thing checked, and the
 first import to have a trailing comment was the one that found it.
 
+## 4aq. A correct verdict that read like a bug
+
+The bilayer figure is right: both panels carry their windows as labelled bands,
+`acceptable 55 to 75`, `expected 60 to 68`, `expected 36 to 41`, with units on
+every axis, which is what section 10 asks for.
+
+The page beside it was not. The first chunk's cell read
+
+    68.0 Å²   outside expected
+
+against a note two paragraphs down saying the expected window is 60 to 68. A
+reader has three statements there and two of them contradict the third.
+
+The measurement is 68.05 Å². The window is inclusive to 68.0. The chunk is
+outside it, the badge is right, and one decimal place rounded away the only
+digit that decides. A verdict that is correct and looks wrong is worse than one
+that is merely wrong, because the panel's whole job is to be believed: the next
+time a badge disagrees with a number, the badge is what gets doubted.
+
+The two cells that carry a verdict are at two decimals now. The tilt and the
+water count have no badge and keep theirs.
+
+### And the window was written out in the prose
+
+The note said "60 to 68" and "55 to 75" and "36 to 41" as text, while the
+badges read `APL_EXPECTED_A2`, `APL_ACCEPTABLE_A2` and `THICKNESS_EXPECTED_A`.
+The same shape as section 4am and section 4ap: one threshold, more than one
+place, and the prose copy is the worst kind because it cannot be executed. A
+reader checking a badge against the note would have been checking it against a
+number that nothing in the code uses.
+
+The view passes the three windows now and the note renders them, so the
+sentence a reader checks is the sentence the badge was decided by.
+
 ## 5. Production runs
 
 Tier 2 started at 17:04 on 10 October, in section 5.3's priority order: β2AR

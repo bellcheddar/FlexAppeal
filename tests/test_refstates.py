@@ -4675,3 +4675,53 @@ def test_every_decision_referred_to_in_the_findings_exists():
                            (root / "FINDINGS.md").read_text()))
     missing = sorted(cited - decisions)
     assert not missing, f"FINDINGS cites decisions that do not exist: {missing}"
+
+
+def test_the_bilayer_windows_on_the_page_come_from_the_constants():
+    """The note said "60 to 68" and the badge read `APL_EXPECTED_A2`.
+
+    Two statements of one window, one of them prose, so they could part without
+    either looking wrong, and a reader checking a badge against the note would
+    have been checking it against a number nothing uses.
+    """
+    import re
+
+    root = Path(__file__).resolve().parents[1]
+    body = (root / "flexappeal" / "templates" / "refstates_run.html").read_text()
+    for name in ("apl_expected", "apl_acceptable", "thickness_expected"):
+        assert name in body, f"the note should read {name} from the context"
+    note = body[body.index("What these should be"):]
+    note = note[:note.index("</details>")]
+    assert not re.search(r"\b(60|68|55|75|36|41) (to|&#8491;)", note), (
+        "a window is still written out in the prose")
+
+    view = (root / "flexappeal" / "refstates" / "web.py").read_text()
+    for name in ("APL_EXPECTED_A2", "APL_ACCEPTABLE_A2",
+                 "THICKNESS_EXPECTED_A"):
+        assert name in view, f"the view should pass {name}"
+
+
+def test_a_verdict_cell_shows_the_digit_that_decided_it():
+    """68.05 against a window ending at 68.0 is outside it, and read as inside.
+
+    At one decimal the cell said "68.0 A^2" beside a badge saying "outside
+    expected" and a note saying the window is 60 to 68. The badge was right and
+    the rounding hid the only digit that decides, which makes a correct verdict
+    look like a bug, on a panel whose whole job is to be believed.
+    """
+    from flexappeal.refstates import membrane
+
+    root = Path(__file__).resolve().parents[1]
+    body = (root / "flexappeal" / "templates" / "refstates_run.html").read_text()
+    cells = body[body.index("{% for chunk in membrane %}"):]
+    cells = cells[:cells.index("{% endfor %}")]
+    assert '"%.2f"|format(chunk.apl)' in cells
+    assert '"%.2f"|format(chunk.thickness)' in cells
+
+    # And the live case is genuinely outside, so the badge is not the thing
+    # that needed changing.
+    chunk = membrane.MembraneChunk(
+        start_ns=0.0, end_ns=10.0, apl_a2=68.05, thickness_a=38.42,
+        tilt_deg=13.6, core_waters=54.43)
+    assert chunk.apl_verdict != "expected", chunk.apl_verdict
+    assert round(68.05, 1) == 68.0, "which is what made it read as inside"

@@ -425,15 +425,22 @@
         {% for chunk in membrane %}
           <tr>
             <th scope="row">{{ "%.0f"|format(chunk.time_ns) }} ns</th>
+            {# Two decimals, not one, on the two values that carry a verdict.
+               The first chunk here measures 68.05 A^2 against a window that
+               ends at 68.0, so it is outside it and the badge says so. At one
+               decimal the cell read "68.0 A^2" beside "outside expected" and
+               beside a note saying the window is 60 to 68, which looks like
+               the badge is wrong when it is the rounding that is hiding the
+               only digit that decides. #}
             <td>
               {% if chunk.apl is not none %}
-                {{ "%.1f"|format(chunk.apl) }} &#8491;&sup2;
+                {{ "%.2f"|format(chunk.apl) }} &#8491;&sup2;
                 {{ verdict_badge(chunk.verdicts.apl) }}
               {% else %}&mdash;{% endif %}
             </td>
             <td>
               {% if chunk.thickness is not none %}
-                {{ "%.1f"|format(chunk.thickness) }} &#8491;
+                {{ "%.2f"|format(chunk.thickness) }} &#8491;
                 {{ verdict_badge(chunk.verdicts.thickness) }}
               {% else %}&mdash;{% endif %}
             </td>
@@ -446,8 +453,12 @@
     <details class="md-readmore">
       <summary>What these should be</summary>
       <p>
-        POPC at 303 K is expected to give 60 to 68 &#8491;&sup2; per lipid and a
-        phosphate-to-phosphate thickness of 36 to 41 &#8491;. Area per lipid is
+        POPC at 303 K is expected to give
+        {{ "%.1f"|format(apl_expected[0]) }} to
+        {{ "%.1f"|format(apl_expected[1]) }} &#8491;&sup2; per lipid and a
+        phosphate-to-phosphate thickness of
+        {{ "%.1f"|format(thickness_expected[0]) }} to
+        {{ "%.1f"|format(thickness_expected[1]) }} &#8491;. Area per lipid is
         the box cross-section divided by the lipids in one leaflet, with the
         leaflets split at their own midplane rather than at z = 0, because the
         bilayer drifts in z under a membrane barostat.
@@ -456,9 +467,11 @@
         The badges mark each chunk against those windows.
         <span class="md-badge md-badge-ok">expected</span> is inside them.
         <span class="md-badge md-badge-warn">outside expected</span> is a chunk
-        that is still usable: area per lipid has a wider acceptable range of 55
-        to 75 &#8491;&sup2;, and the first chunk after equilibration is often
-        the one that sits outside the narrow window.
+        that is still usable: area per lipid has a wider acceptable range of
+        {{ "%.1f"|format(apl_acceptable[0]) }} to
+        {{ "%.1f"|format(apl_acceptable[1]) }} &#8491;&sup2;, and the first
+        chunk after equilibration is often the one that sits outside the narrow
+        window.
         <span class="md-badge md-badge-bad">G6</span> is outside even that, and
         raises the science gate on the run.
       </p>

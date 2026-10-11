@@ -22,6 +22,7 @@ from typing import Any
 from flask import (Blueprint, abort, current_app, jsonify, render_template,
                    request, send_from_directory, url_for)
 
+from . import membrane as membrane_mod
 from .state import DECISIVE_S
 from ..webapp import _RUN_ID
 
@@ -296,6 +297,14 @@ def run(run_id: str):
         # plot whose shading disagreed with the labels beside it would be worse
         # than one with no shading at all.
         decisive_s=DECISIVE_S,
+        # The bilayer windows the badges are decided against, passed rather
+        # than written into the prose. The note said "60 to 68" and the badge
+        # read `APL_EXPECTED_A2`, so the two could part without either looking
+        # wrong, and a reader checking a badge against the note would have been
+        # checking it against a number nothing uses.
+        apl_expected=membrane_mod.APL_EXPECTED_A2,
+        apl_acceptable=membrane_mod.APL_ACCEPTABLE_A2,
+        thickness_expected=membrane_mod.THICKNESS_EXPECTED_A,
         core=json.loads(system.get("notes") or "{}").get("core", {}))
 
 

@@ -927,3 +927,18 @@ Adding the import broke the tools-import check, which read the trailing
 drop anything after a `#`.
 
 FINDINGS 4ap. 980 passed, 1 skipped.
+
+### 11 October, 09:27 to 09:55
+
+The bilayer figure is right: labelled window bands on both panels, units on
+every axis. The page beside it read "68.0 A^2  outside expected" against a note
+saying the window is 60 to 68. The measurement is 68.05 and the window is
+inclusive to 68.0, so the badge is correct and one decimal place rounded away
+the digit that decides. The two cells that carry a verdict are at two decimals
+now.
+
+The note also wrote the three windows out as prose while the badges read the
+constants. Same shape as 4am and 4ap. The view passes them and the note renders
+them, so the sentence a reader checks is the one the badge was decided by.
+
+FINDINGS 4aq. Two tests added, 982 passed, 1 skipped.
