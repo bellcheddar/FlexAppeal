@@ -307,3 +307,11 @@ Timestamped, one line per meaningful event, for the reference-state build
   numbering through `traj.deposited_numbering` and `traj.renumber`. Verified
   rather than assumed, since every motif in this package is addressed by its
   deposited number.
+- `22:0x` A bug of my own, caught by writing the test for the previous one: I
+  changed `--ligand` to take a CCD code and left the queue passing a path to the
+  SDF. Nothing would have caught it until a row had to build a system, because
+  a pre-built one is reused and the argument is never read. Fixed, and the test
+  now asserts both sides mean the same thing.
+- `22:0x` All four rows verified buildable and self-consistent: b2ar_carazolol
+  187,848 particles with lipids present, abl1_imatinib 48,185 without, both
+  with their system particle count matching their topology.

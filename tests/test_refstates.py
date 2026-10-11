@@ -2170,3 +2170,37 @@ def test_every_queued_row_declares_the_ligand_its_start_model_contains():
         # One row at least must actually have a ligand, or this test would pass
         # by finding nothing anywhere.
         assert any(r.get("ligand") for r in queue.QUEUE)
+
+
+def test_the_queue_hands_run_md_a_ccd_code_not_a_path(tmp_path: Path):
+    """The two sides of `--ligand` have to mean the same thing.
+
+    `run_md.py` takes a CCD residue code, because the chemistry comes from the
+    dictionary and the coordinates from the deposition. I changed it to that and
+    left the queue passing a path to the SDF, which nothing would have caught
+    until the row ran: the pre-built system is reused, so the ligand argument is
+    only read when a system has to be built.
+    """
+    import importlib.util
+
+    root = Path(__file__).resolve().parents[1]
+    spec = importlib.util.spec_from_file_location(
+        "_queue_for_ligand_test", root / "tools" / "queue_md.py")
+    queue = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(queue)
+
+    # Read off the row rather than by calling `run_row`, which would start a
+    # subprocess. What matters is the value the queue holds.
+    row = next(r for r in queue.QUEUE
+               if r.get("ligand") and not r["membrane"])
+    assert row["ligand"] == row["ligand"].upper()
+    assert len(row["ligand"]) <= 3, "a CCD code is at most three characters"
+    assert not row["ligand"].endswith(".sdf")
+
+    # And the runner's own option must still be a plain string, not a Path, or
+    # a code would be turned into a filename.
+    source = (root / "tools" / "run_md.py").read_text()
+    option = source[source.index('parser.add_argument("--ligand"'):]
+    option = option[:option.index(")\n")]
+    assert "type=Path" not in option, "--ligand must take a code, not a path"
+    assert "CCD" in option, "the option should say it wants a CCD code"

@@ -31,7 +31,7 @@ is drafted. The spec's own acceptance criteria are met for every finished phase:
 | P6 membrane integrity | passes on a real bilayer: APL 68.9 Å², thickness 37.6 Å |
 | P5 inactive start stays inactive | the one control still genuinely waiting; needs `b2ar_carazolol` or `abl1_imatinib`, which are 3rd and 4th in the queue |
 | Manifests re-derived from source | ABL1 20/20, β2AR 116/116, 0 changed |
-| Test suite | 881 pass, 0 fail (`pixi run test`) |
+| Test suite | 882 pass, 0 fail (`pixi run test`) |
 | axe-core, 8 pages | zero serious or critical |
 | Playwright, 8 pages x 2 viewports | no console errors |
 | First paint | 396 ms median against a 2 s budget |
@@ -41,7 +41,7 @@ is drafted. The spec's own acceptance criteria are met for every finished phase:
 
 The test figure in this file has now been wrong twice, at 833 and at 837, both
 times because I wrote it from memory or from arithmetic rather than from a run.
-881 is measured, and it moves as tests are added. A bare `pytest` from the repository root also used to collect
+882 is measured, and it moves as tests are added. A bare `pytest` from the repository root also used to collect
 the vendored BoltzMaker suite, whose 17 environment failures I briefly read as a
 regression of this project; `pytest.ini` now scopes collection so that the plain
 command and `pixi run test` agree.

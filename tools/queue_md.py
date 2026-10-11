@@ -93,10 +93,12 @@ def run_row(row: dict, *, out_dir: Path, production_ns: float,
         "--out", str(out_dir),
     ]
     # A water row with a ligand needs its chemistry, because `run_md.py` builds
-    # the system itself and amber14 has no template for a drug.
+    # the system itself and amber14 has no template for a drug. The CCD code and
+    # not a path to the SDF: the chemistry comes from the dictionary and the
+    # coordinates from the deposition, and `run_md.py` fetches the definition
+    # itself if it is not already on disk.
     if row.get("ligand") and not row["membrane"]:
-        command += ["--ligand",
-                    str(ROOT / "data" / "systems" / f"{row['ligand']}.sdf")]
+        command += ["--ligand", row["ligand"]]
     if row["membrane"]:
         command.append("--membrane")
         # Built once by tools/build_membrane.py, under the row's own name. The
