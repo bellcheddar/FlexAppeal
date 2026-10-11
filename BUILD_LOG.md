@@ -648,3 +648,12 @@ Timestamped, one line per meaningful event, for the reference-state build
   have swallowed a real disagreement, because grep matching "disagree" exits 0.
   Rewritten to test the command's own status; both branches run rather than
   reasoned about.
+- `04:1x` Tried to read abl1_apo's checkpoint to find exactly where tonight's
+  resume will restart, and learned something better: checkpoints are bound to
+  the platform that wrote them. `platform()` falls back to CPU when OpenCL is
+  missing, which is right for starting a row and a trap for resuming one, so a
+  GPU that disappears overnight becomes an OpenMM traceback with the row's
+  nanoseconds still on disk and nothing saying they are good. Guarded, and
+  deliberately not recovered from: restarting would discard the checkpoint's
+  progress unasked. The original question stays open, because reading the
+  checkpoint needs the GPU production is using.

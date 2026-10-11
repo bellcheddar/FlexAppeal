@@ -2523,6 +2523,53 @@ def test_verify_summary_is_quiet_about_a_run_with_no_analysis_file(tmp_path: Pat
     assert _cli().verify_summary(database, empty) == []
 
 
+def test_a_checkpoint_is_bound_to_the_platform_that_wrote_it():
+    """OpenMM refuses a checkpoint written on another platform.
+
+    Found by trying to read `abl1_apo`'s checkpoint on the CPU while the GPU
+    was busy: "Checkpoint was created with a different Platform: OpenCL". It
+    matters because `run_md.platform()` falls back to CPU when OpenCL is
+    unavailable, so a GPU that disappears between a row starting and its resume
+    turns into an OpenMM traceback at the top of a 24-hour queue, with the
+    row's progress still on disk and nothing saying it is still good.
+    """
+    import openmm as mm
+
+    source = _argon_box(with_barostat=False)
+    reference = mm.Platform.getPlatformByName("Reference")
+    cpu = mm.Platform.getPlatformByName("CPU")
+
+    written = mm.Context(
+        source, mm.VerletIntegrator(0.001), reference)
+    written.setPositions([mm.Vec3(0.3 * (i % 2), 0.0, 0.0) for i in range(8)])
+    checkpoint = written.createCheckpoint()
+
+    other = mm.Context(_argon_box(with_barostat=False),
+                       mm.VerletIntegrator(0.001), cpu)
+    with pytest.raises(Exception, match="Platform"):
+        other.loadCheckpoint(checkpoint)
+
+
+def test_the_resume_explains_a_platform_mismatch_rather_than_raising():
+    """The runner has to say what happened, and not redo the work.
+
+    Starting the row again would discard the nanoseconds in the checkpoint
+    without being asked. Section 0's ladder is about degrading with the reason
+    recorded, so this checks the source for the guard and for the refusal to
+    silently restart.
+    """
+    root = Path(__file__).resolve().parents[1]
+    source = (root / "tools" / "run_md.py").read_text()
+    resume = source[source.index("    if resuming:"):
+                    source.index("    elif args.membrane:")]
+    assert "try:" in resume and "loadCheckpoint" in resume, (
+        "the checkpoint load is unguarded")
+    assert "SystemExit" in resume, (
+        "a failed load must stop the row rather than fall through")
+    assert "still" in resume and "good" in resume, (
+        "the message should say the checkpoint is not the thing that broke")
+
+
 # ===========================================================================
 #  Resuming without duplicating frames
 # ===========================================================================

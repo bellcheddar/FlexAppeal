@@ -2307,6 +2307,41 @@ back afterwards.
 That fault would have survived to the morning. It is only visible by running
 the sequence, because every piece of it passes on its own.
 
+### A checkpoint is bound to the platform that wrote it
+
+Found while trying to answer a narrower question. `abl1_apo` resumes the moment
+`b2ar_apo` finishes, and its checkpoint was written three minutes before its
+trajectory stopped, so frames exist past it and the resume has to drop them.
+Rather than infer how many from file timestamps, the checkpoint can be read:
+deserialise `system.xml`, build a context, load it, ask for the time.
+
+Not on the CPU, it turns out:
+
+    OpenMMException: loadCheckpoint: Checkpoint was created with a different
+    Platform: OpenCL
+
+Which is a better finding than the number would have been. `run_md.platform()`
+tries CUDA, then OpenCL at mixed precision, then OpenCL at single, then CPU,
+and that fallback is right for starting a row. For resuming one it is a trap: a
+GPU that has gone away between a row starting and its resume means the runner
+picks CPU, and `loadCheckpoint` then throws. Unguarded that is an OpenMM
+traceback at the top of a queue with 24 hours of work behind it, the row's
+nanoseconds still sitting on disk, and nothing anywhere saying they are still
+good.
+
+It is guarded now, and deliberately not recovered from. Starting the row again
+would throw away the progress in the checkpoint without being asked, and
+section 0's ladder is about degrading with the reason recorded rather than
+quietly redoing work. So it says which platform the checkpoint needs, says the
+checkpoint itself is fine, and stops; the queue records the row as failed with
+that line as the reason, which is section 4q's machinery doing its job.
+
+The question that started this is still unanswered: reading the checkpoint
+needs the OpenCL device that production is using, and a second context on the
+one GPU is exactly what section 2.2's `concurrent_md: 1` exists to prevent. The
+truncation it would have confirmed is covered by its own test, and the resume
+will log the figure when it runs.
+
 ---
 
 ## 5. Production runs

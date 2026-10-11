@@ -533,7 +533,28 @@ def main() -> int:
     steps_per_ns = int(1000 / (TIMESTEP_FS / 1000))
     done_ns = 0.0
     if resuming:
-        simulation.loadCheckpoint(str(checkpoint))
+        # A checkpoint is bound to the platform that wrote it. OpenMM refuses
+        # one written on OpenCL if the context is on CPU, with
+        # "Checkpoint was created with a different Platform: OpenCL", and
+        # `platform()` above will quietly choose CPU if the GPU has gone away
+        # since the row started. Unguarded that is an OpenMM traceback at the
+        # top of a 24-hour queue, with the row's progress still on disk and
+        # nothing saying it is still good.
+        #
+        # Not recovered from, deliberately. Starting the row again would throw
+        # away the nanoseconds in the checkpoint without being asked, and
+        # section 0's ladder is about degrading with the reason recorded, not
+        # about quietly redoing work. So it says what happened and stops, and
+        # the queue records the row as failed with this line as the reason.
+        try:
+            simulation.loadCheckpoint(str(checkpoint))
+        except Exception as exc:                                # noqa: BLE001
+            log(f"Error: cannot load {checkpoint.name} on "
+                f"{plat.getName()}: {str(exc)[:120]}")
+            log(f"  the checkpoint holds this row's progress and is still "
+                f"good; it needs the platform that wrote it")
+            raise SystemExit(
+                f"checkpoint/platform mismatch on {args.name}") from exc
         done_ns = simulation.context.getState().getTime().value_in_unit(unit.nanoseconds)
         log(f"resumed from checkpoint at {done_ns:.3f} ns")
         # Production is unrestrained. The last ladder rung sets both to zero,
