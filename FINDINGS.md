@@ -378,6 +378,9 @@ itself. The error named a NaN coordinate and nothing about a box.
 | 5.2 | mixed precision, never single for production | OpenCL single | Apple's OpenCL is single-precision only. The measured alternative was the CPU platform at 29.5 against 206 ns/day. Energy drift is measured rather than assumed. D010. |
 | 5.2 | 4 fs step throughout | first 100 ps of heating at 1 fs | A freshly minimised bilayer does not survive 4 fs at full temperature. The 500 ps of NVT heating is kept whole. |
 | 5.3 | 3 replicas, 100 ns, 4 rows | 1 replica, 50 ns, 4 rows | D009, agreed with Marc. |
+| 5.3 | ABL1 DFG-in runs two arms, Asp charged and Asp protonated | one arm, Asp charged | D008, ruled by Marc as "2 pairs for each". Section 5.2 calls the protonation arm the headline kinase feature, so its absence is worth stating plainly: it is a variant of the apo DFG-in row rather than new machinery, and it can be added as a fifth row for about 16 hours with no change to the pipeline. |
+| 5.3 | every row apo, with ligands an optional phase 5.7 | one bound row per system: imatinib on ABL1 DFG-out, carazolol on β2AR inactive | D007 and D008. The ligand goes on the state that ligand is known to stabilise, so each system has one row expected to hold and one expected to move, which is the comparison the matrix is for. This promotes half of the optional phase into the core. |
+| 6.2 | explorer carries a replica selector, a start-state selector and a protonation-arm selector | none of the three | A consequence of the two rows above rather than a separate decision: one replica and one arm leave nothing to select between, and each start state is its own run with its own page, reached from the index. Restoring either row restores the need for its selector. |
 | 5.4 | core is αE, αF, αH | KLIFS pocket scaffold | See 2.1. Verified at 0.456 Å. |
 
 ---

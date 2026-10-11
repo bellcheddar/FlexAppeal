@@ -135,6 +135,45 @@
 </section>
 
 <section class="md-card md-panel is-wide">
+  <h3>Annotate your own trajectory</h3>
+  <p>
+    Nothing on these pages is specific to ABL1 or to the
+    &#946;<sub>2</sub>-adrenergic receptor. The same module annotates any
+    kinase KLIFS knows or any class A receptor in GPCRdb, resolving that
+    protein's own motif residues at run time, so a trajectory of a protein this
+    build has never seen is scored by the same code against the same kind of
+    reference set.
+  </p>
+  <p>
+    It is a command line entry point rather than a form on this page. A
+    trajectory is too large to post through a browser, and the annotation
+    downloads and superposes every reference structure for the target, which
+    takes minutes rather than the seconds a request can hold open.
+  </p>
+  <pre class="md-run-commands"><code>python FlexAppeal.py refstates annotate \
+    --topology system.pdb --trajectory run.dcd \
+    --start start.pdb --family auto --out annotated.json</code></pre>
+  <p>
+    <code>--family auto</code> reads the structure's own sequence and returns
+    <code>unknown</code> rather than guessing, because annotating a kinase as a
+    receptor would resolve every motif to the wrong residues and still produce
+    numbers. <code>--start</code> restores the deposited residue numbering,
+    which OpenMM discards when it solvates. <code>--protein</code> names the
+    target to the catalogue, as a KLIFS kinase name such as
+    <code>CDK2</code> or a GPCRdb entry name such as
+    <code>adrb2_human</code>.
+  </p>
+  <p class="md-note">
+    The honest limitation, measured rather than assumed: on an unseen target
+    the reference ensembles are capped and the superposition core is taken from
+    one reference, so a CDK2 score is a distance to fewer structures than an
+    ABL1 one. The analysis reports how many references survived, and a run that
+    kept too few says so in its own output instead of returning a confident
+    number.
+  </p>
+</section>
+
+<section class="md-card md-panel is-wide">
   <h3>Software and data</h3>
   <table class="md-table">
     <thead>

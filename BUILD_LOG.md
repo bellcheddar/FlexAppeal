@@ -1469,3 +1469,27 @@ new file; queue_md.py and run_md.py were listed before and after and abl1_apo
 wrote through both.
 
 1036 passed, 2 skipped.
+
+### 11 October, 19:20. Auditing section 6.2 against the pages
+
+Three of section 6.2's explorer features do not exist: the replica selector,
+the start-state selector and the protonation-arm selector. All three are
+consequences of decisions already taken and recorded, D008 and D009, but the
+deviations table in FINDINGS listed only the replica count, so a reader
+comparing the spec with the pages would have found three absences with nothing
+pointing at a reason. Four rows added to that table: the dropped protonation
+arm, the ligand-bound rows that replaced two apo ones, and the selectors that
+follow from both.
+
+Section 6.2's fifth item, the G-REUSE hook, is built and validated, and the
+README documents it, but nothing on the site mentioned it. The spec allows a
+CLI-only v1 "with the web form stubbed" and there was no stub. The About page
+now carries the entry point, the command, what `--family auto` and `--start`
+are for, and the measured limitation on an unseen target.
+
+The first draft gave the command block a `md-pre` class that the stylesheet
+has never defined, which is exactly the fault 4aj recorded for six other
+classes. Changed to `md-run-commands`, which is the design system's existing
+class for a command block and is what the other three pages use.
+
+1035 passed, 3 skipped.
