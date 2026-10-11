@@ -674,6 +674,32 @@ signal by 0.02 to 0.04, so the line goes between them.
 The three TM helices leaning active corroborates the geometric score of +0.277
 for the same run, from a measurement that shares none of its machinery.
 
+### The kinase result is the better one
+
+Two independent measurements agree on *which motifs carry the signal*, which is
+a stronger statement than either agreeing on a state.
+
+| motif | SSE active | SSE inactive | margin | SSE lean | geometric s |
+|---|---|---|---|---|---|
+| A-loop | 0.285 | 0.129 | 0.155 | active | +0.136 |
+| xDFG | 0.600 | 0.482 | 0.118 | active | **+0.755** |
+| c.l | 0.950 | 1.000 | 0.050 | inactive | −0.087 |
+| alphaC | 0.945 | 0.903 | 0.043 | neither | +0.305 |
+| g.l | 0.408 | 0.423 | 0.015 | neither | +0.019 |
+| hinge | 0.667 | 0.667 | **0.000** | neither | −0.078 |
+
+The motifs that discriminate geometrically, xDFG and the activation loop, also
+discriminate by secondary structure. The hinge discriminates by neither: its
+geometric distances are 0.18 Å from active and 0.16 Å from inactive, and its SSE
+agreements are identical to three decimal places. Two measurements with nothing
+in common reaching the same conclusion about which parts of this kinase hold
+state information is the most useful thing in this section.
+
+Both A-loop agreements are *low*, 0.285 and 0.129, which is not a fault: the
+activation loop varies between structures of the same state, so no reference set
+agrees with itself closely. It still separates them, which is what the margin
+measures.
+
 ### A cache that is a requirement, not an optimisation
 
 Running DSSP over the 116 receptor references takes about nine minutes, and
