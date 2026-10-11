@@ -4844,6 +4844,7 @@ PAGE_THRESHOLDS = {
     "pocket.R_SPINE_CONTACT_CRYSTAL_A": ("pocket", "R_SPINE_CONTACT_CRYSTAL_A"),
     "sources.KINASE_MAX_RESOLUTION_A": ("sources", "KINASE_MAX_RESOLUTION_A"),
     "sources.GPCR_MAX_RESOLUTION_A": ("sources", "GPCR_MAX_RESOLUTION_A"),
+    "kinase.DFG_PUBLISHED_A": ("kinase", "DFG_PUBLISHED_A"),
 }
 
 
@@ -4934,3 +4935,85 @@ def test_the_threshold_scan_would_find_one_if_it_were_there():
     assert len(hits) == 1, (
         f"the scan should see the sentence and nothing else, saw {len(hits)}: "
         f"{prose!r}")
+
+
+def _app_with(database: Path):
+    """A Flask app pointed at one database, for the view-level checks."""
+    from flexappeal.webapp import create_app
+
+    app = create_app()
+    app.config["REFSTATES_DB"] = str(database)
+    return app
+
+
+def test_the_about_page_counts_its_reference_sets(tmp_path: Path):
+    """It said 72 active and 28 inactive where the ensembles hold 84 and 32.
+
+    A count written into a sentence cannot be checked by anything, which is how
+    it had been wrong for long enough that nobody knows when it stopped being
+    right. The page's whole claim there is that one evidence base is larger
+    than the other, so it should count them.
+
+    The rule is the one `sources` builds the ensembles with and not the
+    catalogue's own column: ABL1's active set is DFG-in **and** alphaC-in,
+    which is 5 of the 6 entries KLIFS calls DFG-in.
+    """
+    import json as _json
+
+    from flexappeal.refstates import web
+
+    database = tmp_path / "t.db"
+    store.create(database)
+    with store.connect(database) as connection:
+        store.put_system(connection, "abl1", name="ABL1", family="kinase",
+                         environment="water")
+        store.put_system(connection, "b2ar", name="beta2AR", family="gpcr",
+                         environment="membrane")
+        # Two DFG-in, one of which has alphaC out, so the active set is one.
+        for code, dfg, alphac in (("2GQG", "in", "in"), ("2V7A", "in", "out"),
+                                  ("2HYY", "out", "in")):
+            store.put_reference(connection, f"abl1:{code}", "abl1", pdb=code,
+                                chain="A", source="KLIFS", source_state=dfg,
+                                our_state=dfg,
+                                metrics={"their_dfg": dfg,
+                                         "their_alphac": alphac})
+        for code, which in (("4LDE", "active"), ("3P0G", "active"),
+                            ("2RH1", "inactive")):
+            store.put_reference(connection, f"b2ar:{code}", "b2ar", pdb=code,
+                                chain="A", source="GPCRdb", source_state=which,
+                                our_state=which, metrics={})
+
+    app = _app_with(database)
+    with app.app_context():
+        counts = web.ensemble_counts()
+    assert counts["abl1"] == {"active": 1, "inactive": 1}, counts
+    assert counts["b2ar"] == {"active": 2, "inactive": 1}, counts
+
+
+def test_the_about_page_leaves_the_sentence_out_with_no_database(tmp_path: Path):
+    """Section 0.3 again: nothing to report is not a report of zero."""
+    from flexappeal.refstates import web
+
+    app = _app_with(tmp_path / "missing.db")
+    with app.app_context():
+        assert web.ensemble_counts() == {}
+    body = app.test_client().get("/refstates/about").get_data(as_text=True)
+    assert "The receptor is better served" not in body, (
+        "the comparison should be dropped rather than printed with zeroes")
+
+
+def test_the_published_dfg_cut_has_one_definition():
+    """It was 11.0 in the comparison rule and 11.0 again in the state map.
+
+    The map draws a line where somebody else's criterion sits, so the line it
+    draws should be that criterion rather than a second copy of the number.
+    """
+    from flexappeal.refstates import kinase
+
+    root = Path(__file__).resolve().parents[1] / "flexappeal" / "refstates"
+    assert kinase.DFG_PUBLISHED_A == 11.0
+    view = (root / "web.py").read_text()
+    assert "kinase_mod.DFG_PUBLISHED_A" in view
+    assert '"published_threshold": 11.0' not in view
+    body = (root / "kinase.py").read_text()
+    assert "cutoff = DFG_PUBLISHED_A" in body

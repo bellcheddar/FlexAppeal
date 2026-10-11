@@ -1009,3 +1009,24 @@ can fail, against a sample holding the same number in an attribute, a comment,
 an expression, a script and a sentence. It finds the sentence.
 
 FINDINGS 4ar. Two tests added, 989 passed, 1 skipped.
+
+### 11 October, 12:01 to 12:25
+
+Read the About page end to end for the first time and found a wrong sentence:
+"the receptor is better served, with 72 active and 28 inactive structures"
+where the ensembles hold 84 and 32. The ABL1 half, 5 and 14, is right.
+Reproducing both needed the rule `sources` builds ensembles with rather than
+the catalogue's column: ABL1 active is DFG-in and alphaC-in. The page counts
+them from the database now and drops the comparison when there is none.
+
+Named the published DFG cut `kinase.DFG_PUBLISHED_A`, since the state map's
+dashed line and the comparison rule were two copies of 11.0. Adding it to the
+scanned list immediately found two more sentences holding it, on the About and
+run pages. Both render it now.
+
+That edit was half-applied: the patch matched on a line that had just stopped
+being unique, so it stopped after editing both templates and before the view,
+and the run page returned 500 with `'dfg_published_a' is undefined`. Caught by
+rendering all five pages; `tests/test_pages.py` catches it too.
+
+FINDINGS 4as. Three tests added, 992 passed, 1 skipped, 12 page tests green.

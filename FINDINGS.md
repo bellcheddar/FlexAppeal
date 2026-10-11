@@ -3023,6 +3023,57 @@ A second test proves the scan can fail, against a sample template of its own
 holding the same number five times: in an attribute, in a Jinja comment, in a
 Jinja expression, in a script, and in a sentence. It finds the sentence.
 
+## 4as. The About page was counting a reference set it no longer had
+
+The guard from section 4ar turned over the About page, which I had never read
+end to end. It is good: the method, the two readings, the two recalibrated
+thresholds and why, eight limitations each written as what it does to a number,
+and fifteen citations each resolved through Crossref with one flagged where
+Crossref disagrees with the author list given.
+
+One sentence in it is wrong.
+
+> The receptor is better served, with 72 active and 28 inactive structures.
+
+The ensembles hold **84 and 32**. Counted from the catalogue the page is
+describing, at the same time as everything else on it. The ABL1 half of the
+same sentence, 5 active and 14 inactive, is right, and reproducing both
+required the rule `sources` actually builds with rather than the catalogue's
+own column: ABL1's active set is DFG-in **and** αC-in, which is five of the six
+entries KLIFS calls DFG-in, while its inactive set is DFG-out.
+
+Nobody knows when 72 and 28 stopped being true. That is the point of it. A
+count written into a sentence cannot be checked by anything, and the sentence's
+whole claim is that one evidence base is larger than the other, so the page
+counts them now. With no database it drops the comparison rather than printing
+zeroes.
+
+### And the guard immediately paid for itself again
+
+Naming the published DFG cut `DFG_PUBLISHED_A`, so the state map's dashed line
+and the comparison rule stop being two copies of 11.0, added it to the scanned
+list. The scan then found two more sentences holding it: the About page's
+account of why D010 replaced it, and the run page's caption for the line the
+map draws. Both render it now.
+
+That is a check finding its own first regression within a minute of the
+constant existing, which is the argument for writing it rather than fixing the
+four instances and moving on.
+
+### A half-applied edit, caught by rendering
+
+Adding the constant to the run view failed silently in the middle. The patch
+matched on `decisive_s=DECISIVE_S,`, which had been unique and had just become
+two lines in two views, so the script asserted and stopped, having already
+edited both templates. The run page then raised `'dfg_published_a' is
+undefined` and returned 500.
+
+It was found by rendering the five pages rather than by reading the diff, and
+`tests/test_pages.py` would have caught it in the suite: it asks for a 200 at
+two viewports and an undefined variable is not a 200. Both of those are worth
+more than the care that would have avoided it, because the care is not
+repeatable and they are.
+
 ## 5. Production runs
 
 Tier 2 started at 17:04 on 10 October, in section 5.3's priority order: β2AR

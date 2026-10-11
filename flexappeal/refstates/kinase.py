@@ -63,10 +63,10 @@ class DFGCall:
 
     @property
     def absolute_threshold_state(self) -> str | None:
-        """What the vendored 11.0 A rule would have said, for comparison."""
+        """What the vendored published rule would have said, for comparison."""
         if self.d_alphac_a is None or self.d_lys_a is None:
             return None
-        cutoff = 11.0
+        cutoff = DFG_PUBLISHED_A
         if self.d_alphac_a <= cutoff < self.d_lys_a:
             return "in"
         if self.d_lys_a <= cutoff < self.d_alphac_a:
@@ -134,6 +134,13 @@ def classify_dfg(frame, motifs_by_name, *, half: str = "apo") -> DFGCall:
 # Section 5.4. A salt bridge is a side-chain contact and this is the distance
 # the kinase literature uses for the alphaC-in call.
 ALPHAC_SALT_BRIDGE_A = 4.0
+# The published DFG two-distance cut, kept for comparison rather than used:
+# D010 replaced it with the nearer-anchor rule because it called six of ABL1's
+# own DFG-out references neither state. Named because it was written out as
+# 11.0 here and again in the state map's `published_threshold`, and a figure
+# that draws a line somebody else's rule is at should draw the line that rule
+# actually is.
+DFG_PUBLISHED_A = 11.0
 # Section 5.4 names 30 degrees as BoltzMaker's own phi/psi flag threshold.
 PHI_PSI_FLAG_DEG = 30.0
 

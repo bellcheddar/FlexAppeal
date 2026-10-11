@@ -44,7 +44,8 @@
   </p>
   <ul>
     <li>
-      The DFG two-distance criterion's 11.0 &#8491; cut called six of ABL1's own
+      The DFG two-distance criterion's
+      {{ "%.1f"|format(dfg_published_a) }} &#8491; cut called six of ABL1's own
       DFG-out references neither state. The two classes separate by 8.5 &#8491;
       on the difference between the distances, so the state is read from which
       anchor the ring is nearer, and agreement with KLIFS goes from 11 of 17 to
@@ -120,11 +121,15 @@
     <li>
       <strong>The kinase set is small.</strong> KLIFS lists 12 active and 45
       inactive ABL1 entries, but those are rows for individual chains: they
-      collapse onto <strong>5</strong> active and <strong>14</strong> inactive
-      depositions, and an active score is the distance to the nearest of five
-      crystal structures. Eighteen of the inactive rows have an incompletely
-      resolved activation loop. The receptor is better served, with 72 active
-      and 28 inactive structures.
+      collapse onto
+      <strong>{{ counts.get("abl1", {}).get("active", 0) }}</strong> active and
+      <strong>{{ counts.get("abl1", {}).get("inactive", 0) }}</strong> inactive
+      depositions, and an active score is the distance to the nearest of those
+      {{ counts.get("abl1", {}).get("active", 0) }} crystal structures.
+      Eighteen of the inactive rows have an incompletely resolved activation
+      loop.{% if counts.get("b2ar") %} The receptor is better served, with
+      {{ counts["b2ar"].get("active", 0) }} active and
+      {{ counts["b2ar"].get("inactive", 0) }} inactive structures.{% endif %}
     </li>
   </ul>
 </section>

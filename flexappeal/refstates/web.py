@@ -15,6 +15,7 @@ re-analysed, and nothing would catch it.
 from __future__ import annotations
 
 import json
+import sqlite3
 import os
 from pathlib import Path
 from typing import Any
@@ -23,6 +24,7 @@ from flask import (Blueprint, abort, current_app, jsonify, render_template,
                    request, send_from_directory, url_for)
 
 from . import membrane as membrane_mod
+from . import kinase as kinase_mod
 from . import pocket, sources
 from .state import DECISIVE_S
 from ..webapp import _RUN_ID
@@ -299,6 +301,7 @@ def run(run_id: str):
         # plot whose shading disagreed with the labels beside it would be worse
         # than one with no shading at all.
         decisive_s=DECISIVE_S,
+        dfg_published_a=kinase_mod.DFG_PUBLISHED_A,
         # The bilayer windows the badges are decided against, passed rather
         # than written into the prose. The note said "60 to 68" and the badge
         # read `APL_EXPECTED_A2`, so the two could part without either looking
@@ -482,7 +485,60 @@ def state_map(system_id: str):
                     "path": path,
                     # D010's line, drawn so a reader can see where it falls
                     # rather than being told about it.
-                    "published_threshold": 11.0 if system_id == "abl1" else None})
+                    "published_threshold": (kinase_mod.DFG_PUBLISHED_A
+                                            if system_id == "abl1" else None)})
+
+
+def ensemble_counts() -> dict[str, dict[str, int]]:
+    """How many references each ensemble actually holds, per system.
+
+    The About page stated these in prose and one pair had gone stale: it said
+    the receptor was served by 72 active and 28 inactive structures where the
+    ensembles hold 84 and 32. Nothing could have caught that, which is the
+    whole trouble with a count written into a sentence. A page comparing the
+    two evidence bases should count them.
+
+    The rule here is the one `sources` builds the ensembles with, not the
+    catalogue's own column: ABL1's active ensemble is DFG-in **and** alphaC-in,
+    which is 5 of the 6 entries KLIFS calls DFG-in, while its inactive ensemble
+    is DFG-out. The receptor's is GPCRdb's state as given.
+
+    Returns an empty dict when there is no database, which the page renders by
+    leaving the sentence out rather than printing zeroes.
+    """
+    from . import store
+
+    database = _database()
+    if database is None:
+        return {}
+    counts: dict[str, dict[str, int]] = {}
+    try:
+        with store.connect(database, read_only=True) as connection:
+            for row in connection.execute(
+                    "SELECT system_id, source_state, metrics_json "
+                    "FROM reference_structures"):
+                try:
+                    metrics = json.loads(row["metrics_json"] or "{}")
+                except json.JSONDecodeError:
+                    metrics = {}
+                if row["system_id"] == "abl1":
+                    if (metrics.get("their_dfg") == "in"
+                            and metrics.get("their_alphac") == "in"):
+                        state = "active"
+                    elif metrics.get("their_dfg") == "out":
+                        state = "inactive"
+                    else:
+                        continue
+                else:
+                    state = (row["source_state"] or "").lower()
+                    if state not in ("active", "inactive"):
+                        continue
+                counts.setdefault(row["system_id"], {})
+                counts[row["system_id"]][state] = (
+                    counts[row["system_id"]].get(state, 0) + 1)
+    except sqlite3.Error:
+        return {}
+    return counts
 
 
 @refstates_bp.get("/about")
@@ -514,6 +570,8 @@ def about():
                            n_verified=len(verified), boltzmaker_sha=vendored,
                            r_spine_published_a=pocket.R_SPINE_CONTACT_CRYSTAL_A,
                            r_spine_a=pocket.R_SPINE_CONTACT_A,
+                           dfg_published_a=kinase_mod.DFG_PUBLISHED_A,
+                           counts=ensemble_counts(),
                            active="refstates")
 
 
