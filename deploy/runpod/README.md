@@ -1,48 +1,71 @@
-# Tier 3 on RunPod — written, never run
+# Tier 3 on RunPod
 
-Section 5.3 asks for this to exist and section 11 asks for it not to be
-executed, so nothing here has been run and the numbers below are the reason it
-has not needed to be.
+Written during the build and **not executed**, which is what section 5.3 asks
+for. Nothing here has ever run. Two gates stand in front of it:
 
-## Why it is not needed
+- **G1 (compute).** Tier 3 is 500 ns per ABL1 row and 1 µs per β2AR row,
+  against Tier 2's 50 ns. Twenty times the GPU hours is a budget decision, not
+  an assumption, and section 2.2 wants it made on measured ns/day rather than
+  on a figure scaled from the Mac's.
+- **G2 (secrets).** A RunPod API key and whatever the sync remote needs.
+  Section 0.2 is explicit that a credential arrives in the environment and is
+  never written to a file, so `.env.example` names the variables and holds no
+  values.
 
-Tier 2 fits on the Mac Studio. Measured, not projected:
+## The two scripts
 
-| row | atoms | ns/day | 50 ns |
-|---|---|---|---|
-| ABL1, water | 46,721 | 213 | 5.6 h |
-| β2AR, POPC | 194,032 | 60 | 20.0 h |
+    job.sh    on the pod.  One row, one length. Clones, installs from the
+              lock, restores whatever a previous pod got through, runs the
+              same queue the Mac runs, pushes the result back.
+    sync.sh   on the pod.  One row's checkpoint and trajectory between the pod
+              and durable storage, over rclone, so the same script works
+              against S3, Backblaze or SFTP without knowing which.
 
-Four rows come to about 50 GPU-hours against `MAX_COMPUTE_HOURS` of 96, so
-**G1 does not open**. This directory is for the case where it would: the spec's
-Tier 3 lengths are 500 ns for ABL1 and 1 µs for β2AR, which is 10 to 20 times
-Tier 2 and does not fit on one consumer GPU.
+    bash deploy/runpod/job.sh b2ar_apo 1000
+    bash deploy/runpod/job.sh abl1_apo 500
 
-Starting it needs **G1** (budget approval) and **G2** (a RunPod API key, passed
-through the environment and never written into a file).
+There is no launcher here and that is deliberate. Creating the pod is a console
+action behind G1 and G2, and a script that creates billable infrastructure is
+the wrong thing to have lying about in a public repository next to one that
+says it has never been run.
 
-## What the Tier 3 case actually buys
+## Three things that are not obvious
 
-Worth stating before anyone spends money on it. The β2AR active-to-inactive
-relaxation this build is looking for was seen by Dror et al. on the **microsecond**
-scale. Its absence at 50 or 100 ns is an expected limitation rather than a
-negative result, which section 9 is explicit about. So Tier 3 is the only tier
-that could turn that particular absence into an observation, and that is the
-argument for it; nothing in the Tier 2 results can be fixed by running them
-longer on faster hardware.
+**A checkpoint cannot cross the platform that wrote it.** OpenMM refuses one
+written on OpenCL if the context is CUDA, with "Checkpoint was created with a
+different Platform: OpenCL". So a part-finished Tier 2 row on the Mac cannot be
+carried up here and continued, and Tier 3 rows start from their own
+equilibration. Found on 11 October, section 4af of `FINDINGS.md`. Between pods
+it is not a problem, because both are CUDA, which is what `sync.sh` relies on.
 
-## Files
+**The fallback ladder is wrong on a rented GPU.** `tools/run_md.py` tries CUDA,
+then OpenCL, then CPU. That is right on a machine you own, where a bad GPU costs
+time. Here it would drop a 1 µs row to the CPU at a fiftieth of the speed and go
+on billing, with one line in a log nobody is reading to say so. `job.sh` passes
+`--require-platform CUDA`, which turns the ladder off: a pod that cannot give it
+one stops instead.
 
-- `job.sh` — the whole run on a fresh pod: clone, restore the environment from
-  the committed `pixi.lock`, then run the same `tools/queue_md.py` the Mac uses.
-- `sync.sh` — pull checkpoints and trajectories back, and push them up again on
-  resume.
+**A pod's disk does not survive the pod.** Everything that must outlive it goes
+through `sync.sh`, and the checkpoint goes first: losing the trajectory costs
+the frames since the last sync, losing the checkpoint costs the run. `job.sh`
+pushes on both the success and the failure path, because a failed row's
+checkpoint is the most valuable thing on the disk.
 
-## Resume
+## Resuming
 
-A pod can be reclaimed at any time, and a 1 µs run cannot start again from
-zero. `tools/run_md.py` already checkpoints every nanosecond and resumes from
-`state.chk`, which is what makes this safe; `job.sh` does nothing clever beyond
-restoring the checkpoint directory before it starts and syncing it out
-afterwards. The resume path is the same code the Mac runs, so it is exercised
-every time a local run is interrupted rather than only in an emergency.
+Run `job.sh` again with the same row and `RUNPOD_SYNC_URL`. It pulls the
+checkpoint back, `tools/queue_md.py` skips a row whose `run.json` says it
+reached the target, and `tools/run_md.py` resumes the rest. `job.sh` prints
+`--preflight` first, which reports what each row would do and takes no GPU, so
+the question of whether this resumes or starts again is answered before the
+meter runs rather than after.
+
+## The budget, when G1 is opened
+
+Measure, do not assume. Run the Tier 1 smoke on the pod first:
+
+    pixi run python tools/queue_md.py --smoke --require-platform CUDA
+
+It reports ns/day per row and the projected hours for the production length,
+which is the number G1 needs. Forty minutes of pod time is the cheapest way to
+find out that the budget was wrong.

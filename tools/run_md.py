@@ -455,8 +455,17 @@ def write_run_json(out_dir: Path, args, *, target_ns: float,
         {k: v for k, v in payload.items() if v is not None}, indent=2))
 
 
-def platform(system=None):
+def platform(system=None, require: str | None = None):
     """The fastest platform that will actually build a context here.
+
+    `require` names a platform that must be the one chosen, and turns the
+    fallback off. The ladder below is right on a machine you own, where a slow
+    run costs only time. It is wrong on a GPU you are renting by the hour: a
+    CUDA device that fails to initialise would drop the run to the CPU at a
+    fiftieth of the speed, and the only signal would be one line in a log
+    nobody is reading at the time. `deploy/runpod/job.sh` passes
+    `--require-platform CUDA` for that reason, and a pod that cannot give it
+    one stops instead of billing for a week of CPU.
 
     Section 2.2 expects OpenCL at mixed precision on Apple Silicon and that is
     not available: Apple's OpenCL implementation is single precision only, and
@@ -474,6 +483,12 @@ def platform(system=None):
 
     attempts = [("CUDA", {"Precision": "mixed"}), ("OpenCL", {"Precision": "mixed"}),
                 ("OpenCL", {"Precision": "single"}), ("CPU", {})]
+    if require is not None:
+        attempts = [a for a in attempts if a[0] == require]
+        if not attempts:
+            raise SystemExit(
+                f"--require-platform {require} is not a platform this runner "
+                f"knows; it builds contexts on CUDA, OpenCL or CPU")
     integrator = mm.VerletIntegrator(0.001)
     for name, props in attempts:
         try:
@@ -483,6 +498,11 @@ def platform(system=None):
             return found, props
         except Exception as exc:                               # noqa: BLE001
             log(f"  {name} {props or '{}'}: unavailable ({str(exc)[:60]})")
+    if require is not None:
+        raise SystemExit(
+            f"--require-platform {require} was asked for and no context would "
+            f"build on it. Refusing to fall back: the fallback is for a "
+            f"machine you own, not one you are renting")
     raise SystemExit("no OpenMM platform available")
 
 
@@ -490,6 +510,11 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--name", required=True, help="run id, e.g. abl1_apo")
     parser.add_argument("--start", type=Path, required=True)
+    parser.add_argument("--require-platform", default=None, metavar="NAME",
+                        help="refuse to run on anything but this OpenMM "
+                             "platform, for example CUDA. Turns off the "
+                             "fallback ladder, which is right on a machine you "
+                             "own and wrong on one you rent by the hour.")
     parser.add_argument("--ligand", default=None, metavar="CCD_CODE",
                         help="the CCD residue name of a bound ligand, for "
                              "example STI. Its chemistry is taken from the "
@@ -568,7 +593,7 @@ def main() -> int:
         system.addForce(barostat(bool(args.membrane), temperature))
         log("barostat re-added for the resumed run")
 
-    plat, props = platform(system)
+    plat, props = platform(system, require=args.require_platform)
     simulation = app.Simulation(topology, system, integrator, plat, props)
     log(f"platform: {plat.getName()} {props}")
 

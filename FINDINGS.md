@@ -2582,6 +2582,73 @@ stage and stays quiet, while `failed:` and `short:` say the numbers below
 describe less run than the page claims, and they take the same red as the bad
 verdict badge from one shared declaration rather than a second copy of the hex.
 
+## 4ak. Tier 3, and the push that could not run
+
+Section 11 asks for `deploy/runpod/` written and not executed, and section 5.3
+adds what it should contain: job script, pixi lock, resume logic. Auditing the
+deliverable list against the tree, I read a truncated `ls` and concluded the
+directory was empty. It was not: `job.sh` and `sync.sh` were written on
+10 October and are good. The lock requirement was already met too, since
+`pixi.toml` carries `osx-arm64` and `linux-64` and the lock's linux build of
+OpenMM 8.5.2 comes with `cuda-version-13.3` and `libcufft` behind it.
+
+What was missing was the README and the environment example, and reading the
+two scripts properly to write them turned up a fault worth the detour.
+
+### The push was unreachable on the path that needed it
+
+`job.sh` ran the queue, captured the status, and pushed the result to durable
+storage:
+
+    pixi run python tools/queue_md.py --only "$ROW" --production-ns "$NS"
+    status=$?
+
+The file opens `set -euo pipefail`. Under `set -e` a failing command exits the
+script there and then, so `status=$?` was unreachable and the push below it
+never ran. The push is how a pod's work survives the pod. So the one path where
+it mattered, a row that crashed or a pod reclaimed mid-run, was the one path
+where it did not happen, and what was lost was the checkpoint the row had just
+spent hours earning.
+
+Making the call part of a condition is what stops `set -e` firing:
+
+    status=0
+    pixi run python tools/queue_md.py ... --require-platform CUDA || status=$?
+
+and the push is now outside any success branch, deliberately, because a failed
+row's checkpoint is the most valuable thing on the disk. The test runs both
+shapes rather than asserting about the line, since the fault is in how bash
+behaves rather than in how the line reads.
+
+### The fallback ladder is wrong on a rented GPU
+
+`run_md.platform()` tries CUDA, then OpenCL mixed, then OpenCL single, then
+CPU. That ladder is right on a machine you own: section 2.2 measured the last
+step at 29.5 ns/day against 206, and a slow run costs time you already have.
+
+On a pod billed by the hour it is a trap. A CUDA device that fails to
+initialise drops a 1 µs row to a fiftieth of the speed and the pod goes on
+billing, with one line in a log nobody is reading at the time to say so. So
+`platform()` takes `require`, which turns the ladder off and refuses rather
+than descending it, `run_md.py` and `queue_md.py` both take
+`--require-platform`, and `job.sh` passes `CUDA`. Asking for CUDA on this Mac,
+where it is not registered, exercises the refusal for real rather than through
+a mock.
+
+### What Tier 3 cannot do
+
+A checkpoint cannot cross the platform that wrote it, which section 4af
+established and which has a consequence here that is easy to miss: a
+part-finished Tier 2 row on the Mac cannot be carried up to a pod and
+continued. Its checkpoint is OpenCL and the pod is CUDA. Tier 3 rows start from
+their own equilibration. Between pods it is not a problem, both being CUDA, and
+that is exactly what `sync.sh` relies on.
+
+There is no launcher in the directory and that is deliberate. Creating the pod
+is a console action behind G1 and G2, and a script that creates billable
+infrastructure is the wrong thing to leave in a public repository beside one
+that says it has never been run.
+
 ## 5. Production runs
 
 Tier 2 started at 17:04 on 10 October, in section 5.3's priority order: β2AR

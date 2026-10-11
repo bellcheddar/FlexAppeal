@@ -4035,3 +4035,121 @@ def test_a_short_or_failed_run_is_marked_on_the_index(tmp_path: Path):
     # a second copy of the same two hex values.
     assert css.count("#fbd5d6") == 1, (
         "the bad-status red should have one definition")
+
+
+def test_requiring_a_platform_refuses_rather_than_falling_back():
+    """The fallback ladder is right on a machine you own and wrong on a rented one.
+
+    `run_md.platform` tries CUDA, then OpenCL, then CPU, and the measured cost
+    of the last step is 29.5 ns/day against 206. On a pod billed by the hour
+    that is a 1 µs row dropping to a fiftieth of the speed and going on
+    billing, with one line in a log nobody is reading at the time. So
+    `deploy/runpod/job.sh` passes `--require-platform CUDA`.
+
+    CUDA is not registered on this machine, so asking for it here exercises the
+    refusal for real rather than through a mock.
+    """
+    module = _run_md()
+    with pytest.raises(SystemExit) as refused:
+        module.platform(require="CUDA")
+    assert "Refusing to fall back" in str(refused.value)
+
+    with pytest.raises(SystemExit) as unknown:
+        module.platform(require="Metal")
+    assert "not a platform this runner knows" in str(unknown.value)
+
+
+def test_the_unconstrained_ladder_is_unchanged():
+    """The guard must not have cost the Mac its fallback."""
+    module = _run_md()
+    found, props = module.platform()
+    assert found.getName() in {"CUDA", "OpenCL", "CPU"}
+
+
+def test_the_queue_passes_the_required_platform_to_each_row(tmp_path: Path,
+                                                            monkeypatch):
+    """Decided by the caller, so one queue can be pinned and another not."""
+    import subprocess as sp
+
+    queue = _queue_md()
+    captured: list[list[str]] = []
+
+    class FakeProcess:
+        def __init__(self, command, *a, **k):
+            captured.append(command)
+            self.stdout = iter([])
+
+        def wait(self):
+            return 0
+
+    monkeypatch.setattr(sp, "Popen", FakeProcess)
+    monkeypatch.setattr(queue, "MANIFEST", tmp_path / "md.jsonl")
+    row = {"name": "b2ar_apo", "start": "b2ar_apo_start.pdb",
+           "membrane": True, "ligand": None, "note": "active, apo"}
+    queue.run_row(row, out_dir=tmp_path, production_ns=1000.0, equil_ns=None,
+                  smoke=False, require_platform="CUDA")
+    queue.run_row(row, out_dir=tmp_path, production_ns=50.0, equil_ns=None,
+                  smoke=False)
+    assert "--require-platform" in captured[0]
+    assert captured[0][captured[0].index("--require-platform") + 1] == "CUDA"
+    assert "--require-platform" not in captured[1], (
+        "the Mac keeps its fallback ladder")
+
+
+def test_the_pod_pushes_its_checkpoint_even_when_the_row_fails(tmp_path: Path):
+    """`set -e` made the push unreachable on exactly the path that needed it.
+
+    `deploy/runpod/job.sh` ran the queue, then `status=$?`, then pushed. Under
+    the `set -euo pipefail` at the top of that file a failing command exits
+    immediately, so the assignment was never reached and the push never ran: a
+    row that crashed, or a pod reclaimed mid-run, lost the checkpoint it had
+    just spent hours earning. A failed row's checkpoint is the most valuable
+    thing on the pod's disk, because the next pod resumes from it.
+
+    Both shapes are run here rather than asserted about, since the fault is in
+    how bash behaves and not in how the line reads.
+    """
+    import subprocess
+
+    def outcome(body: str) -> str:
+        script = tmp_path / "shape.sh"
+        script.write_text("#!/usr/bin/env bash\nset -euo pipefail\n" + body)
+        done = subprocess.run(["bash", str(script)], capture_output=True,
+                              text=True)
+        return done.stdout.strip()
+
+    assert outcome("false\nstatus=$?\necho pushed\n") == "", (
+        "the old shape: set -e exits at the failing command and the push, "
+        "which is the next line, never happens")
+    assert outcome("status=0\nfalse || status=$?\necho pushed\n") == "pushed", (
+        "making the call part of a condition is what stops set -e firing")
+
+    job = (Path(__file__).resolve().parents[1]
+           / "deploy" / "runpod" / "job.sh").read_text()
+    assert "|| status=$?" in job
+    assert "--require-platform CUDA" in job
+    # The push must not be inside a success branch.
+    push = job[job.index("sync.sh push"):]
+    assert "status" not in push.split("\n")[0]
+
+
+def test_the_runpod_scripts_say_they_have_never_been_run():
+    """Section 5.3: written during the build, not executed.
+
+    The claim belongs in the files themselves, because that is where someone
+    about to run one of them will be looking.
+    """
+    root = Path(__file__).resolve().parents[1] / "deploy" / "runpod"
+    for name in ("job.sh", "sync.sh", "README.md"):
+        body = (root / name).read_text().lower()
+        assert "never" in body and ("executed" in body or "been run" in body), (
+            f"{name} should say it has not been run")
+    readme = (root / "README.md").read_text()
+    for gate in ("G1", "G2"):
+        assert gate in readme, f"{gate} stands in front of this and should be named"
+    # The env example names variables and carries no values.
+    for line in (root / ".env.example").read_text().splitlines():
+        if "=" in line and not line.startswith("#"):
+            key, _, value = line.partition("=")
+            assert not value or value.startswith(("https://", "/")), (
+                f"{key} should not carry a value: {line}")

@@ -750,3 +750,27 @@ Also checked and ruled out: disk headroom. 1.3 TiB free against 2.4 GB of
 trajectory still to be written across the four rows.
 
 FINDINGS 4aj. Three tests added, 951 passed, 1 skipped.
+
+### 11 October, 05:17 to 06:05
+
+Audited section 11's deliverable list. The CLI has all four subcommands plus
+`controls`; section 7's limitations name all four the spec requires, plus three
+more; the favicon set is present; `deploy/` is written. `deploy/runpod/` was not
+empty as I first read it, a truncated `ls` on my part: `job.sh` and `sync.sh`
+were written on 10 October. The pixi lock already covers linux-64 with a CUDA
+build of OpenMM 8.5.2.
+
+Added the README and `.env.example` that were missing, and reading the scripts
+to write them found a real fault. `job.sh` ran the queue, then `status=$?`, then
+pushed to durable storage; under its own `set -euo pipefail` a failing command
+exits immediately, so the assignment was unreachable and the push never ran on
+the one path that needed it. A crashed row or a reclaimed pod lost the
+checkpoint it had just earned. Now `|| status=$?`, with the push outside any
+success branch.
+
+Also added `--require-platform` to `tools/run_md.py` and `tools/queue_md.py`,
+and `job.sh` passes `CUDA`. The fallback ladder is right on a machine you own
+and a trap on a pod billed by the hour, where it drops a 1 µs row to a fiftieth
+of the speed and goes on billing.
+
+FINDINGS 4ak. Five tests added, 956 passed, 1 skipped.

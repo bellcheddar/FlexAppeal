@@ -228,7 +228,8 @@ def preflight(out_dir: Path, target_ns: float) -> int:
 
 
 def run_row(row: dict, *, out_dir: Path, production_ns: float,
-            equil_ns: float | None, smoke: bool) -> dict:
+            equil_ns: float | None, smoke: bool,
+            require_platform: str | None = None) -> dict:
     """One row, as a subprocess so a crash cannot take the queue with it."""
     name = row["name"] + ("_smoke" if smoke else "")
     command = [
@@ -252,6 +253,11 @@ def run_row(row: dict, *, out_dir: Path, production_ns: float,
         command += ["--system-dir", str(out_dir / row["name"])]
     if equil_ns is not None:
         command += ["--equil-ns", str(equil_ns)]
+    # Passed through rather than decided here, so one queue can be pinned to
+    # CUDA on a rented pod while the same code falls back as it should on the
+    # Mac. See `run_md.platform`.
+    if require_platform:
+        command += ["--require-platform", require_platform]
 
     # Streamed line by line to this queue's own log rather than captured and
     # printed at the end. A captured 24-hour run shows nothing at all until it
@@ -395,6 +401,11 @@ def main() -> int:
     parser.add_argument("--only", default=None,
                         help="run one named row rather than the whole queue")
     parser.add_argument("--production-ns", type=float, default=PRODUCTION_NS)
+    parser.add_argument("--require-platform", default=None, metavar="NAME",
+                        help="refuse to run any row on anything but this "
+                             "OpenMM platform. deploy/runpod/job.sh passes "
+                             "CUDA, so a pod that cannot give it one stops "
+                             "rather than billing for CPU.")
     parser.add_argument("--preflight", action="store_true",
                         help="report what each row will do and exit, without "
                              "building or stepping anything. Safe to run "
@@ -432,7 +443,8 @@ def main() -> int:
             continue
         results.append(run_row(
             row, out_dir=out_dir, production_ns=target,
-            equil_ns=SMOKE_EQUIL_NS if args.smoke else None, smoke=args.smoke))
+            equil_ns=SMOKE_EQUIL_NS if args.smoke else None, smoke=args.smoke,
+            require_platform=args.require_platform))
 
     log("queue done")
     for result in results:

@@ -41,19 +41,38 @@ if [[ -n "${RUNPOD_SYNC_URL:-}" ]]; then
 fi
 
 mkdir -p "data/md/$ROW"
-done_ns=0
 if [[ -f "data/md/$ROW/state.chk" ]]; then
     echo "[$(date -u +%H:%M:%S)] resuming from a checkpoint"
 fi
 
+# What the row will actually do, before anything takes the GPU. Reads only, so
+# it costs nothing, and on a pod billed by the hour the answer to "will this
+# resume or start again" is worth having before the meter runs rather than
+# after.
+pixi run python tools/queue_md.py --preflight --production-ns "$NS" || true
+
 # The same queue the Mac runs, so there is one definition of the protocol. The
 # membrane rows need --membrane and their prebuilt system, which queue_md.py
 # already knows; this only passes the row and the length.
-pixi run python tools/queue_md.py --only "$ROW" --production-ns "$NS"
-status=$?
+# --require-platform CUDA, because the fallback ladder is wrong here. On a
+# machine you own, falling back to the CPU costs time. On a pod billed by the
+# hour it drops a microsecond row to a fiftieth of the speed and goes on
+# billing, with one line in a log nobody is reading to say so.
+#
+# `|| status=$?` rather than a bare call followed by `status=$?`. Under the
+# `set -e` at the top of this file, a failing command exits the script
+# immediately, so the assignment was unreachable and the push below never ran:
+# a row that crashed, or a pod reclaimed mid-run, lost the checkpoint it had
+# just spent hours earning. Making the call part of a condition is what stops
+# `set -e` firing, and the push now happens on both paths.
+status=0
+pixi run python tools/queue_md.py --only "$ROW" --production-ns "$NS" \
+    --require-platform CUDA || status=$?
 
 if [[ -n "${RUNPOD_SYNC_URL:-}" ]]; then
-    bash deploy/runpod/sync.sh push "$ROW"
+    # Deliberately not guarded by $status. A failed row's checkpoint is the
+    # most valuable thing on the disk, because the next pod resumes from it.
+    bash deploy/runpod/sync.sh push "$ROW" || echo "push failed; the checkpoint is still on this pod"
 fi
 
 echo "[$(date -u +%H:%M:%S)] exit $status"
