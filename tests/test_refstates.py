@@ -5214,6 +5214,24 @@ def _overlay_fixture(tmp_path: Path, shift=(0.0, 0.0, 0.0)):
     return frame, reference, numbers
 
 
+def _built_from(reference: Path, core: list[int], chain: str = "A"):
+    """A minimal aligned ensemble whose target core is this reference's own.
+
+    The overlay reconstructs the analysis's frame in two hops, own to common
+    and common to run. Making the common frame this reference's own frame makes
+    both hops the identity, so the fixture tests the bookkeeping rather than
+    the arithmetic, which `test_the_two_hop_composition_matches_the_long_way`
+    covers separately.
+    """
+    import types
+
+    from flexappeal.refstates import ensembles as ens
+
+    coords = ens.motif_coordinates(ens.ca_by_residue(reference, chain), core)
+    return {"active": types.SimpleNamespace(
+        by_code={"TEST": {ens.CORE_KEY: coords}})}
+
+
 def test_an_overlay_that_disagrees_with_the_analysis_is_not_written(tmp_path: Path):
     """D023 refused to build this because a ghost in the wrong place is worse
     than no ghost. The user overruled that, so the wrong place has to be loud.
@@ -5235,7 +5253,8 @@ def test_an_overlay_that_disagrees_with_the_analysis_is_not_written(tmp_path: Pa
         frame, "run", out, rows_by_state=rows,
         motifs_for=lambda code: motifs, core_for=lambda code: core,
         core_residues=core, motif_residues=motifs,
-        motif_records={"m1": {"nearest_active": "TEST", "d_act_a": 9.99}})
+        motif_records={"m1": {"nearest_active": "TEST", "d_act_a": 9.99}},
+        built=_built_from(reference, core))
     assert written == {}, "a disagreeing overlay should not be written"
     assert not list(out.glob("*.pdb"))
 
@@ -5256,7 +5275,8 @@ def test_an_overlay_that_agrees_is_written(tmp_path: Path):
         frame, "run", out, rows_by_state=rows,
         motifs_for=lambda code: motifs, core_for=lambda code: core,
         core_residues=core, motif_residues=motifs,
-        motif_records={"m1": {"nearest_active": "TEST", "d_act_a": 0.0}})
+        motif_records={"m1": {"nearest_active": "TEST", "d_act_a": 0.0}},
+        built=_built_from(reference, core))
     assert "active" in written, written
     assert written["active"]["code"] == "TEST"
     assert written["active"]["motifs_checked"] == 1
@@ -5283,17 +5303,21 @@ def test_an_overlay_with_nothing_to_check_against_is_not_written(tmp_path: Path)
         motifs_for=lambda code: motifs, core_for=lambda code: core,
         core_residues=core, motif_residues=motifs,
         motif_records={"m1": {"nearest_active": "SOMEONE-ELSE",
-                              "d_act_a": 0.0}})
+                              "d_act_a": 0.0}},
+        built=_built_from(reference, core))
     assert written == {}
 
 
-def test_the_overlay_prefers_the_reference_nearest_for_most_of_the_protein(
+def test_the_overlay_prefers_a_reference_it_can_actually_check(
         tmp_path: Path):
-    """Not the lowest mean, which chose a structure nearest for nothing.
+    """Verifiable first, then best mean. Both halves were learned from failing.
 
-    A reader asking which inactive structure a run is nearest to means the one
-    it most resembles. That choice also always leaves a motif to check, so the
-    guard protects an overlay rather than deleting it.
+    Minimising the mean alone chose a reference nearest for nothing, so there
+    was nothing to verify and the guard deleted the overlay. Maximising the
+    weight a reference is nearest for chose beta2AR's 9CHU, nearest for TM5 at
+    1.6 A and 27 A away averaged over its motifs: a motif read in the wrong
+    place never wins a minimum, so it never reaches the analysis, and an
+    overlay draws the whole structure.
     """
     module = _analyse_run_module()
     frame, near, numbers = _overlay_fixture(tmp_path)
@@ -5312,7 +5336,8 @@ def test_the_overlay_prefers_the_reference_nearest_for_most_of_the_protein(
         frame, "run", out, rows_by_state=rows,
         motifs_for=lambda code: motifs, core_for=lambda code: core,
         core_residues=core, motif_residues=motifs,
-        motif_records={"m1": {"nearest_active": "NEAR", "d_act_a": 0.0}})
+        motif_records={"m1": {"nearest_active": "NEAR", "d_act_a": 0.0}},
+        built=_built_from(near, core))
     assert written["active"]["code"] == "NEAR", written
 
 
@@ -5428,3 +5453,33 @@ def test_the_alignment_target_is_the_medoid_not_whoever_sorts_first():
     result = ens.align_to_common_frame(built)
     assert result["target"] == "BBBB", result["target"]
     assert result["n_aligned"] == 3
+
+
+def test_the_two_hop_composition_matches_the_long_way():
+    """Own frame to common, then common to run, as one transform.
+
+    `superpose` returns a rotation and two centroids rather than a matrix, and
+    the inverse of `(x - a) R^T + b` is `(y - b) R + a`. Composing those by
+    hand is four centroids and two rotations to keep straight, so the result is
+    checked against doing it in two separate steps.
+    """
+    import numpy as np
+
+    from flexappeal.refstates.traj import apply_transform, superpose
+
+    module = _analyse_run_module()
+    rng = np.random.default_rng(11)
+    own = rng.normal(size=(24, 3))
+    target = rng.normal(size=(24, 3)) * 1.3 + 4.0
+    run = rng.normal(size=(24, 3)) * 0.8 - 2.5
+
+    own_to_common = superpose(own, target)
+    run_to_common = superpose(run, target)
+
+    long_way = apply_transform(own, *own_to_common)
+    rotation, centre, offset = run_to_common
+    long_way = (long_way - offset) @ rotation + centre
+
+    short_way = apply_transform(own, *module._common_to_run(own_to_common,
+                                                            run_to_common))
+    assert np.allclose(long_way, short_way, atol=1e-10)

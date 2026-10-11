@@ -3274,6 +3274,44 @@ the ones the badges and the state map use, at alpha 0.3, so a reader carries
 "green is active" from one part of the page to the other and the run reads in
 front of them.
 
+### The check refused the receptor outright, and was right twice more
+
+Running it on β2AR, both overlays were refused: TM5 measured 1.6735 Å against a
+stored 1.6797. Small, systematic, and mine.
+
+`traj.analyse` does not fit each reference onto the frame. It superposes the
+frame **once** onto a single target core, every reference being already in that
+common frame, and measures all of them there. Fitting the chosen reference onto
+the run's core directly is a different geometry, off by that reference's own
+residual against the common frame. So the ghost is carried along the analysis's
+own path instead, in two hops: its crystallographic frame onto the common
+frame, then the common frame into the run's by the inverse of the fit the
+analysis made. The distance is then identical by construction.
+
+That fixed β2AR and exposed the next one. The reference chosen for the inactive
+ghost was 9CHU, **nearest for TM5 at 1.6 Å and 27 Å away averaged over its
+motifs**. A motif read in the wrong place never wins a minimum, so it never
+reaches the analysis, which takes a minimum per motif; an overlay draws one
+whole structure and has no such protection. Selecting by "nearest for the most
+of the protein" had walked straight into it.
+
+Selection is now the best mean **among references that are nearest for at least
+one motif**: verifiable first, then best. β2AR takes 8GE8 at 1.46 Å and 9RKI at
+2.62 Å, both verified, both sane.
+
+### One overlay is still withheld, and that is the honest outcome
+
+`abl1_apo`'s inactive ghost is refused: 6NPV's hinge measures 0.5593 Å against
+a stored 0.5053. The active ghost on the same run verifies to 0.005 Å, and both
+β2AR ghosts verify although neither is the alignment target, so the two-hop
+composition is right in general and this case is specific. I have not found it.
+
+The tolerance stays at 0.005 Å. Loosening it to 0.1 would make this pass and
+would be exactly the move D023 was warning about: the check exists to refuse
+what it cannot confirm, and a check tuned until it stops refusing is not one.
+Three of four ghosts are drawn and verified, the fourth says why it is missing,
+and the page says so where a reader will see it.
+
 ## 4ax. The core intersection D025 deferred, and the target it broke
 
 D025 chose the alignment target by modal core length and recorded the thorough

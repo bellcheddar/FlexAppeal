@@ -471,7 +471,7 @@ OVERLAY_TOLERANCE_A = 0.005
 
 def write_overlay_bundle(frame, name: str, out_dir, *, rows_by_state,
                          motifs_for, core_for, core_residues, motif_residues,
-                         motif_records) -> dict:
+                         motif_records, built=None) -> dict:
     """Section 6.2's reference overlay: nearest active and inactive, superposed.
 
     D023 declined to build this, on the grounds that it takes five steps each
@@ -480,25 +480,46 @@ def write_overlay_bundle(frame, name: str, out_dir, *, rows_by_state,
     what follows is built to make the failure it describes loud instead of
     silent.
 
-    **The check.** RMSD is invariant under a rigid transform applied to both
-    sets, so superposing the reference onto the run's frame must give exactly
-    the motif distance the analysis got by superposing the run's frame onto the
-    reference. The per-frame record already names which reference was nearest
-    for each motif and how far away it was. So for every motif where the
-    overlaid reference is that nearest one, the distance measured here has to
-    equal the stored one. If any disagrees by more than a rounding error, no
-    overlay is written for that state and the reason is logged. A silently
-    misplaced ghost is the one outcome this must not have.
+    **The ghost is placed exactly where the analysis measured it**, which took
+    two attempts to get right and is the whole of the difficulty.
 
-    **Nearest means nearest for the most of the protein**, by residue weight,
-    with the mean motif RMSD breaking ties. The first version minimised the
-    weighted mean alone, and the check then refused the inactive overlay
-    outright: 5MO4 had the lowest mean while being the nearest for no single
-    motif, so there was nothing to test it against. That is the right refusal
-    and the wrong question. A reader asking which inactive structure this run
-    is nearest to means the one it most resembles, which is the one that wins
-    the most of it; and that choice always leaves at least one motif to check,
-    so the guard protects an overlay instead of deleting it.
+    `traj.analyse` does not fit each reference onto the frame. It superposes the
+    frame *once* onto a single target core, and every reference is already in
+    that common frame from `align_to_common_frame`, so one transform serves all
+    of them. The first version here fitted the chosen reference onto the run's
+    core directly, which is a different geometry: it differs from the analysis
+    by that reference's own residual against the common frame. On beta2AR that
+    showed up as TM5 measuring 1.6735 A where the analysis stored 1.6797, and
+    the check refused the overlay, correctly, for a disagreement that was mine
+    and not the data's.
+
+    So the reference is carried along the same path the analysis used, in two
+    hops: its own crystallographic frame onto the common frame, by fitting its
+    core onto the target core, and then the common frame into the run's, by the
+    inverse of the fit the analysis made. The motif distance is then identical
+    to the stored one by construction rather than by luck.
+
+    **The check.** For every motif where the overlaid reference is the one the
+    per-frame record names as nearest, the distance measured here has to equal
+    the stored one. If any disagrees by more than a rounding error, no overlay
+    is written for that state and the reason is logged. A silently misplaced
+    ghost is the one outcome this must not have.
+
+    **Nearest means the best overlay among those that can be checked**: the
+    lowest mean motif RMSD, over the references that are the per-motif nearest
+    for at least one motif. Both halves of that were learned from being wrong.
+
+    Minimising the mean alone chose a reference that was nearest for nothing,
+    so there was nothing to verify it against and the guard deleted the overlay
+    rather than protecting one: ABL1's inactive went to 5MO4 on that rule.
+
+    Maximising the weight a reference is nearest for chose beta2AR's 9CHU,
+    which is nearest for TM5 at 1.6 A and 27 A away averaged over its motifs. A
+    motif read in the wrong place is never the minimum of anything, so it never
+    reaches the analysis, which takes a minimum per motif; an overlay draws one
+    whole structure and has no such protection. Requiring at least one checkable
+    motif and then taking the best mean keeps the guard useful and the ghost
+    honest.
 
     **Aligned to the first frame.** The overlay is static and the run moves, so
     it is fitted on the core of the frame the viewer opens on. The drift away
@@ -519,6 +540,29 @@ def write_overlay_bundle(frame, name: str, out_dir, *, rows_by_state,
             f"so no reference can be fitted to it")
         return {}
     run_core = np.asarray([run_ca[r] for r in core_residues], dtype=float)
+
+    # The target core the analysis superposed this run's frames onto: first
+    # state alphabetically, first code alphabetically, whose core is the same
+    # length as the frame's. Chosen the same way here because the ghost has to
+    # end up in the geometry the stored distances were measured in.
+    target_core = None
+    for state in sorted(built or {}):
+        holder = (built or {})[state]
+        by_code = getattr(holder, "by_code", holder)
+        for code in sorted(by_code):
+            candidate = by_code[code].get("_core")
+            if candidate is not None and len(candidate) == len(run_core):
+                target_core = np.asarray(candidate, dtype=float)
+                break
+        if target_core is not None:
+            break
+    if target_core is None:
+        log("overlay: no reference core matches the run's, so the analysis's "
+            "own frame cannot be reconstructed and no overlay is written")
+        return {}
+    # The analysis fits the frame onto the target; the ghost needs the way
+    # back, so this transform is inverted below rather than used as it stands.
+    to_common = traj_mod.superpose(run_core, target_core)
 
     run_motifs = {}
     for motif, residues in (motif_residues or {}).items():
@@ -541,8 +585,10 @@ def write_overlay_bundle(frame, name: str, out_dir, *, rows_by_state,
             theirs_core = ens.motif_coordinates(ca, core_for(code))
             if theirs_core is None or len(theirs_core) != len(run_core):
                 continue
-            transform = traj_mod.superpose(
-                np.asarray(theirs_core, dtype=float), run_core)
+            # Own frame to common, the same fit `align_to_common_frame` made.
+            own_to_common = traj_mod.superpose(
+                np.asarray(theirs_core, dtype=float), target_core)
+            transform = _common_to_run(own_to_common, to_common)
 
             per_motif, weighted, weight = {}, 0.0, 0
             for motif, residues in (motifs_for(code) or {}).items():
@@ -569,7 +615,13 @@ def write_overlay_bundle(frame, name: str, out_dir, *, rows_by_state,
                 for motif in per_motif
                 if ((motif_records or {}).get(motif) or {}).get(
                     f"nearest_{state}") == code)
-            ranking = (-claimed, score)
+            # Verifiable first, then best. Not "claims the most", which chose
+            # beta2AR's 9CHU: nearest for TM5 at 1.6 A and 27 A away on average
+            # over its motifs, because a motif it reads in the wrong place is
+            # never the minimum of anything and so never hurts the analysis,
+            # which takes a minimum per motif. An overlay draws one whole
+            # structure, so it has no such protection.
+            ranking = (0 if claimed else 1, score)
             if best is None or ranking < best["ranking"]:
                 best = {"code": code, "score": score, "transform": transform,
                         "per_motif": per_motif, "path": Path(path),
@@ -618,6 +670,26 @@ def write_overlay_bundle(frame, name: str, out_dir, *, rows_by_state,
             f"{best['score']:.2f} A, {checked} motif(s) agree with the "
             f"analysis to {OVERLAY_TOLERANCE_A} A")
     return out
+
+
+def _common_to_run(own_to_common, run_to_common):
+    """Compose "own frame to common" with the inverse of "run frame to common".
+
+    `superpose` returns a rotation and the two centroids rather than a matrix,
+    and the inverse of `(x - a) R^T + b` is `(y - b) R + a`. Composing the two
+    by hand would be four centroids and two rotations to keep straight, so this
+    returns a callable pair in the same shape `apply_transform` takes, built
+    from one combined rotation and one combined offset.
+    """
+    import numpy as np
+
+    rotation_a, centre_a, target_a = own_to_common
+    rotation_b, centre_b, target_b = run_to_common
+    # own -> common:  (x - centre_a) @ Ra.T + target_a
+    # common -> run:  (y - target_b) @ Rb + centre_b
+    combined = rotation_b.T @ rotation_a
+    offset = (target_a - target_b) @ rotation_b + centre_b
+    return combined, centre_a, offset
 
 
 def _write_transformed(best, out_dir, name: str, state: str):
@@ -1110,7 +1182,7 @@ def main() -> int:
             motif_records={m["motif"]: m
                            for m in (run.frames[0].as_row().get("motifs") or [])
                            if isinstance(m, dict) and m.get("motif")},
-            **overlay_inputs)
+            built=built, **overlay_inputs)
     # The bilayer, if there is one, as its own structure beside the protein.
     viewer["lipids"] = write_lipid_bundle(
         solvated, trajectory, args.name, out_dir,

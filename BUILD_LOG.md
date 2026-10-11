@@ -1153,3 +1153,33 @@ rewritten to assert what D025 protected, that a uniform set loses nobody.
 D031 records it, D025 marked superseded. 1011 passed, 1 skipped.
 
 FINDINGS 4ax. Four tests added.
+
+### 11 October, 14:40 to 15:15
+
+Audit tick, and the overlay check paid for itself three more times.
+
+Verify is green: every stored number agrees with its analysis file and every
+motif metric has a reading, so the streaming pass has re-ingested both rows on
+the new code.
+
+beta2AR's overlays were both refused, TM5 measuring 1.6735 A against a stored
+1.6797. Mine, not the data's: `traj.analyse` superposes the frame once onto one
+target core and measures every reference in that common frame, where I was
+fitting each reference onto the run directly. The ghost now follows the same
+two-hop path, own frame to common to run, so the distance is identical by
+construction. A separate test checks the composition against doing it the long
+way.
+
+That exposed the next: the inactive reference chosen was 9CHU, nearest for TM5
+at 1.6 A and 27 A away averaged over its motifs. A motif read in the wrong
+place never wins a minimum so it never reaches the analysis; an overlay draws
+the whole structure. Selection is now best mean among references nearest for at
+least one motif. beta2AR takes 8GE8 at 1.46 A and 9RKI at 2.62 A.
+
+Open and recorded: abl1_apo's inactive ghost is still refused, 6NPV's hinge
+measuring 0.5593 against 0.5053. The active ghost on the same run verifies, and
+both beta2AR ghosts verify without being the alignment target, so the
+composition is right in general and this is specific. Not found. The tolerance
+stays at 0.005 A: a check tuned until it stops refusing is not a check.
+
+1012 passed, 1 skipped.
