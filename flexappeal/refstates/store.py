@@ -21,6 +21,8 @@ from __future__ import annotations
 import json
 import statistics
 import sqlite3
+
+from .state import DECISIVE_S
 from contextlib import contextmanager
 from pathlib import Path
 from typing import Any, Iterator
@@ -403,6 +405,12 @@ def whole_score(path: Path, run_id: str) -> dict[str, Any]:
         out["start_s"] = start
     if final is not None:
         out["final_s"] = final
-        out["label"] = ("active" if final > 0.2 else
-                        "inactive" if final < -0.2 else "intermediate")
+        # `state.DECISIVE_S`, not a literal. This band is the difference
+        # between "active" and "intermediate" on every page, and it was written
+        # out three times: here, in `web.held`, and as the shaded region in the
+        # run template. Three copies of one threshold is three chances for the
+        # summary label to disagree with the per-frame label it summarises,
+        # silently, with nothing on the page to say which one moved.
+        out["label"] = ("active" if final > DECISIVE_S else
+                        "inactive" if final < -DECISIVE_S else "intermediate")
     return out

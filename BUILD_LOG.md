@@ -794,3 +794,19 @@ Live database: 2,536 rows, no NULL in any, every motif metric with a reading.
 The final pass echoes both verdicts rather than only the round trip's.
 
 FINDINGS 4al. Four tests added, 960 passed, 1 skipped.
+
+### 11 October, 06:22 to 06:55
+
+Section 10's "threshold lines labelled on every plot": the state score plot
+shaded an active and an inactive band and never said where the edge was. Now
+drawn as a dotted line labelled `s = +0.20` and `s = -0.20`.
+
+Fixing the label found the larger fault. `state.DECISIVE_S` was named once and
+written out as a literal three more times: the summary label in `store.py`, the
+pair verdict in `web.py`, and the band shading in the run template. All three
+read the constant now, the template through the view. The test probes the
+behaviour either side of the threshold rather than asserting the source
+contains a name.
+
+FINDINGS 4am. Three tests added, 963 passed, 1 skipped. Screenshot confirms the
+labelled lines.

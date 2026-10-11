@@ -4240,3 +4240,84 @@ def test_a_motif_with_no_frames_at_all_is_caught(tmp_path: Path):
         connection.execute("DELETE FROM motif_frames WHERE motif_id LIKE '%hinge'")
     problems = _cli().verify_live_metrics(database)
     assert problems and any("none of them" in p for p in problems), problems
+
+
+def test_the_state_threshold_has_one_definition():
+    """It was written out three times and named once.
+
+    `state.DECISIVE_S` is the boundary between "active" and "intermediate".
+    `store.summarise` wrote `0.2` as a literal, `web` wrote it twice more in the
+    pair verdict, and the run template shaded its bands at a fourth copy. Three
+    chances for the summary label to disagree with the per-frame label it
+    summarises, silently, with nothing on the page to say which one had moved.
+    """
+    from flexappeal.refstates import state as state_module
+    from flexappeal.refstates import web as web_module
+
+    assert store.DECISIVE_S == state_module.DECISIVE_S
+    assert web_module.DECISIVE_S == state_module.DECISIVE_S
+
+    root = Path(__file__).resolve().parents[1] / "flexappeal" / "refstates"
+    for name in ("store.py", "web.py"):
+        body = (root / name).read_text()
+        assert "DECISIVE_S" in body, f"{name} should use the constant"
+        for line in body.splitlines():
+            if ("0.2" in line and "final_s" in line) or (
+                    "0.2" in line and "final >" in line):
+                raise AssertionError(f"{name} still writes the threshold out: {line}")
+
+
+def _payload_held_at(value: float) -> dict:
+    """A payload where every motif sits at `value` for the whole run.
+
+    `whole_score` labels the residue-weighted mean of the motifs' final-tenth
+    means, so holding all of them at one value makes that mean the value and
+    the label a direct reading of the threshold.
+    """
+    payload = _payload_with_frames(20)
+    for frame in payload["frames"]:
+        for motif in frame["motifs"]:
+            motif["s"] = value
+    return payload
+
+
+def test_the_whole_protein_label_flips_exactly_at_the_threshold(tmp_path: Path):
+    """Probed either side rather than read off the source.
+
+    Asserting that a file contains a constant proves the spelling. This proves
+    the behaviour, which is the thing that would actually drift if a fourth
+    copy of the number appeared somewhere.
+    """
+    from flexappeal.refstates import state as state_module
+
+    edge = state_module.DECISIVE_S
+    for value, expected in ((edge + 0.01, "active"),
+                            (edge - 0.01, "intermediate"),
+                            (-edge - 0.01, "inactive"),
+                            (-edge + 0.01, "intermediate")):
+        database = tmp_path / f"t{value:+.3f}.db"
+        store.ingest_analysis(database, _payload_held_at(value),
+                              system_id="abl1", run_id="abl1_apo",
+                              family="kinase", environment="water")
+        whole = store.whole_score(database, "abl1_apo")
+        assert whole.get("label") == expected, (value, whole)
+        assert abs(whole["final_s"] - value) < 1e-9, whole
+
+
+def test_the_score_plot_draws_and_labels_its_threshold():
+    """Section 10: threshold lines labelled on every plot.
+
+    The shaded regions were named "active-like" and "inactive-like" and the
+    edge between them carried no number, so a reader could see which half a
+    motif was in and not what it took to get there.
+    """
+    root = Path(__file__).resolve().parents[1]
+    body = (root / "flexappeal" / "templates" / "refstates_run.html").read_text()
+    assert "const DECISIVE = {{ decisive_s | tojson }};" in body, (
+        "the band edge should come from the server, not a literal in the page")
+    assert body.count('y0: DECISIVE, y1: DECISIVE') == 1, "the positive line"
+    assert body.count('y0: -DECISIVE, y1: -DECISIVE') == 1, "the negative line"
+    assert 'DECISIVE.toFixed(2)' in body, "the line should carry its value"
+    # And the view has to supply it, or the page renders `undefined`.
+    view = (root / "flexappeal" / "refstates" / "web.py").read_text()
+    assert "decisive_s=DECISIVE_S," in view

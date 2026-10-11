@@ -22,6 +22,7 @@ from typing import Any
 from flask import (Blueprint, abort, current_app, jsonify, render_template,
                    request, send_from_directory, url_for)
 
+from .state import DECISIVE_S
 from ..webapp import _RUN_ID
 
 refstates_bp = Blueprint("refstates", __name__, url_prefix="/refstates")
@@ -156,8 +157,8 @@ def index():
                 # Both on the correct side of the intermediate band is the
                 # result the build is looking for; anything else is reported
                 # as what it is rather than rounded towards it.
-                "held": (active[1]["final_s"] > 0.2
-                         and inactive[1]["final_s"] < -0.2),
+                "held": (active[1]["final_s"] > DECISIVE_S
+                         and inactive[1]["final_s"] < -DECISIVE_S),
             }
 
         cards.append({
@@ -290,6 +291,11 @@ def run(run_id: str):
         sse_rows=sse_agreement(run_id),
         membrane=membrane, summary=summary, finding=finding(run_id),
         active="refstates",
+        # The band boundary the score plot shades, passed rather than written
+        # into the template. It is the same number the label rule uses, and a
+        # plot whose shading disagreed with the labels beside it would be worse
+        # than one with no shading at all.
+        decisive_s=DECISIVE_S,
         core=json.loads(system.get("notes") or "{}").get("core", {}))
 
 

@@ -2698,6 +2698,51 @@ round trip's, because a check whose result never reaches the log is close to a
 check that did not run, and that log is the only account of the pass anyone
 reads.
 
+## 4am. One threshold, written out four times
+
+Section 10's last QC line is "threshold lines labelled on every plot". The
+reference state map draws the published 11 Å criterion and labels it. The state
+score plot shades an active band and an inactive band, names them "active-like"
+and "inactive-like", and never says where the edge is. A reader could see which
+half a motif was in and not what it had taken to get there.
+
+Fixing the label found the larger fault. The edge is `state.DECISIVE_S`, and
+that constant is named once and written out three more times:
+
+    store.py   "active" if final > 0.2 else "inactive" if final < -0.2 ...
+    web.py     active[1]["final_s"] > 0.2 and inactive[1]["final_s"] < -0.2
+    template   y0: 0.2 ... y0: -0.2
+
+The same number, in the summary label, in the pair verdict that decides whether
+the two rows separated, and in the shading of the plot those labels sit beside.
+Three chances for them to disagree with each other and with the per-frame rule
+they are all summarising, and nothing on the page that would say which of them
+had moved. A plot whose shading disagreed with its own labels would be worse
+than one with no shading at all.
+
+All three now read the constant, the template through the view rather than as a
+literal in the page, and the band edge is drawn as a dotted line labelled
+`s = +0.20` and `s = −0.20` at the value the server supplied.
+
+The test for it does not read the source. Asserting that a file contains the
+name `DECISIVE_S` proves the spelling and nothing else, so the behaviour is
+probed either side instead: a run held at `DECISIVE_S + 0.01` labels active,
+one at `DECISIVE_S - 0.01` labels intermediate, and the negative pair likewise.
+Move the constant and the test moves with it; add a fourth copy of the number
+somewhere and the test finds it.
+
+### A note on where the number was wrong to be
+
+Writing it in `store.py` is the kind of duplication that reads as harmless,
+because the two values are the same today and the line is clearer with a number
+in it. What makes it worth undoing is the direction the fault would travel. The
+per-frame label is computed in `state.py` and written to every row. The summary
+label is computed in `store.py` from the mean of those rows. If the two
+thresholds parted, every frame of a run could be labelled active while the run
+itself was labelled intermediate, and both numbers would be internally
+consistent, round-trip verified, and drawn on a page that offered no way to
+tell they came from different rules.
+
 ## 5. Production runs
 
 Tier 2 started at 17:04 on 10 October, in section 5.3's priority order: β2AR
