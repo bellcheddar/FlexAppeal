@@ -278,7 +278,25 @@ def frames(run_id: str):
                                for i in order]
                         for name in metrics_seen},
         }
-    return jsonify({"run_id": run_id, "motifs": series})
+    # Section 5.6's whole-protein score, residue-weighted, with the smoothed
+    # version beside it rather than instead of it: the spec asks for smoothing
+    # "for display only" and for the raw values to be what is stored.
+    whole: dict[str, Any] = {}
+    path = analysis_file(run_id)
+    if path.is_file():
+        try:
+            payload = json.loads(path.read_text())
+        except json.JSONDecodeError:
+            payload = {}
+        raw = payload.get("whole_s_raw")
+        if raw:
+            times = [f.get("time_ns") for f in payload.get("frames") or []]
+            whole = {"time_ns": times[:len(raw)], "raw": raw,
+                     "smoothed": payload.get("whole_s_smoothed"),
+                     "window_ns": payload.get("smoothing_window_ns"),
+                     "skipped": payload.get("smoothing_skipped")}
+
+    return jsonify({"run_id": run_id, "motifs": series, "whole": whole})
 
 
 @refstates_bp.get("/references/<system_id>")

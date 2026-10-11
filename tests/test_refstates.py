@@ -1707,3 +1707,57 @@ def test_the_sse_panel_shows_the_margin_and_withholds_an_undecided_lean(tmp_path
     assert by_motif["decides"]["leans"] == "active"
     assert by_motif["undecided"]["decisive"] is False
     assert by_motif["undecided"]["margin"] == pytest.approx(0.024)
+
+
+def test_the_whole_protein_series_reaches_the_plot_with_both_versions(tmp_path: Path):
+    """Section 5.6 wants the smoothed line for display and the raw stored.
+
+    Both are served, and the time axis has to be the same length as the series
+    or the plot silently drops points off one end.
+    """
+    import json as _json
+
+    from flexappeal.refstates import web
+    from flexappeal.webapp import create_app
+
+    path = tmp_path / "t.db"
+    store.ingest_analysis(path, _analysis_payload(), system_id="s", run_id="r",
+                          family="kinase", environment="water")
+    analysis = tmp_path / "analysis"
+    analysis.mkdir()
+    (analysis / "r.json").write_text(_json.dumps({
+        "frames": [{"time_ns": t / 10.0} for t in range(40)],
+        "whole_s_raw": [0.1 + t * 0.001 for t in range(40)],
+        "whole_s_smoothed": [0.12 + t * 0.001 for t in range(40)],
+        "smoothing_window_ns": 2.0,
+    }))
+
+    app = create_app()
+    app.config["REFSTATES_DB"] = str(path)
+    original = web.analysis_file
+    web.analysis_file = lambda run_id: analysis / f"{run_id}.json"
+    try:
+        payload = app.test_client().get("/refstates/run/r/frames.json").get_json()
+    finally:
+        web.analysis_file = original
+
+    whole = payload["whole"]
+    assert len(whole["raw"]) == 40
+    assert len(whole["smoothed"]) == 40
+    assert len(whole["time_ns"]) == len(whole["raw"]), (
+        "the time axis and the series must be the same length")
+    assert whole["window_ns"] == pytest.approx(2.0)
+
+
+def test_a_run_with_no_analysis_file_still_serves_its_motifs(tmp_path: Path):
+    """The whole series is additive: without it the motif lines still plot."""
+    from flexappeal.webapp import create_app
+
+    path = tmp_path / "t.db"
+    store.ingest_analysis(path, _analysis_payload(), system_id="s", run_id="r",
+                          family="kinase", environment="water")
+    app = create_app()
+    app.config["REFSTATES_DB"] = str(path)
+    payload = app.test_client().get("/refstates/run/r/frames.json").get_json()
+    assert payload["motifs"], "the motif series must survive a missing analysis file"
+    assert payload["whole"] == {}

@@ -188,10 +188,21 @@
   <details class="md-readmore">
     <summary>How to read this</summary>
     <p>
-      One line per motif. Above +0.2 the geometry is calling the motif
-      active-like and below &minus;0.2 inactive-like; between them it is
-      intermediate, and the bands are drawn to show that. Raw per-frame values,
-      not smoothed.
+      One line per motif, with the <strong>whole-protein score</strong> drawn in
+      black on top: it is the residue-weighted mean of the motif scores, so a
+      twenty-residue loop counts for more than a single tryptophan. Above +0.2
+      the geometry is calling a motif active-like and below &minus;0.2
+      inactive-like; between them it is intermediate, and the bands are drawn to
+      show that.
+    </p>
+    <p>
+      Where the run is long enough, the black line is a centred
+      {{ "%.0f"|format(2) }} ns mean and the raw per-frame values are the faint
+      line behind it. The smoothing is for reading the plot only: what is stored
+      and what every number in the tables comes from is the raw series. On a run
+      shorter than twice the window the smoothing is skipped rather than drawn,
+      because a window wider than the data collapses every point to one value
+      and that draws as a flat trace.
     </p>
   </details>
 </section>
@@ -373,8 +384,31 @@
   }
   const traces = Object.entries(payload.motifs).map(([id, series]) => ({
     x: series.time_ns, y: series.s, mode: "lines",
-    name: id.split(":").pop(), hovertemplate: "%{y:+.3f} at %{x:.1f} ns<extra>%{fullData.name}</extra>",
+    name: id.split(":").pop(), opacity: 0.65, line: {width: 1.5},
+    hovertemplate: "%{y:+.3f} at %{x:.1f} ns<extra>%{fullData.name}</extra>",
   }));
+  // The whole-protein score last, so it draws on top of the motifs it is the
+  // weighted mean of. Section 5.6 wants the breakdown shown beside it rather
+  // than replaced by it, so the motifs stay and are drawn back.
+  const whole = payload.whole || {};
+  if (whole.raw && whole.raw.length) {
+    const smoothed = whole.smoothed;
+    traces.push({
+      x: whole.time_ns, y: whole.raw, mode: "lines",
+      name: smoothed ? "whole protein (raw)" : "whole protein",
+      line: {color: "#14161f", width: smoothed ? 1 : 2.5},
+      opacity: smoothed ? 0.35 : 1,
+      hovertemplate: "%{y:+.3f} at %{x:.1f} ns<extra>whole protein</extra>",
+    });
+    if (smoothed) {
+      traces.push({
+        x: whole.time_ns, y: smoothed, mode: "lines",
+        name: `whole protein (${whole.window_ns} ns mean)`,
+        line: {color: "#14161f", width: 2.5},
+        hovertemplate: "%{y:+.3f} at %{x:.1f} ns<extra>smoothed</extra>",
+      });
+    }
+  }
   if (!traces.length) { target.textContent = "No scored motifs in this run."; return; }
   Plotly.newPlot(target, traces, {
     margin: {l: 56, r: 16, t: 8, b: 44},
