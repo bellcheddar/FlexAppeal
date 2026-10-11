@@ -2814,6 +2814,26 @@ was in the right image and in several pieces. Reaching for the same fix for
 both is what produced a 269 Å bilayer, and the only reason it was caught is
 that the regenerated bundle was measured rather than assumed to be better.
 
+### Confirmed on the live run
+
+The streaming pass at 07:53 rebuilt both bundles, and this is what they now
+measure:
+
+    receptor   26 frames, span   60.3  60.8  96.6 Å
+    bilayer    26 frames, span  126.2 133.6  62.3 Å
+
+The receptor's y span is 60.8 Å against 186.7 before. The bilayer's x and y
+spans are one box across, which is what a patch should be, and its z span is
+62.3 Å against 120.1. Its centre follows the receptor's frame by frame
+(130.5 against 131.1, 131.5 against 131.6, and so on), and every phosphorus
+sits within half a box of the receptor's centre in all three directions, which
+is the definition of having been imaged around it.
+
+On the page: the receptor draws as a seven-helix bundle seen down the membrane
+normal with helix 8 trailing off it, and with section 6.2's toggle on it sits
+in the middle of a contiguous field of phosphorus rather than beside a
+half-field. No console errors at either state of the toggle.
+
 Two smaller things fell out. The viewer trajectory is now copied before being
 moved, because `loaded` is the trajectory every metric is measured on and a
 function that reached back into it to tidy up a picture would be the wrong

@@ -851,3 +851,14 @@ lipids wrapped in z that the first attempt never touched: y centre now tracks
 the receptor and z span falls from 120 A to 62.
 
 FINDINGS 4an corrected rather than appended to. 970 passed, 1 skipped.
+
+Confirmed at 07:53 on the rebuilt bundles: receptor y span 60.8 A (was 186.7),
+bilayer z span 62.3 A (was 120.1), bilayer centre following the receptor's
+frame by frame, every phosphorus within half a box of it. On the page the
+receptor draws as a seven-helix bundle down the membrane normal, and with the
+section 6.2 toggle on it sits inside a contiguous field of phosphorus. No
+console errors either way.
+
+Also checked: GATE_OPEN.md names all four gates that apply, which is section
+8's phase 7 requirement. G4 open and pushed, G3 waiting, G1 will not open,
+G2 not needed.
