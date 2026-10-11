@@ -1050,3 +1050,26 @@ config/benchmarks.toml is written by hwprobe in the final pass so its staleness
 between passes is expected.
 
 FINDINGS 4at. Two tests added, 994 passed, 1 skipped.
+
+### 11 October, 13:09 to 13:35
+
+The committed figures in `data/figures/` were drawn at 04:04 by a version of
+`tools/make_figures.py` that no longer exists: bands from zero rather than
+`DECISIVE_S`, no half-means. The final pass regenerates them and does not run
+for two more days, so the repository was showing superseded output that
+FINDINGS describes. Regenerated: four of seven changed, three byte-identical
+because abl1_apo has produced no frames while it waits in the queue.
+
+A test now compares the last commit date of the script against the last commit
+date of the directory. Written first against file mtimes, which a checkout
+destroys, so it meant whatever order git unpacked things in. It failed on being
+written, correctly, and passes once both go in together.
+
+GATE_OPEN's acceptance table updated: it said six figures where there are
+seven, and it now records tonight's guarantees as their own rows, including
+section 10's all-NaN rule, the threshold labelling and the prose check, the
+short-row recording, --require-platform, the streaming grace and the periodic
+correction.
+
+FINDINGS 4au. One test added. 994 passed with the new test red until this
+commit lands, which is the state it is asserting about.

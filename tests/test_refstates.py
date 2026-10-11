@@ -5017,3 +5017,44 @@ def test_the_published_dfg_cut_has_one_definition():
     assert '"published_threshold": 11.0' not in view
     body = (root / "kinase.py").read_text()
     assert "cutoff = DFG_PUBLISHED_A" in body
+
+
+def test_the_committed_figures_are_not_older_than_the_code_that_draws_them():
+    """They were, by nine hours and three changes to the drawing.
+
+    `data/figures/` is committed, so it is what anyone browsing the repository
+    sees, and the final pass that regenerates it does not run until the queue
+    drains. Between the two, the repository can show a figure drawn by code
+    that no longer exists: the committed set shaded its bands from zero rather
+    than from `DECISIVE_S` and carried no half-means, both of which the
+    document beside them describes.
+
+    Compared on commit dates and not on mtimes. A checkout gives every file the
+    time it was written to disk, so an mtime comparison here would mean
+    whatever order git happened to unpack them in, which is a test that passes
+    or fails for no reason. What git does keep is when each path was last
+    committed, and "the drawing changed after the drawings did" is exactly the
+    question.
+    """
+    import subprocess
+
+    root = Path(__file__).resolve().parents[1]
+    if not (root / ".git").exists():
+        pytest.skip("not a git checkout")
+    if not list((root / "data" / "figures").glob("*.png")):
+        pytest.skip("no figures committed in this checkout")
+
+    def last_commit(path: str) -> int:
+        done = subprocess.run(
+            ["git", "log", "-1", "--format=%ct", "--", path],
+            cwd=root, capture_output=True, text=True)
+        return int(done.stdout.strip() or 0)
+
+    script = last_commit("tools/make_figures.py")
+    figures = last_commit("data/figures")
+    if not script or not figures:
+        pytest.skip("no history for one of the two paths")
+    assert figures >= script, (
+        "tools/make_figures.py was committed after the figures it draws, so "
+        "data/figures/ is showing output from code that no longer exists; "
+        "run it and commit the result")

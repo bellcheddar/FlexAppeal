@@ -3111,6 +3111,40 @@ paths the explorer reads are still not in the exclude list. The second had to
 be scoped to lines that are not comments, because the script's own explanation
 of why not to use the gitignore filter contains the gitignore filter.
 
+## 4au. The committed figures were drawn by code that no longer existed
+
+`data/figures/` holds seven PNGs and they are committed, which is the point of
+them: section 11 asks for FINDINGS with figures, and a figure nobody can see
+without running a tool is not one. The final pass regenerates them, and the
+final pass does not run until the queue drains, which is about two more days.
+
+In between, the repository was showing figures drawn at 04:04 by a version of
+`tools/make_figures.py` that no longer exists. Their bands were shaded from
+zero rather than from `DECISIVE_S`, they carried no half-means, and the text
+beside them in this document described both. Four of the seven changed when
+regenerated; the other three are byte-identical, which is right, because
+`abl1_apo` has produced no new frames while it waits in the queue and the
+bilayer still has the same two chunks.
+
+The gate table also said "6 committed" where there are seven.
+
+### A test that had to be written twice
+
+The obvious check is that no figure is older than the script. Written against
+file mtimes it is worthless: a checkout writes every file at checkout time, so
+the comparison means whatever order git happened to unpack them in, and a test
+that passes or fails for no reason is worse than no test because it teaches
+people to ignore a red suite.
+
+What git does keep is when each path was last committed, and the question
+"was the drawing changed after the drawings were" is exactly a comparison of
+those two. So it asks `git log -1 --format=%ct` for `tools/make_figures.py` and
+for `data/figures`, and skips rather than guesses outside a checkout.
+
+It failed on being written, correctly: the script had been committed four times
+tonight and the figures had not been regenerated since. It passes once both go
+in together, which is the workflow it exists to enforce.
+
 ## 5. Production runs
 
 Tier 2 started at 17:04 on 10 October, in section 5.3's priority order: β2AR
