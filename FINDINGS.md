@@ -1417,6 +1417,19 @@ moved towards the inactive state so much as relaxed out of an agonist-bound
 one. Two motifs disagreeing in this way is more informative than a single
 whole-protein number, and is the reason section 2 kept the scores per motif.
 
+**And it is a working argument for not classifying on a threshold.** Over the
+first 8.5 ns the TM3-TM6 distance runs from **11.17 to 15.32 Å**, mean 13.02,
+and one frame is already below the 11.39 Å cleft threshold that section 1.2b
+fitted. A classifier that read the state off that one distance would therefore
+call a frame of this run inactive, eight nanoseconds into a receptor that is
+active-like on every other measure: NPxxY sits at +0.63, TM6 at +0.49, TM7 at
++0.48. The ensemble score does not, because it asks how far the motif is from
+the nearest active and the nearest inactive structure rather than which side of
+a line it falls. The threshold earns its place classifying crystal structures,
+where the two clusters are 7 Å apart and nothing sits between them. A
+trajectory does sit between them, which is the whole reason it is interesting,
+and that is where a single cut stops being informative.
+
 ### 5.1 Measured speeds
 
 | row | atoms | ns/day |

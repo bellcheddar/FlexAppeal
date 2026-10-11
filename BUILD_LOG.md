@@ -404,3 +404,37 @@ Timestamped, one line per meaningful event, for the reference-state build
   number. Both counts are now logged, D020 is corrected, and the About page
   says it too, because an active score being the distance to the nearest of
   five crystal structures is something a reader needs.
+- `00:3x` Fourteen streaming passes had printed `membrane 0 rows` on a POPC run.
+  That part was deliberate: the streaming loop passes `--skip-membrane`. What it
+  meant was that the final pass had never once run on this trajectory, so I
+  rehearsed it against a scratch database and found three faults waiting for the
+  finished row. The tilt column was a dash and always would have been, because
+  `analyse_chunk` takes `tm_ca_indices` optionally and nothing ever passed it.
+  With it passed the first number was 25 degrees, for a receptor built square in
+  the membrane: the measurement fitted a principal axis to a Calpha cloud that
+  is 40 by 45 by 37 angstrom, ratio 1.15, so it was fitting noise. Section 4.3
+  already had the right definition, the mean of the seven TM helix axes, which
+  gives 6.7 degrees as built and 13.5 over the first 7.6 ns. The old function
+  was correct for one helix, which is what both its tests fed it, so it was
+  split in two rather than deleted. And the panel showed five numbers with no
+  verdict against two windows, which is not a panel a user can read the
+  bilayer's health off.
+- `00:4x` `python -m flexappeal.refstates.cli` had never been run. It dies on
+  `NameError: name 'controls' is not defined` for any argument, because the
+  `__main__` guard sat above the subcommand functions. 896 tests never saw it,
+  since importing the module defines everything first, and nor did the
+  `FlexAppeal.py refstates` wrapper, which imports `main` rather than running
+  the script. The only broken path was the one a user would take. `build` was
+  missing from the surface too.
+- `00:5x` FINDINGS had no figures, which section 11 asks for by name, and no
+  limitations section, which it also names. `tools/make_figures.py` now draws
+  them from the explorer database, going through the page's own map endpoint so
+  a figure cannot disagree with the page. The kinase map paid for itself
+  immediately: with the published 11.0 A cut drawn on both axes, which is where
+  the criterion applies it, D010's six disagreements are visibly sitting a
+  tenth of an angstrom the wrong side of the horizontal line. The receptor map
+  showed something I had not measured: `b2ar_apo` runs at a TM3-TM6 distance of
+  11.17 to 15.32 A against an active cluster at 15.3 to 16.5, and one frame is
+  already below the 11.39 A threshold. A single-cut classifier would call that
+  frame inactive on a receptor that is active-like on every other motif, which
+  is the clearest argument yet for scoring against ensembles rather than lines.
