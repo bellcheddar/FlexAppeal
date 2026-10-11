@@ -3997,6 +3997,69 @@ different and answerable question.
 
 ---
 
+### 5.6 The first finished row, and the answer 5.2 was waiting for
+
+`b2ar_apo` completed its 50 ns at 17:36 on 11 October, 13.27 hours of wall clock
+at 59.7 ns/day on OpenCL single precision, 194,032 atoms. It is the first of the
+four production rows to finish, and the first to be analysed with the bilayer QC
+rather than with `--skip-membrane`, so these are final numbers and not a
+streaming pass's view of a partial trajectory.
+
+**The bilayer settles inside the expected window.** Section 5.2 measured area
+per lipid at 68.4 Å², 0.4 Å² outside the window and still falling, and said the
+per-chunk series over a 50 ns row would say whether it settled. It does:
+
+| chunk | area per lipid | P–P thickness | tilt | core waters |
+|---|---|---|---|---|
+| 0 to 10 ns | 68.05 Å² | 38.42 Å | 13.6° | 54.4 |
+| 10 to 20 ns | 67.23 Å² | 38.86 Å | 15.4° | 49.4 |
+| 20 to 30 ns | 67.00 Å² | 38.94 Å | 13.2° | 40.6 |
+| 30 to 40 ns | 66.93 Å² | 39.01 Å | 14.3° | 38.7 |
+| 40 to 50 ns | 66.23 Å² | 39.35 Å | 9.6° | 28.1 |
+| **mean** | **67.09 Å²** | **38.92 Å** | | |
+
+Both means are inside the **expected** windows, 60 to 68 Å² and 36 to 41 Å,
+not merely inside the acceptable ones, and every change is monotonic and in the
+direction a compacting bilayer should move: area per lipid falls, thickness
+rises, and the count of waters in the hydrophobic core drops by half as the
+leaflets close up. Only the first chunk is outside expected, by 0.05 Å², which
+is the chunk `gate_six` was written to tolerate. G6 is closed.
+
+**The state result, over all 499 scored frames:**
+
+| motif | start | final tenth | sd | first half | second half |
+|---|---|---|---|---|---|
+| H8 | +0.473 | +0.252 | 0.151 | +0.199 | +0.214 |
+| NPxxY | +0.678 | +0.766 | 0.067 | +0.718 | +0.755 |
+| TM5 | −0.012 | −0.144 | 0.124 | +0.000 | −0.087 |
+| TM6 | +0.534 | +0.331 | 0.090 | +0.432 | +0.353 |
+| TM7 | +0.377 | +0.461 | 0.063 | +0.411 | +0.427 |
+
+Whole protein, residue weighted: **+0.319 at the start, +0.218 over the final
+tenth**, labelled active in 402 of 499 frames and intermediate in the other 97.
+**No frame produced a single conflict**, in 2,495 motif-frames: the geometric
+label and the published rule agreed everywhere in this run.
+
+**TM5 is the one motif that changed sign, and 5.0c got its direction wrong.**
+At 30.8 ns TM5's final tenth read −0.014 and 5.0c recorded it as flat. Over the
+full run it reaches −0.144 on the final tenth and −0.087 over the second half,
+and it spends 45 frames labelled inactive against 17 active. So the drift 5.0c
+could not see at 30 ns is real and it is TM5's. Everything else holds or
+strengthens: NPxxY ends at +0.766 and is labelled active in all 499 frames, TM7
+at +0.461 and likewise all 499, and TM6 stays active in 488.
+
+That combination is the result worth stating plainly. The hallmark of the active
+receptor, the NPxxY motif at the bottom of TM7, does not loosen at all over
+50 ns without an agonist, while TM5 drifts towards the inactive ensemble and H8
+loses half its margin. The whole-protein number, +0.289 at the final frame,
+reports none of that, which is the same lesson 5.0b recorded at 14.6 ns and the
+reason the per-motif timelines exist.
+
+**What this row cannot say.** 50 ns is two to three orders of magnitude short of
+the microsecond relaxation β2AR's active-to-inactive transition was observed on,
+so TM5's drift is a beginning and not a transition, and one replica cannot
+separate it from an excursion. Section 7 holds the rest.
+
 ## 6. The positive controls
 
 Section 9 names six. **Five are decided** and one is pending on data that is

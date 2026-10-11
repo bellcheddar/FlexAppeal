@@ -1144,3 +1144,46 @@ is what every page shows.
 Reproducing GPCRdb's number approximately and calling it the activation index
 would be worse than not having it: it would carry a name a reader could look up
 and a value that would not match what they found.
+
+---
+
+## D033: the DFG dihedral label is N/A, because its regions are clusters and not cutoffs
+
+Section 5.4's table lists a "DFG dihedral label (optional)", to be produced by
+"Kincore standalone on X-DFG backbone and Phe chi1", giving "BLAminus etc., or
+`N/A`". Unlike the activation index in [[D032]] the spec offers `N/A` outright,
+so this is a record of why that is the branch taken rather than a refusal to
+meet a condition.
+
+**The naming scheme is published and unambiguous.** Modi and Dunbrack (PNAS
+2019, 116, 6818, doi 10.1073/pnas.1814279116) label a kinase by the Ramachandran
+region of the X, D and F residues of the XDFG motif followed by the Phe chi1
+rotamer: BLAminus is the active state, ABAminus active-like, BLBplus the
+CDK/Src-inactive one, BBAminus the classical DFG-out that type-2 inhibitors
+bind, BABtrans the intermediate. The letters stand for "A" alpha-helical, "B"
+beta-sheet and "L" left-handed helical, and the rotamers for the nominal -60,
++60 and 180 degree chi1.
+
+**What is not published is any boundary.** The regions are not defined by
+degree ranges. The authors clustered the phi/psi pairs with DBSCAN at
+eps = 0.05 and MinPts = 20 and then annotated the clusters they got, so
+membership is decided by a fitted clustering over their own structure set, not
+by a threshold a reader can apply. The paper states the rotamer values as
+nominal centres with no tolerance either, and it notes that some CDK2 chains sit
+near chi1 = -100 degrees, between g-minus and trans, without saying which way
+such a chain is called. Both parts of the label therefore need numbers the
+primary source does not contain.
+
+Implementing it would mean inventing the cutoffs and presenting the result under
+a name a reader can look up, which is the fault [[D032]] turns on: a label such
+as "BLAminus" carries the authority of the published scheme, and a frame this
+build called BLAminus by boundaries of its own choosing could be called
+something else by Kincore itself. The honest options are to run Kincore, which
+is not a dependency of this build, or to report `N/A`.
+
+**So `N/A` it is, and the state is read by the measurements that do have
+published, verifiable criteria**: the DFG two-distance test, recalibrated in
+section 1.1 with the recalibration shown, and the geometric distance to the
+KLIFS-labelled reference ensembles. Those already separate ABL1's DFG-in and
+DFG-out references 17 of 17, which is what the dihedral label would have been
+asked to corroborate.
