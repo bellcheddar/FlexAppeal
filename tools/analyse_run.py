@@ -21,6 +21,10 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
+# The interval run_md.py saves frames at. One definition, because a mismatch
+# would silently rescale every time axis in the analysis.
+FRAME_PS = 100.0
+
 KLIFS_CACHE = ROOT / "data" / "cache" / "klifs"
 GPCRDB_CACHE = ROOT / "data" / "cache" / "gpcrdb"
 
@@ -41,7 +45,7 @@ def log(message: str) -> None:
 def kinase_setup(start_pdb: Path, reference_pdb: str):
     """Motif residues, core and reference ensembles for a kinase run."""
     from flexappeal.refstates import Catalogue, kinase_id, kinase_references
-    from flexappeal.refstates import ensembles, pocket, refs
+    from flexappeal.refstates import ensembles, pocket, refs, sse
     from flexappeal.refstates.traj import core_agreement, scaffold_core
 
     catalogue = Catalogue(KLIFS_CACHE)
@@ -154,6 +158,16 @@ def kinase_setup(start_pdb: Path, reference_pdb: str):
     built = ensembles.build(rows, motif_residues_for=motifs_for,
                             core_residues_for=core_for)
 
+    # Section 5.6's SSE comparison against the reference ensembles, built per
+    # motif because that is the only level at which the kinase references are
+    # reliably aligned: each one's residues come from its own pocket map.
+    sse_profiles = sse.motif_profiles(rows, motif_residues_for=motifs_for,
+                                      motifs=sorted(motif_residues),
+                                      cache_dir=GPCRDB_CACHE)
+    log("  reference secondary structure: "
+        + ", ".join(f"{state} {len(by_motif)} motifs"
+                    for state, by_motif in sorted(sse_profiles.items())))
+
     alignment = ensembles.align_to_common_frame(built)
     log(f"aligned {alignment['n_aligned']} references onto "
         f"{alignment['target']}: core residual mean "
@@ -167,7 +181,8 @@ def kinase_setup(start_pdb: Path, reference_pdb: str):
         f"{agreement.get('mean_rmsd_a')} A, worst {agreement.get('max_rmsd_a')} A "
         f"({agreement.get('worst')})")
     return motif_residues, core, built, own, {"rigidity": agreement,
-                                              "alignment": alignment}
+                                              "alignment": alignment,
+                                              "sse_profiles": sse_profiles}
 
 
 def gpcr_setup(start_pdb: Path):
@@ -181,7 +196,7 @@ def gpcr_setup(start_pdb: Path):
     import gemmi
 
     from flexappeal.refstates import (Catalogue, ensembles, receptor_references,
-                                      receptor_residues, refs)
+                                      receptor_residues, refs, sse)
     from flexappeal.refstates.gpcr import NPXXY, build_numbering
     from flexappeal.refstates.traj import core_agreement, gpcr_core
 
@@ -255,6 +270,12 @@ def gpcr_setup(start_pdb: Path):
 
     built = ensembles.build(rows, motif_residues_for=motifs_for,
                             core_residues_for=core_for)
+    sse_profiles = sse.motif_profiles(rows, motif_residues_for=motifs_for,
+                                      motifs=sorted(motif_residues),
+                                      cache_dir=GPCRDB_CACHE)
+    log("  reference secondary structure: "
+        + ", ".join(f"{state} {len(by_motif)} motifs"
+                    for state, by_motif in sorted(sse_profiles.items())))
     alignment = ensembles.align_to_common_frame(built)
     log(f"aligned {alignment['n_aligned']} references onto "
         f"{alignment['target']}: core residual mean "
@@ -276,6 +297,7 @@ def gpcr_setup(start_pdb: Path):
             f"{min(npxxy.values()):.2f} to {max(npxxy.values()):.2f} A")
     return (motif_residues, core, built, numbering,
             {"rigidity": rigidity, "alignment": alignment,
+             "sse_profiles": sse_profiles,
              "map_axis": {"motif": "NPxxY", "against": "inactive",
                           "values": npxxy}})
 
@@ -522,6 +544,31 @@ def main() -> int:
         f"{viewer['frame_ns']:.1f} ns, {viewer['bytes'] / 1e6:.1f} MB")
     payload = run.as_row()
     payload["viewer"] = viewer
+
+    # Section 5.6 asks for a centred 2 ns window "for display only", with the
+    # raw values stored. Both are written: the raw series is in `frames` and
+    # the smoothed one beside it, so a plot can use the smooth version without
+    # the stored numbers having been altered.
+    from flexappeal.refstates.state import SMOOTH_WINDOW_NS, smooth
+
+    whole = [f.whole_s for f in run.frames]
+    if any(v is not None for v in whole):
+        payload["whole_s_raw"] = [None if v is None else round(v, 4)
+                                  for v in whole]
+        # Only when the run is longer than the window. A 2 ns centred window on
+        # a 1 ns run averages the whole series into one value repeated, which
+        # looks like a flat trace rather than like a window too wide to apply.
+        span_ns = len(whole) * FRAME_PS / 1000.0
+        if span_ns > 2.0 * SMOOTH_WINDOW_NS:
+            payload["whole_s_smoothed"] = [
+                None if v is None else round(v, 4)
+                for v in smooth(whole, frame_ps=FRAME_PS)]
+            payload["smoothing_window_ns"] = SMOOTH_WINDOW_NS
+        else:
+            payload["smoothing_skipped"] = (
+                f"run is {span_ns:.1f} ns against a "
+                f"{SMOOTH_WINDOW_NS} ns window")
+
     if dssp_payload:
         payload["dssp"] = dssp_payload
     payload["ensembles"] = {state: e.as_row() for state, e in built.items()}

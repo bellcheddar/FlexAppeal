@@ -212,3 +212,126 @@ def dssp_rows(traj, simplified: bool = False):
     protein = traj.topology.select("protein")
     sliced = traj.atom_slice(protein) if len(protein) < traj.n_atoms else traj
     return md.compute_dssp(sliced, simplified=simplified)
+
+
+# ===========================================================================
+#  Reference secondary structure
+# ===========================================================================
+
+
+def structure_dssp(path, residues: list[int]) -> list[str]:
+    """DSSP labels for chosen residue numbers of one structure file.
+
+    Returned in the order `residues` was given, with `NA` where the residue is
+    absent, so the result lines up with the caller's list and a gap stays a gap
+    rather than shifting everything after it.
+
+    Keyed on the deposited residue number rather than on position, because the
+    references do not share a numbering: ABL1's are split between two schemes
+    19 residues apart, and a positional read would compare different residues.
+    """
+    import mdtraj as md
+
+    try:
+        loaded = md.load(str(path))
+    except Exception:                                           # noqa: BLE001
+        return [UNASSIGNED] * len(residues)
+
+    protein = loaded.topology.select("protein")
+    if len(protein) == 0:
+        return [UNASSIGNED] * len(residues)
+    sliced = loaded.atom_slice(protein)
+    try:
+        labels = md.compute_dssp(sliced, simplified=False)[0]
+    except Exception:                                           # noqa: BLE001
+        return [UNASSIGNED] * len(residues)
+
+    by_number: dict[int, str] = {}
+    for position, residue in enumerate(sliced.topology.residues):
+        if position < len(labels):
+            by_number[int(residue.resSeq)] = str(labels[position])
+    return [by_number.get(number, UNASSIGNED) for number in residues]
+
+
+def motif_profiles(references: dict[str, list[dict]], *,
+                   motif_residues_for, motifs: list[str],
+                   cache_dir=None
+                   ) -> dict[str, dict[str, dict[int, Counter]]]:
+    """Per state, per motif, how many references show each SSE class per residue.
+
+    This is what section 5.6's comparison needs: "per residue, the fraction of
+    active references and inactive references sharing the frame's SSE class".
+    Built per motif rather than whole-chain because that is the only level at
+    which the references are reliably aligned, each one's motif residues coming
+    from its own pocket map or residue table.
+
+    Cached on disk, and that is not an optimisation so much as a requirement:
+    running DSSP over 116 receptor references takes minutes, and the streaming
+    analysis in section 2.3 re-runs every half hour while production is going.
+    The labels are a property of the deposited structures and never change, so
+    the first pass pays for it and the rest do not. The key covers the residues
+    asked for as well as the codes, so a change to a motif's span invalidates
+    it rather than silently reusing labels for different residues.
+    """
+    import hashlib
+    import json as _json
+    from pathlib import Path as _Path
+
+    raw: dict[str, dict[str, dict[str, list[str]]]] = {}
+    key_parts = []
+    for state in sorted(references):
+        for row in references[state]:
+            code = str(row["pdb"]).upper()
+            wanted = motif_residues_for(code) or {}
+            for motif in motifs:
+                residues = wanted.get(motif)
+                if residues:
+                    key_parts.append(f"{state}:{code}:{motif}:"
+                                     f"{residues[0]}-{residues[-1]}:{len(residues)}")
+
+    cache_path = None
+    if cache_dir is not None:
+        digest = hashlib.sha256("|".join(sorted(key_parts)).encode()).hexdigest()[:20]
+        cache_path = _Path(cache_dir) / f"sse_{digest}.json"
+        if cache_path.is_file():
+            try:
+                raw = _json.loads(cache_path.read_text())
+            except _json.JSONDecodeError:
+                cache_path.unlink(missing_ok=True)
+                raw = {}
+
+    if not raw:
+        raw = {}
+        for state, rows in references.items():
+            per_motif: dict[str, dict[str, list[str]]] = {}
+            for row in rows:
+                code = str(row["pdb"]).upper()
+                wanted = motif_residues_for(code) or {}
+                for motif in motifs:
+                    residues = wanted.get(motif)
+                    if not residues:
+                        continue
+                    per_motif.setdefault(motif, {})[code] = structure_dssp(
+                        row["path"], residues)
+            raw[state] = per_motif
+        if cache_path is not None:
+            cache_path.parent.mkdir(parents=True, exist_ok=True)
+            cache_path.write_text(_json.dumps(raw))
+
+    return {state: {motif: reference_profile(by_code)
+                    for motif, by_code in per_motif.items()}
+            for state, per_motif in raw.items()}
+
+
+def motif_agreement(frame_labels: list[str], motif: str,
+                    profiles: dict[str, dict[str, dict[int, Counter]]]
+                    ) -> dict[str, object]:
+    """One motif's SSE agreement with each reference set, for one frame."""
+    active = (profiles.get("active") or {}).get(motif) or {}
+    inactive = (profiles.get("inactive") or {}).get(motif) or {}
+    if not active and not inactive:
+        return {}
+    rows = agreement(frame_labels, active, inactive)
+    found = summarise(rows)
+    found["motif"] = motif
+    return found

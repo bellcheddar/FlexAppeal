@@ -1618,3 +1618,23 @@ def test_the_measurement_table_shows_what_moved_and_omits_what_was_not_measured(
     # Nothing in this run measured TM6, so it is absent rather than blank.
     assert "TM6 axis rotation" not in by_label
     assert "Ionic lock" not in by_label
+
+
+def test_smoothing_is_skipped_when_the_window_is_wider_than_the_run():
+    """A 2 ns centred window on a 1 ns run is one value repeated.
+
+    Which draws as a flat trace, and a flat trace is a claim about the
+    trajectory rather than about the window. Asserted on the smoothing function
+    itself: over a run shorter than the window every point collapses to the
+    same mean, which is the behaviour the caller has to refuse to publish.
+    """
+    values = [0.1, 0.3, 0.5, 0.7, 0.9]
+    # 5 frames at 100 ps is 0.5 ns, against a 2 ns window.
+    collapsed = state.smooth(values, frame_ps=100.0, window_ns=2.0)
+    assert len(set(round(v, 6) for v in collapsed)) == 1, collapsed
+    assert collapsed[0] == pytest.approx(sum(values) / len(values))
+
+    # And over a run comfortably longer than the window it still varies.
+    long_run = [i / 100.0 for i in range(100)]
+    smoothed = state.smooth(long_run, frame_ps=100.0, window_ns=2.0)
+    assert len(set(round(v, 6) for v in smoothed)) > 50
