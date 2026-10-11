@@ -1349,3 +1349,18 @@ The tolerance never moved. At 0.1 A this would have passed on the first
 afternoon and buried a path silently reading a different chain.
 
 1030 passed, 1 skipped.
+
+### 11 October, 17:30. The optional metrics, checked rather than assumed
+
+Section 5.5's GPCRdb activation index says to implement it only if the
+published definition can be verified from the primary paper, and otherwise to
+omit and log. Neither the implementation nor the log existed.
+
+Checked: there is no GPCRdb activation index. The published thing of that name
+is the A100 Universal Activation Index of Ibrahim, Wifling and Clark (2019),
+a different measure from a different group. GPCRdb itself computes an
+activation score, a degree-activation percentage and a TM6 tilt percentage, all
+described in prose with no symbolic formula, and the two percentages need
+per-class minima and maxima over the whole database which are not published.
+So the condition is not met and it is omitted, now with the reasoning recorded
+in D032 rather than silently absent.

@@ -1102,3 +1102,45 @@ per frame. P4 reads +0.304, -0.368, +0.593, -0.923 against +0.305, -0.368,
 
 `abl1_apo`'s P4 margin is thin at +0.304 against a +0.300 band. It was thin
 before at +0.305; this did not create it, and it is worth knowing.
+
+---
+
+## D032: the GPCRdb activation index is omitted, and here is the check that decided it
+
+Section 5.5 lists a "GPCRdb activation index (optional)" with the instruction
+"Implement only if the published definition can be verified from the primary
+paper at build time; otherwise omit and log". This is the log.
+
+**There is no GPCRdb activation index.** Searching for one turns up the A100
+Universal Activation Index of Ibrahim, Wifling and Clark (J. Chem. Inf. Model.
+2019, 59, 3938, doi 10.1021/acs.jcim.9b00604), which is a different measure
+from a different group: a linear combination of five interhelical Cα distances
+fitted on microsecond simulations, with its own published thresholds. It is not
+GPCRdb's and the spec does not name it.
+
+**What GPCRdb does compute**, from its own documentation, is three things:
+
+* an **activation score**, the mean Cα distance to the active-state reference
+  structures minus the mean distance to the inactive ones, over residues on the
+  intracellular halves of the seven transmembrane helices;
+* **degree activation**, that score rescaled to a percentage using the minimum
+  and maximum across every structure in the class;
+* **TM6 tilt**, from the 2x46 to 6x37 Cα distance, rescaled the same way.
+
+All three are described in prose and none has a symbolic formula. The score
+does not say which intracellular residues it uses, and both percentages need
+per-class minima and maxima over the whole of GPCRdb, which are not published
+as numbers. So the definition cannot be verified to the point of reproducing
+it, which is the condition the spec set, and it is omitted.
+
+**What this build computes instead, and how it differs.** The state score here
+is `s = (d_inact - d_act) / (d_inact + d_act)`, which is the same idea with two
+deliberate differences: it takes the distance to the **nearest** reference of
+each state rather than the mean, so one unusual structure in an ensemble cannot
+drag the score, and it is normalised to [-1, 1] by the pair rather than by the
+range of a database this build does not hold. Section 5.6 specifies it and it
+is what every page shows.
+
+Reproducing GPCRdb's number approximately and calling it the activation index
+would be worse than not having it: it would carry a name a reader could look up
+and a value that would not match what they found.
