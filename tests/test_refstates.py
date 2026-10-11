@@ -5168,3 +5168,166 @@ def test_the_viewer_colours_come_from_the_stylesheet_as_numbers():
         "the palette should stay single-sourced in brand.css")
     assert "if (value === null) return null;" in script, (
         "an unparseable colour should leave the default theme alone")
+
+
+def _overlay_fixture(tmp_path: Path, shift=(0.0, 0.0, 0.0)):
+    """A one-frame run and a reference PDB over the same residue numbers.
+
+    Public coordinates: a short synthetic chain, generated here and not
+    committed, which is what the fixture rule asks for.
+    """
+    import mdtraj as md
+    import numpy as np
+
+    numbers = list(range(10, 22))
+    topology = md.Topology()
+    chain = topology.add_chain()
+    for number in numbers:
+        residue = topology.add_residue("ALA", chain, resSeq=number)
+        topology.add_atom("N", md.element.nitrogen, residue)
+        topology.add_atom("CA", md.element.carbon, residue)
+        topology.add_atom("C", md.element.carbon, residue)
+
+    # A gentle helix-ish path, so the superposition is not degenerate.
+    coords = []
+    for i, _ in enumerate(numbers):
+        base = np.array([np.cos(i * 0.6) * 5.0, np.sin(i * 0.6) * 5.0, i * 1.5])
+        for offset in ((-1.2, 0.0, 0.0), (0.0, 0.0, 0.0), (1.2, 0.0, 0.0)):
+            coords.append(base + np.array(offset))
+    xyz = np.array([coords], dtype=np.float32) / 10.0        # mdtraj is in nm
+    frame = md.Trajectory(xyz, topology)
+
+    reference = tmp_path / "ref.pdb"
+    moved = md.Trajectory(xyz + np.array(shift, dtype=np.float32) / 10.0,
+                          topology)
+    moved.save_pdb(str(reference))
+    return frame, reference, numbers
+
+
+def test_an_overlay_that_disagrees_with_the_analysis_is_not_written(tmp_path: Path):
+    """D023 refused to build this because a ghost in the wrong place is worse
+    than no ghost. The user overruled that, so the wrong place has to be loud.
+
+    RMSD is invariant under a rigid transform applied to both sets, so
+    superposing the reference onto the run must reproduce exactly the distance
+    the analysis got superposing the run onto the reference. Here the stored
+    distance is a lie, and the overlay must refuse rather than draw.
+    """
+    module = _analyse_run_module()
+    frame, reference, numbers = _overlay_fixture(tmp_path)
+    rows = {"active": [{"pdb": "TEST", "path": str(reference), "chain": "A"}]}
+    core = numbers[:8]
+    motifs = {"m1": numbers[8:]}
+    out = tmp_path / "out"
+    out.mkdir()
+
+    written = module.write_overlay_bundle(
+        frame, "run", out, rows_by_state=rows,
+        motifs_for=lambda code: motifs, core_for=lambda code: core,
+        core_residues=core, motif_residues=motifs,
+        motif_records={"m1": {"nearest_active": "TEST", "d_act_a": 9.99}})
+    assert written == {}, "a disagreeing overlay should not be written"
+    assert not list(out.glob("*.pdb"))
+
+
+def test_an_overlay_that_agrees_is_written(tmp_path: Path):
+    """The same fixture with the distance the geometry actually gives."""
+    module = _analyse_run_module()
+    frame, reference, numbers = _overlay_fixture(tmp_path)
+    rows = {"active": [{"pdb": "TEST", "path": str(reference), "chain": "A"}]}
+    core = numbers[:8]
+    motifs = {"m1": numbers[8:]}
+    out = tmp_path / "out"
+    out.mkdir()
+
+    # Reference and run are the same coordinates, so after the fit the motif
+    # sits exactly on itself.
+    written = module.write_overlay_bundle(
+        frame, "run", out, rows_by_state=rows,
+        motifs_for=lambda code: motifs, core_for=lambda code: core,
+        core_residues=core, motif_residues=motifs,
+        motif_records={"m1": {"nearest_active": "TEST", "d_act_a": 0.0}})
+    assert "active" in written, written
+    assert written["active"]["code"] == "TEST"
+    assert written["active"]["motifs_checked"] == 1
+    assert (out / "run.ref_active.pdb").is_file()
+
+
+def test_an_overlay_with_nothing_to_check_against_is_not_written(tmp_path: Path):
+    """A reference nearest for no motif cannot be verified, so it is refused.
+
+    This is what made the selection rule change: picking by lowest mean motif
+    RMSD chose a reference that was nearest for nothing, and the guard then
+    deleted the inactive overlay rather than protecting it.
+    """
+    module = _analyse_run_module()
+    frame, reference, numbers = _overlay_fixture(tmp_path)
+    rows = {"active": [{"pdb": "TEST", "path": str(reference), "chain": "A"}]}
+    core = numbers[:8]
+    motifs = {"m1": numbers[8:]}
+    out = tmp_path / "out"
+    out.mkdir()
+
+    written = module.write_overlay_bundle(
+        frame, "run", out, rows_by_state=rows,
+        motifs_for=lambda code: motifs, core_for=lambda code: core,
+        core_residues=core, motif_residues=motifs,
+        motif_records={"m1": {"nearest_active": "SOMEONE-ELSE",
+                              "d_act_a": 0.0}})
+    assert written == {}
+
+
+def test_the_overlay_prefers_the_reference_nearest_for_most_of_the_protein(
+        tmp_path: Path):
+    """Not the lowest mean, which chose a structure nearest for nothing.
+
+    A reader asking which inactive structure a run is nearest to means the one
+    it most resembles. That choice also always leaves a motif to check, so the
+    guard protects an overlay rather than deleting it.
+    """
+    module = _analyse_run_module()
+    frame, near, numbers = _overlay_fixture(tmp_path)
+    # A second reference, displaced, so it is further away on every motif.
+    far_dir = tmp_path / "far"
+    far_dir.mkdir()
+    _, far, _ = _overlay_fixture(far_dir, shift=(3.0, 0.0, 0.0))
+
+    core = numbers[:8]
+    motifs = {"m1": numbers[8:]}
+    rows = {"active": [{"pdb": "FAR", "path": str(far), "chain": "A"},
+                       {"pdb": "NEAR", "path": str(near), "chain": "A"}]}
+    out = tmp_path / "out"
+    out.mkdir()
+    written = module.write_overlay_bundle(
+        frame, "run", out, rows_by_state=rows,
+        motifs_for=lambda code: motifs, core_for=lambda code: core,
+        core_residues=core, motif_residues=motifs,
+        motif_records={"m1": {"nearest_active": "NEAR", "d_act_a": 0.0}})
+    assert written["active"]["code"] == "NEAR", written
+
+
+def test_the_overlay_route_serves_the_ghosts_and_nothing_else():
+    """The allowlist is the protection, so the two names are added explicitly."""
+    from flexappeal.refstates import web
+
+    assert "ref_active.pdb" in web.VIEWER_SUFFIXES
+    assert "ref_inactive.pdb" in web.VIEWER_SUFFIXES
+    for forbidden in ("db", "sqlite", "json"):
+        assert forbidden not in web.VIEWER_SUFFIXES
+
+
+def test_the_ghost_is_coloured_after_loading_not_by_the_preset():
+    """`representationParams` is ignored by this bundle.
+
+    The ghosts came back in Mol*'s default chain colours at full opacity, which
+    is two bright proteins on top of the run rather than one behind it. The
+    component refs are differenced across the load to find the new structure's
+    representations.
+    """
+    script = (Path(__file__).resolve().parents[1]
+              / "flexappeal" / "static" / "analysis.js").read_text()
+    assert "function ghostComponents" in script
+    assert "componentRefs(viewer.plugin)" in script
+    assert "old.type.params.alpha = 0.3" in script
+    assert "getPropertyValue('--state-' + state)" in script, (
+        "the ghost should take the state colour the badges use")

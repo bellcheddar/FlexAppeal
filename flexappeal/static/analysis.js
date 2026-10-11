@@ -533,6 +533,124 @@
    * deleting the subtree by the ref `loadTrajectory` returns needs no
    * visibility API, which is the part of Mol*'s surface most likely to move
    * between versions. */
+  /* Section 6.2's reference overlay, one ghost per state.
+   *
+   * Ghosted means a translucent cartoon in that state's colour, so the eye
+   * reads it as background against the run's own motif colours. The colours
+   * are the ones the badges and the state map use, which is what lets a reader
+   * carry "green is active" from one part of the page to the other.
+   *
+   * The structure is static: it was fitted on the core of the frame this
+   * viewer opens on, by `tools/analyse_run.py`, and checked there against the
+   * motif distances the analysis stored. Drift away from it as the slider runs
+   * is the run moving, which is the question the page is about.
+   */
+  function overlayColour(state) {
+    const root = getComputedStyle(document.documentElement);
+    const value = cssColourToInt(root.getPropertyValue('--state-' + state));
+    return value === null ? 0x8a94a6 : value;
+  }
+
+  /* Every component ref currently in the hierarchy. Taken before a load and
+     differenced after it, which is how the newly added structure's components
+     are found without depending on the shape of what `loadStructureFromUrl`
+     returns. */
+  function componentRefs(plugin) {
+    const refs = [];
+    try {
+      (plugin.managers.structure.hierarchy.current.structures || [])
+        .forEach(function (ref) {
+          (ref.components || []).forEach(function (component) {
+            if (component.cell && component.cell.transform) {
+              refs.push(component.cell.transform.ref);
+            }
+          });
+        });
+    } catch (err) { /* nothing loaded yet */ }
+    return refs;
+  }
+
+  function ghostComponents(plugin, before, colour) {
+    const seen = {};
+    before.forEach(function (ref) { seen[ref] = true; });
+    let touched = 0;
+    try {
+      const update = plugin.build();
+      (plugin.managers.structure.hierarchy.current.structures || [])
+        .forEach(function (ref) {
+          (ref.components || []).forEach(function (component) {
+            const key = component.cell && component.cell.transform
+              && component.cell.transform.ref;
+            if (!key || seen[key]) return;
+            (component.representations || []).forEach(function (rep) {
+              if (!rep.cell) return;
+              update.to(rep.cell).update(function (old) {
+                if (!old.type) return;
+                old.type.params = old.type.params || {};
+                /* Translucent, so the run reads in front of it. */
+                old.type.params.alpha = 0.3;
+                old.colorTheme = { name: 'uniform',
+                                   params: { value: colour } };
+                touched += 1;
+              });
+            });
+          });
+        });
+      update.commit();
+    } catch (err) {
+      return 0;
+    }
+    return touched;
+  }
+
+  function wireOverlayToggles(viewer, say) {
+    const toggles = document.querySelectorAll('.overlay-toggle');
+    if (!toggles.length) return;
+
+    toggles.forEach(function (toggle) {
+      let loaded = null;
+      let busy = false;
+      const state = toggle.dataset.state || 'active';
+
+      toggle.addEventListener('change', async function () {
+        if (busy) return;
+        busy = true;
+        toggle.disabled = true;
+        try {
+          if (toggle.checked) {
+            /* Coloured after the load, not through `representationParams`.
+             * This bundle ignores that option: the ghosts came back in Mol*'s
+             * default chain colours at full opacity, which is two bright
+             * proteins on top of the run rather than a ghost behind it.
+             * Differencing the component refs across the load is what finds
+             * the new structure's representations to retheme. */
+            const before = componentRefs(viewer.plugin);
+            loaded = await viewer.loadStructureFromUrl(
+              toggle.dataset.structure, 'pdb', false);
+            ghostComponents(viewer.plugin, before, overlayColour(state));
+            toggle.dataset.loaded = 'yes';
+            if (say) say('Ghosted the nearest ' + state
+                         + ' reference, fitted on the core of the first frame.');
+          } else if (loaded && loaded.model) {
+            await viewer.plugin.state.data.build()
+              .delete(loaded.model.ref).commit();
+            loaded = null;
+            toggle.dataset.loaded = 'no';
+            if (say) say('Overlay hidden.');
+          }
+        } catch (err) {
+          toggle.checked = false;
+          toggle.disabled = true;
+          if (say) say('The overlay could not be drawn: ' + err, true);
+          return;
+        } finally {
+          busy = false;
+        }
+        toggle.disabled = false;
+      });
+    });
+  }
+
   function wireLipidToggle(viewer, say) {
     const toggle = document.getElementById('lipid-toggle');
     if (!toggle) return;
@@ -640,6 +758,7 @@
         applyNeon(viewer);
         colourByMotif(viewer, host);
         wireLipidToggle(viewer, say);
+        wireOverlayToggles(viewer, say);
         const scrubbing = wireSlider(viewer, frames, duration);
         const playing = scrubbing || (frames > 1 && autoplay(viewer));
         say(frames

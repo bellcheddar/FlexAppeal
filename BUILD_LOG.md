@@ -1098,3 +1098,26 @@ D023 marked as superseded in part, D029 records the method. 1001 passed,
 1 skipped.
 
 FINDINGS 4av. Six tests added.
+
+### 11 October, 14:00 to 14:30
+
+Second of the four: section 6.2's reference overlay, which D023 had declined.
+Built with the check that answers D023's argument rather than merely being
+careful about it. RMSD is invariant under a rigid transform applied to both
+sets, so superposing the reference onto the run must reproduce the distance the
+analysis got superposing the run onto the reference, and the per-frame record
+names which reference was nearest for each motif. Disagreement beyond 0.005 A,
+or nothing to check against, means no overlay and a logged reason.
+
+The check changed the design. Choosing by lowest mean motif RMSD picked 5MO4
+for abl1_apo's inactive state, which is nearest for no single motif, so the
+guard refused it. Selection is now by the residue weight a reference is nearest
+for. abl1_apo takes 2HZ4 active and 2HZ0 inactive, both verified.
+
+`representationParams` is ignored by this bundle, so the ghosts arrived in
+default chain colours at full opacity; the component refs are differenced
+across the load and rethemed after it, at alpha 0.3 in the state colours.
+
+D030 records it, D023 marked superseded. 1007 passed, 1 skipped.
+
+FINDINGS 4aw. Six tests added.

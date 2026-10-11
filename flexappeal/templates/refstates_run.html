@@ -50,6 +50,25 @@
         <output id="scrub-readout" class="md-note">0.0 ns</output>
       </div>
     {% endif %}
+    {% if viewer.get("overlay") %}
+      {# Section 6.2's reference overlay. Off by default, and one toggle per
+         state rather than one for both, because the question a reader has is
+         usually about one of them. Each says which structure it is and how
+         far the run sits from it, so the ghost is labelled rather than being
+         an anonymous second protein. #}
+      <div class="md-checkgroup">
+        {% for state, ref in viewer.overlay | dictsort %}
+          <label class="md-check">
+            <input type="checkbox" class="overlay-toggle"
+                   id="overlay-toggle-{{ state }}"
+                   data-state="{{ state }}"
+                   data-structure="{{ url_for('refstates.viewer_file', run_id=run.run_id, kind='ref_' ~ state ~ '.pdb') }}">
+            <span>Ghost the nearest {{ state }}
+              <em>{{ ref.code }}, {{ "%.1f"|format(ref.mean_motif_rmsd_a) }} &#8491; mean over the motifs</em></span>
+          </label>
+        {% endfor %}
+      </div>
+    {% endif %}
     {% if viewer.lipids %}
       {# Section 6.2 asks for the bilayer as phosphate spheres on a toggle. Off
          by default: the receptor is what the page is about, and 476 spheres

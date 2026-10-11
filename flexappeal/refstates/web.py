@@ -764,7 +764,12 @@ def dssp(run_id: str):
 # gets lost later.
 VIEWER_SUFFIXES = {"pdb": "chemical/x-pdb", "xtc": "application/octet-stream",
                    "lipids.pdb": "chemical/x-pdb",
-                   "lipids.xtc": "application/octet-stream"}
+                   "lipids.xtc": "application/octet-stream",
+                   # Section 6.2's reference overlay, one ghost per state.
+                   # Named explicitly like the rest: the allowlist is the
+                   # protection, and a pattern here would serve the database.
+                   "ref_active.pdb": "chemical/x-pdb",
+                   "ref_inactive.pdb": "chemical/x-pdb"}
 
 
 # Section 6.2 asks the Examples cards for a thumbnail. They live in

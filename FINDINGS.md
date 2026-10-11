@@ -3211,6 +3211,69 @@ B-factor is the motif's number.
 says which of the two it is looking at. Painting a cartoon from a column of
 zeroes would make the whole protein one colour and look like a feature.
 
+## 4aw. The overlay, and the check that chose its design
+
+D023 declined to build section 6.2's reference overlay. Its argument: five
+steps, each a place to be subtly wrong, and a ghost drawn where the analysis
+does not agree is worse than no ghost, because the whole point is to let
+someone judge by eye. The user overruled it.
+
+That argument cannot be answered by being careful. It can be answered by making
+the failure it describes impossible to have silently, and there is an exact
+check available.
+
+RMSD is invariant under a rigid transform applied to both sets. The analysis
+measures a motif by superposing the run's frame onto the reference; the overlay
+superposes the reference onto the run's frame. **Those must give the same
+number.** And the per-frame record already names which reference was nearest
+for each motif and how far away it was. So for every motif where the overlaid
+reference is that nearest one, the distance measured while building the overlay
+has to equal the stored one, to 0.005 Å: three orders above the payload's
+rounding, and far below any real disagreement, because a wrong residue
+correspondence moves a motif by angstroms rather than thousandths.
+
+Disagree and no overlay is written for that state, with both numbers logged.
+Nothing to check and no overlay either, because an unverifiable ghost is the
+thing D023 was refusing.
+
+### The check changed the design, which is why it was worth having
+
+The first version chose the nearest reference by the lowest residue-weighted
+mean motif RMSD. On `abl1_apo` the inactive overlay was then refused:
+
+    overlay: inactive reference 5MO4 is nearest overall but nearest for no
+    single motif, so there is nothing to check it against and no overlay is
+    written
+
+5MO4 has the lowest mean while being the per-motif nearest for nothing. The
+refusal was right and the question was wrong. A reader asking which inactive
+structure a run is nearest to means the one it most resembles, which is the one
+that wins most of the protein; and that choice always leaves a motif to check,
+so the guard ends up protecting an overlay instead of deleting one.
+
+Selection is now by the residue weight a reference is nearest for, with the
+mean breaking ties. `abl1_apo` takes **2HZ4** active and **2HZ0** inactive, and
+both verify.
+
+I would not have found that by reading the code. The check found it by
+refusing, which is what an argument from "this could be subtly wrong" should
+buy you.
+
+### Two things the bundle would not do
+
+**`representationParams` is ignored.** Passing a cartoon type, a uniform colour
+and an alpha to `loadStructureFromUrl` produced two structures in Mol\*'s
+default chain colours at full opacity: bright orange and magenta sitting on top
+of the run rather than behind it. The component refs are differenced across the
+load instead, which finds the new structure's representations, and they are
+rethemed after the fact. Same shape as the cartoon colouring in section 4av:
+this bundle is minified and what it ignores, it ignores quietly.
+
+**The ghosts take the state colours** `--state-active` and `--state-inactive`,
+the ones the badges and the state map use, at alpha 0.3, so a reader carries
+"green is active" from one part of the page to the other and the run reads in
+front of them.
+
 ## 5. Production runs
 
 Tier 2 started at 17:04 on 10 October, in section 5.3's priority order: β2AR

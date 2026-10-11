@@ -997,3 +997,47 @@ file is what keeps the column's meaning worth having.
 carries `motif_painted` and the page both withholds the theme and says so.
 Painting a cartoon from a column of zeroes would make the whole protein one
 colour.
+
+---
+
+## D030: the reference overlay is built, and checks itself against the analysis
+
+D023 declined to build this. Its argument was that the overlay takes five steps
+each of which can be subtly wrong, and that a ghost drawn where the analysis
+does not agree is worse than no ghost, because the whole point of it is to let
+someone judge by eye. The user overruled that and asked for it.
+
+The argument was not answered by being careful. It was answered by making the
+failure it describes impossible to have silently.
+
+**The check.** RMSD is invariant under a rigid transform applied to both sets.
+The analysis measures a motif by superposing the run's frame onto the
+reference; the overlay superposes the reference onto the run's frame. Those
+must give the same number. The per-frame record already names which reference
+was nearest for each motif and how far away it was, so for every motif where
+the overlaid reference is that nearest one, the distance measured while
+building the overlay has to equal the stored one. Tolerance is 0.005 A, three
+orders above the payload's rounding and far below any real disagreement: a
+wrong residue correspondence moves a motif by angstroms, not thousandths.
+
+If any motif disagrees, no overlay is written for that state and the reason is
+logged with both numbers. If no motif can be checked, no overlay is written
+either, because an unverifiable ghost is the thing D023 was refusing.
+
+**The check changed the design, which is the point of having it.** The first
+version chose the nearest reference by lowest residue-weighted mean motif
+RMSD. On `abl1_apo` that picked 5MO4 for the inactive state, which has the
+lowest mean while being the nearest for no single motif, so there was nothing
+to verify it against and the guard refused it. Right refusal, wrong question: a
+reader asking which inactive structure a run is nearest to means the one it
+most resembles. Selection is now by the residue weight a reference is nearest
+for, ties broken on the mean, which also guarantees at least one motif to check
+against. `abl1_apo` then takes 2HZ4 active and 2HZ0 inactive, both verified.
+
+**Fitted on the frame the viewer opens on.** The overlay is one static
+structure and the run moves. Drift away from it as the slider runs is not an
+artefact to be corrected; it is the question the page is asking.
+
+**Written as its own PDB per state**, not merged into the viewer bundle, for
+the same reason the bilayer is separate: the topology every measurement is
+taken against must not grow atoms that are not the run.

@@ -264,7 +264,11 @@ def kinase_setup(start_pdb: Path, reference_pdb: str,
         f"({agreement.get('worst')})")
     return motif_residues, core, built, own, {"rigidity": agreement,
                                               "alignment": alignment,
-                                              "sse_profiles": sse_profiles}
+                                              "sse_profiles": sse_profiles,
+                                              "overlay_inputs": {
+                                                  "rows_by_state": rows,
+                                                  "motifs_for": motifs_for,
+                                                  "core_for": core_for}}
 
 
 def gpcr_setup(start_pdb: Path, protein: str = "adrb2_human",
@@ -393,6 +397,9 @@ def gpcr_setup(start_pdb: Path, protein: str = "adrb2_human",
     return (motif_residues, core, built, numbering,
             {"rigidity": rigidity, "alignment": alignment,
              "sse_profiles": sse_profiles,
+             "overlay_inputs": {"rows_by_state": rows,
+                                "motifs_for": motifs_for,
+                                "core_for": core_for},
              "map_axis": {"motif": "NPxxY", "against": "inactive",
                           "values": npxxy}})
 
@@ -401,6 +408,226 @@ def gpcr_setup(start_pdb: Path, protein: str = "adrb2_human",
 # in data/md. A 50 ns run is then 500 frames of protein and ligand only, which
 # is a few megabytes rather than the gigabyte the solvated DCD is.
 VIEWER_STRIDE_NS = 1.0
+
+
+def ca_from_frame(frame):
+    """Calpha positions in angstrom, keyed by residue number, from one frame.
+
+    mdtraj works in nanometres and every reference coordinate in this package
+    is in angstrom, so the conversion happens here, once, at the boundary.
+    """
+    out: dict[int, tuple] = {}
+    for atom in frame.topology.atoms:
+        if atom.name != "CA":
+            continue
+        position = frame.xyz[0, atom.index]
+        out[atom.residue.resSeq] = (float(position[0]) * 10.0,
+                                    float(position[1]) * 10.0,
+                                    float(position[2]) * 10.0)
+    return out
+
+
+# How far a measured motif distance may sit from the stored one before the
+# overlay is refused. The payload rounds to four decimals, so this is three
+# orders of magnitude above the rounding and still far below any real
+# disagreement: a wrong residue correspondence moves a motif by angstroms.
+OVERLAY_TOLERANCE_A = 0.005
+
+
+def write_overlay_bundle(frame, name: str, out_dir, *, rows_by_state,
+                         motifs_for, core_for, core_residues, motif_residues,
+                         motif_records) -> dict:
+    """Section 6.2's reference overlay: nearest active and inactive, superposed.
+
+    D023 declined to build this, on the grounds that it takes five steps each
+    of which can be subtly wrong and that a ghost drawn where the analysis
+    disagrees is worse than no ghost at all. That argument was overruled, so
+    what follows is built to make the failure it describes loud instead of
+    silent.
+
+    **The check.** RMSD is invariant under a rigid transform applied to both
+    sets, so superposing the reference onto the run's frame must give exactly
+    the motif distance the analysis got by superposing the run's frame onto the
+    reference. The per-frame record already names which reference was nearest
+    for each motif and how far away it was. So for every motif where the
+    overlaid reference is that nearest one, the distance measured here has to
+    equal the stored one. If any disagrees by more than a rounding error, no
+    overlay is written for that state and the reason is logged. A silently
+    misplaced ghost is the one outcome this must not have.
+
+    **Nearest means nearest for the most of the protein**, by residue weight,
+    with the mean motif RMSD breaking ties. The first version minimised the
+    weighted mean alone, and the check then refused the inactive overlay
+    outright: 5MO4 had the lowest mean while being the nearest for no single
+    motif, so there was nothing to test it against. That is the right refusal
+    and the wrong question. A reader asking which inactive structure this run
+    is nearest to means the one it most resembles, which is the one that wins
+    the most of it; and that choice always leaves at least one motif to check,
+    so the guard protects an overlay instead of deleting it.
+
+    **Aligned to the first frame.** The overlay is static and the run moves, so
+    it is fitted on the core of the frame the viewer opens on. The drift away
+    from it as the slider runs is not an artefact: it is the thing the page is
+    asking about.
+
+    Returns a dict per state, empty for a state with no usable reference.
+    """
+    import numpy as np
+
+    from flexappeal.refstates import ensembles as ens
+    from flexappeal.refstates import traj as traj_mod
+
+    run_ca = ca_from_frame(frame)
+    missing_core = [r for r in core_residues if r not in run_ca]
+    if missing_core:
+        log(f"overlay: the run is missing {len(missing_core)} core Calpha, "
+            f"so no reference can be fitted to it")
+        return {}
+    run_core = np.asarray([run_ca[r] for r in core_residues], dtype=float)
+
+    run_motifs = {}
+    for motif, residues in (motif_residues or {}).items():
+        if all(r in run_ca for r in residues):
+            run_motifs[motif] = np.asarray([run_ca[r] for r in residues],
+                                           dtype=float)
+
+    out: dict = {}
+    for state, rows in sorted(rows_by_state.items()):
+        best = None
+        for row in rows:
+            code = str(row.get("pdb") or "").upper()
+            path = row.get("path")
+            if not code or not path:
+                continue
+            try:
+                ca = ens.ca_by_residue(Path(path), str(row.get("chain") or ""))
+            except Exception:                                   # noqa: BLE001
+                continue
+            theirs_core = ens.motif_coordinates(ca, core_for(code))
+            if theirs_core is None or len(theirs_core) != len(run_core):
+                continue
+            transform = traj_mod.superpose(
+                np.asarray(theirs_core, dtype=float), run_core)
+
+            per_motif, weighted, weight = {}, 0.0, 0
+            for motif, residues in (motifs_for(code) or {}).items():
+                mine = run_motifs.get(motif)
+                if mine is None:
+                    continue
+                coords = ens.motif_coordinates(ca, residues)
+                if coords is None or len(coords) != len(mine):
+                    continue
+                moved = traj_mod.apply_transform(
+                    np.asarray(coords, dtype=float), *transform)
+                distance = traj_mod.rmsd(moved, mine)
+                per_motif[motif] = distance
+                weighted += distance * len(residues)
+                weight += len(residues)
+            if not weight:
+                continue
+            score = weighted / weight
+            # How much of the protein this reference is actually the nearest
+            # for, by residue weight. See the note below on why this and not
+            # the mean alone.
+            claimed = sum(
+                len(motif_residues.get(motif) or ())
+                for motif in per_motif
+                if ((motif_records or {}).get(motif) or {}).get(
+                    f"nearest_{state}") == code)
+            ranking = (-claimed, score)
+            if best is None or ranking < best["ranking"]:
+                best = {"code": code, "score": score, "transform": transform,
+                        "per_motif": per_motif, "path": Path(path),
+                        "ranking": ranking, "claimed": claimed,
+                        "chain": str(row.get("chain") or "")}
+
+        if best is None:
+            log(f"overlay: no {state} reference resolves this run's core")
+            continue
+
+        # The check that makes a wrong correspondence loud.
+        disagreements = []
+        checked = 0
+        key = "d_act_a" if state == "active" else "d_inact_a"
+        for motif, distance in sorted(best["per_motif"].items()):
+            record = (motif_records or {}).get(motif) or {}
+            if record.get(f"nearest_{state}") != best["code"]:
+                continue
+            stored = record.get(key)
+            if stored is None:
+                continue
+            checked += 1
+            if abs(float(stored) - distance) > OVERLAY_TOLERANCE_A:
+                disagreements.append(
+                    f"{motif} measures {distance:.4f} A against the stored "
+                    f"{float(stored):.4f}")
+        if disagreements:
+            log(f"overlay: {state} reference {best['code']} is not where the "
+                f"analysis puts it, so no overlay is written: "
+                + "; ".join(disagreements))
+            continue
+        if not checked:
+            log(f"overlay: {state} reference {best['code']} is nearest overall "
+                f"but nearest for no single motif, so there is nothing to "
+                f"check it against and no overlay is written")
+            continue
+
+        written = _write_transformed(best, out_dir, name, state)
+        if not written:
+            continue
+        out[state] = {"pdb": written.name, "code": best["code"],
+                      "mean_motif_rmsd_a": round(best["score"], 3),
+                      "motifs_checked": checked,
+                      "bytes": written.stat().st_size}
+        log(f"overlay: {state} {best['code']}, mean motif RMSD "
+            f"{best['score']:.2f} A, {checked} motif(s) agree with the "
+            f"analysis to {OVERLAY_TOLERANCE_A} A")
+    return out
+
+
+def _write_transformed(best, out_dir, name: str, state: str):
+    """Apply the fitted transform to every atom and write the ghost.
+
+    Written as its own PDB beside the protein rather than merged into the
+    viewer bundle, for the same reason the bilayer is: the topology every
+    measurement is taken against must not grow atoms that are not the run.
+    """
+    import gemmi
+    import numpy as np
+
+    rotation, mobile_centre, target_centre = best["transform"]
+    try:
+        structure = gemmi.read_structure(str(best["path"]))
+        structure.setup_entities()
+        structure.remove_alternative_conformations()
+        structure.remove_ligands_and_waters()
+        structure.remove_hydrogens()
+    except Exception as exc:                                    # noqa: BLE001
+        log(f"overlay: {best['code']} could not be read ({str(exc)[:60]})")
+        return None
+
+    chain_id = best["chain"]
+    for model in structure:
+        for chain in list(model):
+            if chain_id and chain.name != chain_id:
+                model.remove_chain(chain.name)
+    for model in structure:
+        for chain in model:
+            for residue in chain:
+                for atom in residue:
+                    point = np.array([atom.pos.x, atom.pos.y, atom.pos.z])
+                    moved = (point - mobile_centre) @ rotation.T + target_centre
+                    atom.pos = gemmi.Position(float(moved[0]), float(moved[1]),
+                                              float(moved[2]))
+
+    structure.setup_entities()
+    out_path = Path(out_dir) / f"{name}.ref_{state}.pdb"
+    try:
+        structure.write_pdb(str(out_path))
+    except Exception as exc:                                    # noqa: BLE001
+        log(f"overlay: {best['code']} could not be written ({str(exc)[:60]})")
+        return None
+    return out_path
 
 
 def periodic_shifts(traj):
@@ -839,6 +1066,18 @@ def main() -> int:
     # Taken out of the payload rather than written to it: it is a numpy array
     # for the lipid bundle's use and has no business in the analysis JSON.
     viewer_centres = viewer.pop("centres", None)
+    # Callables, so they cannot go into the payload. Popped here for the same
+    # reason the shift array is: `payload["report"] = agreement` below.
+    overlay_inputs = agreement.pop("overlay_inputs", None) or {}
+    if overlay_inputs and run.frames:
+        viewer["overlay"] = write_overlay_bundle(
+            loaded[0], args.name, out_dir,
+            core_residues=list(core.residues),
+            motif_residues=motif_residues,
+            motif_records={m["motif"]: m
+                           for m in (run.frames[0].as_row().get("motifs") or [])
+                           if isinstance(m, dict) and m.get("motif")},
+            **overlay_inputs)
     # The bilayer, if there is one, as its own structure beside the protein.
     viewer["lipids"] = write_lipid_bundle(
         solvated, trajectory, args.name, out_dir,
