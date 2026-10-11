@@ -513,3 +513,64 @@ def core_agreement(core_coords_by_code: dict[str, Any]) -> dict[str, Any]:
             "max_rmsd_a": round(float(np.max(values)), 3),
             "worst": max(residuals, key=lambda k: residuals[k]),
             "per_code": {k: round(v, 3) for k, v in sorted(residuals.items())}}
+
+
+# ===========================================================================
+#  Helix axes
+# ===========================================================================
+
+# An alpha helix turns every 3.6 residues, so a mean over four consecutive
+# Calpha lands close to the axis and averages the spiral away.
+HELIX_TURN = 4
+
+
+def helix_axis_points(ca_coords):
+    """Points on a helix's axis, from its Calpha positions.
+
+    A running mean over one turn. The obvious alternative, fitting a principal
+    axis straight to the Calpha, is not stable on a short segment and this was
+    measured rather than assumed: the kink angle at P6.50 came out anywhere
+    between 24 and 50 degrees depending only on how many residues were fitted,
+    because the Calpha spiral and a four-point SVD is dominated by where in the
+    turn the segment happens to start and end.
+
+    Averaging over a whole turn removes the spiral, so the points lie on the
+    axis and a line through them is the axis rather than an artefact of the
+    window.
+    """
+    import numpy as np
+
+    coords = np.asarray(ca_coords, dtype=float)
+    if coords.shape[0] < HELIX_TURN:
+        return np.zeros((0, 3))
+    return np.array([coords[i:i + HELIX_TURN].mean(axis=0)
+                     for i in range(coords.shape[0] - HELIX_TURN + 1)])
+
+
+def helix_axis(ca_coords):
+    """One helix's axis direction, oriented along the chain.
+
+    Oriented so an angle between two axes is the angle and not its supplement:
+    an unoriented axis reports 160 degrees for a 20 degree kink.
+    """
+    import numpy as np
+
+    points = helix_axis_points(ca_coords)
+    if points.shape[0] < 2:
+        return None
+    centred = points - points.mean(axis=0)
+    _, _, vectors = np.linalg.svd(centred, full_matrices=False)
+    direction = vectors[0]
+    if np.dot(direction, points[-1] - points[0]) < 0:
+        direction = -direction
+    return direction
+
+
+def axis_angle(first, second) -> float | None:
+    """The angle between two oriented axes, in degrees."""
+    import numpy as np
+
+    if first is None or second is None:
+        return None
+    cosine = float(np.clip(np.dot(first, second), -1.0, 1.0))
+    return float(np.degrees(np.arccos(cosine)))

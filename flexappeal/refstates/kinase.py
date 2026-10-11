@@ -125,3 +125,207 @@ def classify_dfg(frame, motifs_by_name, *, half: str = "apo") -> DFGCall:
     else:
         state = "out" if separation > 0 else "in"
     return DFGCall(state, d_alphac, d_lys)
+
+
+# ===========================================================================
+#  The rest of section 5.4
+# ===========================================================================
+
+# Section 5.4. A salt bridge is a side-chain contact and this is the distance
+# the kinase literature uses for the alphaC-in call.
+ALPHAC_SALT_BRIDGE_A = 4.0
+# Section 5.4 names 30 degrees as BoltzMaker's own phi/psi flag threshold.
+PHI_PSI_FLAG_DEG = 30.0
+
+
+def _residue(chain, number: int):
+    for residue in chain:
+        if residue.seqid.num == number:
+            return residue
+    return None
+
+
+def _atoms(residue, names: tuple[str, ...]):
+    if residue is None:
+        return []
+    return [a for a in residue if a.name in names]
+
+
+def alphac_salt_bridge(chain, pocket) -> dict:
+    """Catalytic Lys NZ to the alphaC Glu carboxylate, and the state it implies.
+
+    Measured to the nearer carboxylate oxygen rather than to a named one: the
+    group is symmetric, so naming OE1 makes the distance depend on which way the
+    side chain was built rather than on where it is.
+
+    `unresolved` rather than `out` when an atom is missing, because an
+    unmeasured salt bridge is not a broken one. That distinction is the whole
+    reason this returns a dict rather than a float.
+    """
+    catalytic = pocket.region("c.l")
+    lys_positions = [pocket.at(17)]
+    glu_positions = [pocket.at(24)]
+    lys = next((_residue(chain, n) for n in lys_positions if n), None)
+    glu = next((_residue(chain, n) for n in glu_positions if n), None)
+
+    nz = _atoms(lys, ("NZ",))
+    carboxylate = _atoms(glu, ("OE1", "OE2"))
+    row: dict = {"lys": pocket.at(17), "glu": pocket.at(24)}
+    if not nz or not carboxylate:
+        row["state"] = "unresolved"
+        return row
+    distance = min(a.pos.dist(b.pos) for a in nz for b in carboxylate)
+    row["distance_a"] = round(distance, 2)
+    row["state"] = "in" if distance < ALPHAC_SALT_BRIDGE_A else "out"
+    return row
+
+
+def _ca_array(chain, numbers: list[int]):
+    import numpy as np
+
+    found = []
+    for number in numbers:
+        residue = _residue(chain, number)
+        atom = residue.find_atom("CA", "*") if residue is not None else None
+        if atom is not None:
+            found.append([atom.pos.x, atom.pos.y, atom.pos.z])
+    return np.asarray(found, dtype=float)
+
+
+def _axis(coords):
+    """One helix's axis, turn-averaged rather than fitted to raw Calpha.
+
+    A principal axis straight from the Calpha is not stable on a short helix:
+    see `traj.helix_axis_points` for the measurement that showed it.
+    """
+    from .traj import helix_axis
+
+    return helix_axis(coords)
+
+
+def helix_displacement(chain, reference_chain, numbers: list[int],
+                       core_transform=None) -> dict:
+    """Centroid shift and axis rotation of one helix against a reference.
+
+    Section 5.4's alphaC displacement, and section 5.5's TM6 rotation, are the
+    same measurement on different helices, so one function does both.
+
+    `core_transform` is the superposition fitted on the structural core. Without
+    it this reports the whole protein drifting rather than the helix moving,
+    which is the error the core exists to prevent.
+    """
+    import numpy as np
+
+    from .traj import apply_transform
+
+    mine = _ca_array(chain, numbers)
+    theirs = _ca_array(reference_chain, numbers)
+    if mine.shape[0] < 3 or mine.shape != theirs.shape:
+        return {"status": "not resolved in both"}
+    if core_transform is not None:
+        mine = apply_transform(mine, *core_transform)
+
+    shift = float(np.linalg.norm(mine.mean(axis=0) - theirs.mean(axis=0)))
+    one, two = _axis(mine), _axis(theirs)
+    row: dict = {"status": "ok", "n_residues": int(mine.shape[0]),
+                 "centroid_shift_a": round(shift, 2)}
+    if one is not None and two is not None:
+        cosine = abs(float(np.dot(one, two)))
+        # Folded to 0 to 90: a principal axis has no direction, so a helix
+        # rotated 170 degrees and one rotated 10 are the same rotation.
+        row["axis_rotation_deg"] = round(
+            float(np.degrees(np.arccos(min(1.0, cosine)))), 1)
+    return row
+
+
+def p_loop(chain, pocket) -> dict:
+    """The glycine-rich loop, by the fallback section 5.4 allows.
+
+    Section 5.4 asks for the KLIFS G-rich distance, angle and rotation "if the
+    definitions in the KLIFS literature can be verified at build time;
+    otherwise P-loop tip Calpha to hinge distance plus P-loop Calpha RMSD (log
+    which)". The KLIFS API exposes the pocket positions and their region names
+    but not those three geometric definitions, and nothing in the responses
+    pins down which residues the angle and rotation are measured between. So
+    this is the fallback, and `definition` says so in the output rather than in
+    a comment nobody reads.
+    """
+    import numpy as np
+
+    g_rich = pocket.region("g.l")
+    hinge = pocket.region("hinge")
+    row: dict = {"definition": "fallback: tip to hinge distance",
+                 "n_g_rich": len(g_rich), "n_hinge": len(hinge)}
+    if not g_rich or not hinge:
+        row["status"] = "not resolved"
+        return row
+
+    # The tip is the middle of the loop, which is the part that closes over the
+    # nucleotide; the ends are anchored in the beta sheet and barely move.
+    tip = g_rich[len(g_rich) // 2]
+    tip_ca = _ca_array(chain, [tip])
+    hinge_ca = _ca_array(chain, hinge)
+    if tip_ca.shape[0] == 0 or hinge_ca.shape[0] == 0:
+        row["status"] = "not resolved"
+        return row
+    row["status"] = "ok"
+    row["tip_residue"] = tip
+    row["tip_to_hinge_a"] = round(
+        float(np.linalg.norm(tip_ca[0] - hinge_ca.mean(axis=0))), 2)
+    return row
+
+
+def backbone_flags(chain, reference_chain, numbers: list[int],
+                   threshold_deg: float = PHI_PSI_FLAG_DEG) -> dict:
+    """Residues whose backbone phi or psi has moved more than the threshold.
+
+    Section 5.4's hinge measure, at BoltzMaker's own 30 degree threshold.
+    Reported as which residues moved rather than as a count, because a hinge
+    where one residue flipped and one where three did are different events and a
+    count cannot tell them apart.
+    """
+    import gemmi
+
+    def dihedrals(target, number: int):
+        previous, current, following = (_residue(target, number - 1),
+                                        _residue(target, number),
+                                        _residue(target, number + 1))
+        if current is None:
+            return None, None
+        def pos(residue, name):
+            if residue is None:
+                return None
+            atom = residue.find_atom(name, "*")
+            return atom.pos if atom is not None else None
+
+        n, ca, c = pos(current, "N"), pos(current, "CA"), pos(current, "C")
+        previous_c, next_n = pos(previous, "C"), pos(following, "N")
+        phi = (gemmi.calculate_dihedral(previous_c, n, ca, c) * 180.0 / np.pi
+               if None not in (previous_c, n, ca, c) else None)
+        psi = (gemmi.calculate_dihedral(n, ca, c, next_n) * 180.0 / np.pi
+               if None not in (n, ca, c, next_n) else None)
+        return phi, psi
+
+    import numpy as np
+
+    def delta(one, two):
+        if one is None or two is None:
+            return None
+        # Circular: 179 and -179 are two degrees apart, not 358.
+        gap = abs(one - two) % 360.0
+        return min(gap, 360.0 - gap)
+
+    moved, measured = [], 0
+    for number in numbers:
+        mine = dihedrals(chain, number)
+        theirs = dihedrals(reference_chain, number)
+        for label, index in (("phi", 0), ("psi", 1)):
+            change = delta(mine[index], theirs[index])
+            if change is None:
+                continue
+            measured += 1
+            if change > threshold_deg:
+                moved.append({"residue": number, "angle": label,
+                              "change_deg": round(change, 1)})
+    return {"threshold_deg": threshold_deg, "n_measured": measured,
+            "n_flagged": len(moved), "flagged": moved[:12]}

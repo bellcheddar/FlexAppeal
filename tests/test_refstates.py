@@ -1395,3 +1395,103 @@ def test_truncation_is_safe_when_there_is_nothing_to_truncate(tmp_path: Path):
     empty = tmp_path / "empty.csv"
     empty.write_text("")
     assert module._truncate_state_data(empty, 5) == 0
+
+
+# ===========================================================================
+#  Helix axes, and a measurement that was a parameter choice
+# ===========================================================================
+
+
+def test_a_helix_axis_is_recovered_from_a_built_helix():
+    """An ideal alpha helix along z must report an axis along z.
+
+    Built from the standard geometry, 2.3 Å radius, 1.5 Å rise and 100 degrees
+    per residue, so the answer is known rather than looked up.
+    """
+    import numpy as np
+
+    from flexappeal.refstates import traj as T
+
+    angles = np.radians(np.arange(18) * 100.0)
+    helix = np.column_stack([2.3 * np.cos(angles), 2.3 * np.sin(angles),
+                             1.5 * np.arange(18)])
+    axis = T.helix_axis(helix)
+    assert axis is not None
+    assert abs(float(axis[2])) > 0.999, f"axis is not along z: {axis}"
+
+
+def test_turn_averaging_is_what_makes_a_short_helix_axis_stable():
+    """The measurement that showed one window was a parameter choice.
+
+    A principal axis fitted straight to Calpha wanders as the window changes,
+    because the Calpha spiral. Turn-averaging removes the spiral. Asserted as a
+    comparison between the two, because the point is not that one works but
+    that the other does not.
+    """
+    import numpy as np
+
+    from flexappeal.refstates import traj as T
+
+    angles = np.radians(np.arange(24) * 100.0)
+    helix = np.column_stack([2.3 * np.cos(angles), 2.3 * np.sin(angles),
+                             1.5 * np.arange(24)])
+
+    def raw_axis(points):
+        centred = points - points.mean(axis=0)
+        _, _, vectors = np.linalg.svd(centred, full_matrices=False)
+        return vectors[0]
+
+    from flexappeal.refstates.gpcr import KINK_MIN_AXIS_POINTS
+
+    raw, averaged = [], []
+    for window in range(5, 16):
+        segment = helix[:window]
+        raw.append(abs(float(raw_axis(segment)[2])))
+        # Only windows with enough axis points to fit a line through, which is
+        # the condition the production code enforces rather than a convenience
+        # for this test: below it, turn-averaging is fitting two points.
+        if T.helix_axis_points(segment).shape[0] < KINK_MIN_AXIS_POINTS:
+            continue
+        found = T.helix_axis(segment)
+        if found is not None:
+            averaged.append(abs(float(found[2])))
+
+    assert len(averaged) >= 4, "not enough usable windows to judge stability"
+    # Turn-averaging holds the axis on z once there are enough axis points; the
+    # raw fit does not, at any window, and the spread is the evidence.
+    assert max(averaged) - min(averaged) < 0.005, averaged
+    assert max(raw) - min(raw) > 10 * (max(averaged) - min(averaged)), (
+        f"raw spread {max(raw) - min(raw):.4f} against averaged "
+        f"{max(averaged) - min(averaged):.4f}")
+
+
+def test_an_unresolved_kink_is_reported_as_unresolved():
+    """A spread wider than half the value is not a measurement.
+
+    The active start model's P7.50 reads 7.4 degrees with a 17.2 degree spread
+    across windows, so the windows disagree about the answer and the flag says
+    so rather than letting the median stand alone.
+    """
+    import gemmi
+
+    from flexappeal.refstates import Catalogue, receptor_residues
+    from flexappeal.refstates.gpcr import build_numbering, kink_angles
+
+    start = Path(__file__).resolve().parents[1] / "data" / "systems" / "b2ar_apo_start.pdb"
+    if not start.is_file():
+        pytest.skip("the receptor start model is not built in this checkout")
+    cache = Path(__file__).resolve().parents[1] / "data" / "cache" / "gpcrdb"
+    if not cache.is_dir():
+        pytest.skip("no GPCRdb cache; this test does not reach the network")
+
+    numbering = build_numbering(receptor_residues(Catalogue(cache)))
+    structure = gemmi.read_structure(str(start))
+    structure.setup_entities()
+    found = kink_angles(structure[0]["A"], numbering)
+
+    for generic, row in found.items():
+        if row.get("status") != "ok":
+            continue
+        assert "resolved" in row, generic
+        if row["resolved"]:
+            assert row["spread_deg"] < 0.5 * row["kink_deg"]

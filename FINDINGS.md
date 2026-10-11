@@ -566,6 +566,70 @@ One concern turned out to be unfounded and is recorded because checking it was
 the point: the final membrane pass loads a 50 ns solvated trajectory in one go,
 which is 1.16 GB against 128 GB of RAM. Left alone rather than "fixed".
 
+## 4e. Eight metrics that were not implemented, and one that was a parameter choice
+
+An audit of sections 5.4 and 5.5 against what existed found eight named metrics
+missing: the alphaC salt bridge, alphaC displacement, the P-loop, the hinge
+backbone flags, TM6 rotation, the PIF connector, helix 8's angle and the TM
+kinks. All are now implemented, and checking them against the start models
+found a methodological fault worth more than the metrics themselves.
+
+### The kink angle was the window, not the helix
+
+The first implementation fitted a principal axis straight to the Calpha either
+side of each conserved proline. It gave **P6.50 at 62.7 degrees for the active
+structure against 50.2 for the inactive one**, a 12.5 degree difference in the
+direction the literature describes. It would have been written up.
+
+It was wrong. Sweeping the only free parameter, how many residues to fit,
+produced:
+
+| residues per half | P6.50 | P7.50 |
+|---|---|---|
+| 3 | 24.3 | 23.0 |
+| 4 | 50.2 | 36.0 |
+| 5 | 29.2 | 14.4 |
+| 7 | 25.7 | 8.3 |
+| 10 | 33.2 | 10.2 |
+
+The answer was the window. Calpha positions spiral around the helix axis, so a
+principal axis through a short segment is dominated by where in the turn it
+starts and ends rather than by the axis. Fixed by averaging over one full turn
+before fitting, which removes the spiral, and that is asserted against an ideal
+helix built to the standard geometry: turn-averaging holds the axis on z across
+every usable window while the raw fit does not, by more than a factor of ten.
+
+**And the honest reading changed with it.** With the window swept and the spread
+reported:
+
+| | P6.50 | P7.50 |
+|---|---|---|
+| active | 30.8 ± 3.5 | 7.4 ± **17.2** |
+| inactive | 34.1 ± 5.2 | 14.3 ± 5.3 |
+
+The spreads overlap, so **neither kink distinguishes these two structures**, and
+P7.50's active value is not determined at all since its spread exceeds twice its
+value. That is a negative result where an hour earlier there was a confident
+12.5 degree activation signal pointing the way the literature says it should.
+
+This is the most dangerous shape a measurement error takes: wrong, and in
+agreement with expectation. A metric now reports `resolved: false` when the
+windows disagree by more than half the value, rather than letting a median stand
+alone.
+
+### What the new metrics do separate
+
+| measure | active start | inactive start |
+|---|---|---|
+| alphaC salt bridge | 3.34 Å, in | 3.41 Å, in |
+| TM6 axis rotation, one against the other | 20.9° with a 5.87 Å centroid shift | |
+| PIF connector RMSD, one against the other | 3.13 Å over 14 shared side-chain atoms | |
+| H8 angle to the membrane plane | 20.4° | 16.4° |
+
+The alphaC salt bridge reading `in` for both is correct rather than a failure:
+imatinib-bound ABL1 is the classic DFG-out, alphaC-in type II conformation, and
+19 of 20 KLIFS references for this kinase are alphaC-in.
+
 ## 5. Production runs
 
 Tier 2 started at 17:04 on 10 October, in section 5.3's priority order: β2AR

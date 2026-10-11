@@ -349,3 +349,195 @@ def micro_switches(chain, numbering: GenericNumbering,
     if bridge is not None:
         row["y5x58_y7x53_oh_a"] = round(bridge, 2)
     return row
+
+
+# ===========================================================================
+#  The rest of section 5.5
+# ===========================================================================
+
+# Section 5.5's TM6 rotation is of the *intracellular half*, because that is the
+# end that swings out to open the G-protein site; the extracellular half barely
+# moves and including it would average the signal away.
+TM6_INTRACELLULAR = ("6.28", "6.40")
+# Kink angles are measured over several window sizes rather than one, and the
+# median is reported with the spread beside it.
+#
+# One window was not defensible. With a principal axis fitted straight to the
+# Calpha the angle at P6.50 came out anywhere from 24 to 50 degrees depending
+# only on the window, which is a parameter choice masquerading as a
+# measurement. Turn-averaging the axis fixed most of it, and the rest is that
+# a short window simply has too few axis points to fit a line through: below
+# seven residues there are fewer than four. So the window is swept and the
+# answer carries its own uncertainty.
+KINK_WINDOWS = (7, 8, 9, 10, 11, 12)
+# Fewer axis points than this and the line through them is noise.
+KINK_MIN_AXIS_POINTS = 4
+
+
+def _ca_array(chain, numbers: list[int]):
+    import numpy as np
+
+    found = []
+    for number in numbers:
+        residue = _residue_by_number(chain, number)
+        atom = residue.find_atom("CA", "*") if residue is not None else None
+        if atom is not None:
+            found.append([atom.pos.x, atom.pos.y, atom.pos.z])
+    return np.asarray(found, dtype=float)
+
+
+def generic_span(numbering: GenericNumbering, helix: str,
+                 first: str, last: str) -> list[int]:
+    """The residue numbers between two generic positions on one helix."""
+    index = helix[2:] if helix.startswith("TM") else helix
+    lo = int(float(first) * 100) % 100
+    hi = int(float(last) * 100) % 100
+    found = []
+    for offset in range(min(lo, hi), max(lo, hi) + 1):
+        number = numbering.residue(f"{index}.{offset}")
+        if number is not None:
+            found.append(number)
+    return sorted(found)
+
+
+def tm6_rotation(chain, reference_chain, numbering: GenericNumbering,
+                 core_transform=None) -> dict:
+    """Axis rotation and centroid shift of TM6's intracellular half.
+
+    The same measurement as section 5.4's alphaC displacement, so it reuses that
+    implementation rather than carrying a second copy: one helix against the
+    same helix in a reference, after the core superposition.
+    """
+    from .kinase import helix_displacement
+
+    numbers = generic_span(numbering, "TM6", *TM6_INTRACELLULAR)
+    if not numbers:
+        return {"status": "TM6 span not resolved"}
+    found = helix_displacement(chain, reference_chain, numbers, core_transform)
+    found["span"] = [min(numbers), max(numbers)]
+    found["generic"] = list(TM6_INTRACELLULAR)
+    return found
+
+
+def connector_rmsd(chain, reference_chain, numbering: GenericNumbering,
+                   core_transform=None) -> dict:
+    """The PIF connector: I3.40, P5.50 and F6.44 side chains against a reference.
+
+    Side chains rather than Calpha, because the connector rearranges by
+    repacking three side chains against each other while their backbones stay
+    put. Measured on every heavy atom the three residues share with the
+    reference, so a residue modelled with a different number of atoms is
+    dropped rather than compared on a subset.
+    """
+    import numpy as np
+
+    from .traj import apply_transform, rmsd
+
+    numbers = [numbering.residue(g) for g in PIF]
+    if any(n is None for n in numbers):
+        return {"status": "PIF positions not resolved"}
+
+    mine, theirs, used = [], [], []
+    for generic, number in zip(PIF, numbers):
+        one = _residue_by_number(chain, number)
+        two = _residue_by_number(reference_chain, number)
+        if one is None or two is None:
+            continue
+        names = ({a.name for a in _heavy_atoms(one)}
+                 & {a.name for a in _heavy_atoms(two)})
+        # Backbone excluded: the point of the connector is the side chains.
+        names -= {"N", "CA", "C", "O", "OXT"}
+        if not names:
+            continue
+        for name in sorted(names):
+            first = one.find_atom(name, "*")
+            second = two.find_atom(name, "*")
+            if first is None or second is None:
+                continue
+            mine.append([first.pos.x, first.pos.y, first.pos.z])
+            theirs.append([second.pos.x, second.pos.y, second.pos.z])
+        used.append(f"{generic} ({number})")
+
+    if len(mine) < 3:
+        return {"status": "too few shared side-chain atoms"}
+    moved = np.asarray(mine, dtype=float)
+    if core_transform is not None:
+        moved = apply_transform(moved, *core_transform)
+    return {"status": "ok", "positions": used, "n_atoms": len(mine),
+            "rmsd_a": round(rmsd(moved, np.asarray(theirs, dtype=float)), 2)}
+
+
+def helix8_angle(chain, numbering: GenericNumbering) -> dict:
+    """Helix 8's angle to the membrane plane.
+
+    H8 lies along the membrane rather than through it, so the informative angle
+    is to the plane and not to the normal: a well-behaved H8 reads near zero and
+    one that has lifted off reads larger. The bilayer normal is z by
+    construction, the receptor having been oriented onto OPM, so this is
+    90 degrees minus the angle to z.
+    """
+    import numpy as np
+
+    numbers = numbering.segment_residues("H8")
+    coords = _ca_array(chain, numbers)
+    if coords.shape[0] < 4:
+        return {"status": "H8 not resolved"}
+    from .traj import helix_axis
+
+    axis = helix_axis(coords)
+    if axis is None:
+        return {"status": "H8 axis not determined"}
+    to_normal = np.degrees(np.arccos(min(1.0, abs(float(axis[2])))))
+    return {"status": "ok", "n_residues": int(coords.shape[0]),
+            "angle_to_membrane_plane_deg": round(90.0 - float(to_normal), 1),
+            "mean_z_a": round(float(coords[:, 2].mean()), 1)}
+
+
+def kink_angles(chain, numbering: GenericNumbering) -> dict:
+    """Kink angle at each conserved proline (section 5.5's TM kinks).
+
+    The angle between the helix axis fitted either side of the proline, swept
+    over several window sizes because a single window is a parameter choice
+    rather than a measurement. The median is the figure and the spread says how
+    far to trust it: a straight helix reads near zero, and the conserved
+    prolines of TM6 and TM7 hold real kinks of which the one at 6.50 changes
+    with activation.
+    """
+    import statistics as st
+
+    from .traj import axis_angle, helix_axis, helix_axis_points
+
+    out: dict = {}
+    for generic in KINK_PROLINES:
+        number = numbering.residue(generic)
+        if number is None:
+            out[generic] = {"status": "not resolved"}
+            continue
+
+        angles = []
+        for half in KINK_WINDOWS:
+            before = _ca_array(chain, list(range(number - half, number)))
+            after = _ca_array(chain, list(range(number + 1, number + 1 + half)))
+            if (helix_axis_points(before).shape[0] < KINK_MIN_AXIS_POINTS
+                    or helix_axis_points(after).shape[0] < KINK_MIN_AXIS_POINTS):
+                continue
+            angle = axis_angle(helix_axis(before), helix_axis(after))
+            if angle is not None:
+                angles.append(angle)
+
+        if not angles:
+            out[generic] = {"status": "too few residues either side"}
+            continue
+        median = st.median(angles)
+        spread = max(angles) - min(angles)
+        out[generic] = {
+            "status": "ok", "residue": number,
+            "label": numbering.label(generic),
+            "kink_deg": round(median, 1),
+            "spread_deg": round(spread, 1),
+            "n_windows": len(angles),
+            # A spread of more than half the value means the windows do not
+            # agree on the answer, so the figure is reported and not claimed.
+            "resolved": spread < 0.5 * median if median > 0 else False,
+        }
+    return out
