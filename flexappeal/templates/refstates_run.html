@@ -433,6 +433,63 @@
 </section>
 {% endif %}
 
+{% if ligand %}
+  {# Section 5.7's extra for a bound row: did the ligand stay in its pocket,
+     and what did it hold on to. Drawn only when there is a ligand, so the two
+     apo rows do not carry an empty panel. #}
+  <section class="md-card md-panel is-wide">
+    <h3>The ligand</h3>
+    <dl class="md-stats">
+      <div><dt>Residue</dt><dd>{{ ligand.resname }}</dd></div>
+      <div><dt>Heavy atoms</dt><dd>{{ ligand.n_heavy_atoms }}</dd></div>
+      <div><dt>Pose RMSD at the end</dt>
+        <dd>{{ "%.2f"|format(ligand.final_pose_rmsd_a) }} &#8491;</dd></div>
+      <div><dt>Largest</dt>
+        <dd>{{ "%.2f"|format(ligand.max_pose_rmsd_a) }} &#8491;</dd></div>
+      <div><dt>Contacts held</dt>
+        <dd>{{ ligand.persistent_contacts | length }}</dd></div>
+    </dl>
+    {% if ligand.persistent_contacts %}
+      <p class="md-sub">
+        Residues within
+        {{ "%.1f"|format(ligand.contact_cutoff_a) }} &#8491; of the ligand for
+        at least half the run, closest approach beside each.
+      </p>
+      <p>
+        {% for contact in ligand.persistent_contacts %}
+          <span class="md-tag">{{ contact.name }}{{ contact.residue }}
+            <em>{{ "%.1f"|format(contact.closest_a) }} &#8491;</em></span>
+        {% endfor %}
+      </p>
+    {% endif %}
+    <details class="md-readmore">
+      <summary>How these are measured</summary>
+      <p>
+        Both readings are taken <strong>after superposing the frame on the same
+        core the state scores use</strong>. That is the point of them: a ligand
+        that holds its pose has not moved relative to the pocket, and one that
+        drifts while the protein drifts with it has not come loose. Measured in
+        the trajectory's own frame, the protein's tumbling would be reported as
+        the ligand moving.
+      </p>
+      <p>
+        The pose RMSD is to this run's own first frame, not to a deposited
+        pose: the question is whether the ligand stayed where this simulation
+        started it.
+        {% if ligand.symmetry_corrected %}
+          It is minimised over the ligand's own symmetry, so a ring that flips
+          end for end reads as the same molecule in the same place rather than
+          as drift.
+        {% else %}
+          It matches atoms by index, because the ligand's graph could not be
+          inferred, so a symmetric group that flips will overstate the drift.
+        {% endif %}
+      </p>
+      {% if ligand.note %}<p class="md-note">{{ ligand.note }}</p>{% endif %}
+    </details>
+  </section>
+{% endif %}
+
 {% if membrane %}
   {#- Three states, not two. "expected" is section 5.8's narrow window,
       "outside expected" is a chunk that is still usable, and "G6" is one that

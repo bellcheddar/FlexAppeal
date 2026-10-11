@@ -1137,6 +1137,21 @@ def pose_clusters(ligand_xyz: np.ndarray, pose_rmsd: np.ndarray,
 # ===========================================================================
 
 
+def _one_residue(text: str) -> str:
+    """Rewrite every atom record to residue sequence 1.
+
+    Columns 23 to 26 are the residue sequence number in the PDB format, and
+    only those are touched: the residue name, chain and insertion code are left
+    where they are, so a reader of the block still sees the ligand it is.
+    """
+    out = []
+    for line in text.splitlines():
+        if line.startswith(("ATOM", "HETATM")) and len(line) >= 26:
+            line = line[:22] + "   1" + line[26:]
+        out.append(line)
+    return "\n".join(out)
+
+
 def ligand_mol(traj, atoms: np.ndarray):
     """An RDKit molecule for the ligand, with bond orders, or None.
 
@@ -1173,7 +1188,21 @@ def ligand_mol(traj, atoms: np.ndarray):
     if hydrogens == 0:
         return None
 
-    block = _pdb_text(traj[0].atom_slice(atoms))
+    # Every atom put into one residue before parsing, because RDKit's proximity
+    # bonding does not cross a residue boundary.
+    #
+    # `abl1_imatinib`'s solvated system writes STI as two residues, the 37 heavy
+    # atoms as sequence 1 and the 31 hydrogens as sequence 2, and RDKit then
+    # perceived 41 bonds of imatinib's 72 and left every hydrogen unbonded. Bond
+    # order assignment failed at every candidate charge with "final molecular
+    # charge does not match input (28)", and the caller saw only `None`: no
+    # symmetry mapping for the pose RMSD and no strain sub-score, with nothing
+    # saying the molecule had never been typed. Normalised, the same atoms give
+    # 72 bonds and assign at neutral charge.
+    #
+    # A ligand already written as one residue is unaffected, every line being
+    # rewritten to the number it already had.
+    block = _one_residue(_pdb_text(traj[0].atom_slice(atoms)))
     base = Chem.MolFromPDBBlock(block, removeHs=False, proximityBonding=True,
                                 sanitize=False)
     if base is None or base.GetNumAtoms() != len(atoms):

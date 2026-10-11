@@ -272,9 +272,14 @@ def run(run_id: str):
 
     viewer: dict[str, Any] = {}
     analysis = analysis_file(run_id)
+    bound = {}
     if analysis.is_file():
         try:
-            viewer = json.loads(analysis.read_text()).get("viewer") or {}
+            payload = json.loads(analysis.read_text())
+            viewer = payload.get("viewer") or {}
+            # Section 5.7's extra for a bound row. Absent for the apo rows, and
+            # the template simply does not draw the panel.
+            bound = payload.get("ligand") or {}
         except json.JSONDecodeError:
             viewer = {}
     # Only offer the panel when both files are actually there: a viewer that
@@ -302,6 +307,7 @@ def run(run_id: str):
         # than one with no shading at all.
         decisive_s=DECISIVE_S,
         dfg_published_a=kinase_mod.DFG_PUBLISHED_A,
+        ligand=bound,
         # The bilayer windows the badges are decided against, passed rather
         # than written into the prose. The note said "60 to 68" and the badge
         # read `APL_EXPECTED_A2`, so the two could part without either looking

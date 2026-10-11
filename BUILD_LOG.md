@@ -1252,3 +1252,31 @@ Checked and already working for the landing data: the pair comparison needs a
 second run per system and both `start_state` values are already in
 `tools/ingest.py`; clicking a state-map point jumps the viewer; the final pass,
 P5 and P6 are built and rehearsed.
+
+### 11 October, 15:30 to 16:00
+
+Item 1 of 3: section 5.7's ligand RMSD and contact persistence, built. Both
+remaining rows are bound and land within two days, so this was the one with a
+deadline.
+
+`flexappeal/refstates/ligand.py`: pose RMSD and per-residue contact
+persistence, both after superposing on the same core the state scores use. A
+test rotates the whole complex rigidly and asserts the drift stays zero.
+
+Two faults found on the way. The ligand is written as two residues, 37 heavy
+atoms and 31 hydrogens, so it is grouped by residue name rather than taken as
+the largest residue. And RDKit's proximity bonding does not cross a residue
+boundary, so `measure.ligand_mol` was perceiving 41 of imatinib's 72 bonds and
+returning None: no symmetry mapping for the pose RMSD and no strain sub-score
+on the Analysis tab, with nothing saying the molecule had never been typed.
+Normalising the residue sequence number before parsing gives 72 bonds and four
+heavy-atom automorphisms, the 1,4-phenyl and piperazine two-folds.
+
+Validated on the real system: the persistent contacts are Tyr253, Lys271,
+Glu286, Thr315 the gatekeeper, Met318 the hinge, and Asp381/Phe382 the DFG
+motif, arrived at from coordinates and a 4.0 A cutoff alone.
+
+The page panel was nested inside `{% if membrane %}`, so it would never have
+drawn for abl1_imatinib, a water run with a ligand. Moved out, with a test.
+
+1020 passed, 1 skipped. FINDINGS 4ay, 8 tests added.

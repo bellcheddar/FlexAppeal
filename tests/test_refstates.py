@@ -5514,3 +5514,177 @@ def test_the_two_hop_composition_matches_the_long_way():
     short_way = apply_transform(own, *module._common_to_run(own_to_common,
                                                             run_to_common))
     assert np.allclose(long_way, short_way, atol=1e-10)
+
+
+# ===========================================================================
+#  Section 5.7's bound rows: ligand pose drift and contact persistence
+# ===========================================================================
+
+
+def _bound_fixture(n_frames: int = 4, drift_a: float = 0.0, split: bool = True):
+    """A short protein with a small ligand beside it, generated here.
+
+    Public, synthetic coordinates: a helix of alanines and a four-atom ligand.
+    `split` writes the ligand as two residues of the same name, which is what
+    `abl1_imatinib`'s solvated system does with STI, 37 heavy atoms in one and
+    31 hydrogens in the next.
+    """
+    import mdtraj as md
+    import numpy as np
+
+    topology = md.Topology()
+    chain = topology.add_chain()
+    protein = []
+    for number in range(10, 30):
+        residue = topology.add_residue("ALA", chain, resSeq=number)
+        for name in ("N", "CA", "C"):
+            protein.append(topology.add_atom(name, md.element.carbon, residue))
+
+    ligand_chain = topology.add_chain()
+    heavy_res = topology.add_residue("LIG", ligand_chain, resSeq=1)
+    for name in ("C1", "C2", "C3", "C4"):
+        topology.add_atom(name, md.element.carbon, heavy_res)
+    tail = topology.add_residue("LIG", ligand_chain,
+                                resSeq=2 if split else 1)
+    topology.add_atom("H1", md.element.hydrogen, tail)
+
+    base = []
+    for i in range(20):
+        anchor = np.array([np.cos(i * 0.5) * 6.0, np.sin(i * 0.5) * 6.0, i * 1.5])
+        for offset in ((-1.2, 0, 0), (0, 0, 0), (1.2, 0, 0)):
+            base.append(anchor + np.array(offset))
+    for offset in ((0, 0, 0), (1.4, 0, 0), (0, 1.4, 0), (0, 0, 1.4), (2.2, 0, 0)):
+        base.append(np.array([8.0, 0.0, 14.0]) + np.array(offset))
+    base = np.array(base)
+
+    frames = []
+    for index in range(n_frames):
+        xyz = base.copy()
+        # The ligand walks away from the pocket; the protein does not move.
+        xyz[len(protein):] += np.array([drift_a * index, 0.0, 0.0])
+        frames.append(xyz)
+    traj = md.Trajectory(np.array(frames, dtype=np.float32) / 10.0, topology)
+    core = list(range(10, 30))
+    return traj, core
+
+
+def test_an_apo_run_reports_no_ligand():
+    """Both apo rows go through the same call, so it has to return nothing."""
+    from flexappeal.refstates import ligand
+
+    traj, core = _bound_fixture()
+    protein_only = traj.atom_slice(
+        [a.index for a in traj.topology.atoms if a.residue.name != "LIG"])
+    assert ligand.pose_and_contacts(protein_only, core) == {}
+
+
+def test_a_ligand_split_across_residues_is_one_molecule():
+    """`abl1_imatinib` writes STI as two residues, heavy atoms then hydrogens.
+
+    Taking the largest residue returned imatinib's heavy atoms and happened to
+    be right, which is the kind of correct that stops being correct when the
+    writer changes. Grouped by residue name instead.
+    """
+    from flexappeal.refstates import ligand
+
+    traj, core = _bound_fixture(split=True)
+    out = ligand.pose_and_contacts(traj, core)
+    assert out["resname"] == "LIG"
+    assert out["n_residues"] == 2, "both residues belong to the ligand"
+    assert out["n_heavy_atoms"] == 4, "the hydrogen is not a heavy atom"
+
+
+def test_a_ligand_that_holds_its_pose_reads_as_zero_drift():
+    """And one that walks away does not."""
+    from flexappeal.refstates import ligand
+
+    still, core = _bound_fixture(drift_a=0.0)
+    assert ligand.pose_and_contacts(still, core)["max_pose_rmsd_a"] == 0.0
+
+    moving, core = _bound_fixture(n_frames=4, drift_a=1.0)
+    out = ligand.pose_and_contacts(moving, core)
+    assert out["max_pose_rmsd_a"] > 2.5, out["pose_rmsd_a"]
+    assert out["final_pose_rmsd_a"] == out["max_pose_rmsd_a"]
+
+
+def test_the_pose_is_measured_after_superposing_on_the_core():
+    """Otherwise the protein's tumbling is reported as the ligand moving.
+
+    The whole complex is rotated rigidly, which changes every coordinate and
+    nothing about where the ligand sits in its pocket.
+    """
+    import numpy as np
+
+    from flexappeal.refstates import ligand
+
+    traj, core = _bound_fixture(n_frames=3, drift_a=0.0)
+    angle = 0.7
+    rotation = np.array([[np.cos(angle), -np.sin(angle), 0.0],
+                         [np.sin(angle), np.cos(angle), 0.0],
+                         [0.0, 0.0, 1.0]])
+    for index in range(1, traj.n_frames):
+        traj.xyz[index] = traj.xyz[index] @ rotation.T + np.array([3.0, 1.0, 0.0])
+    out = ligand.pose_and_contacts(traj, core)
+    assert out["max_pose_rmsd_a"] < 1e-3, out["pose_rmsd_a"]
+
+
+def test_a_contact_counts_a_residue_once_however_many_atoms_are_near():
+    """Residues, not atom pairs, which is what "contact persistence" means."""
+    from flexappeal.refstates import ligand
+
+    traj, core = _bound_fixture(n_frames=3, drift_a=0.0)
+    out = ligand.pose_and_contacts(traj, core)
+    contacts = out["persistent_contacts"]
+    assert contacts, "the ligand is placed beside the helix, so something touches it"
+    numbers = [row["residue"] for row in contacts]
+    assert len(numbers) == len(set(numbers)), "a residue should appear once"
+    assert all(row["fraction_of_frames"] >= 0.5 for row in contacts)
+    assert max(out["n_contacts_per_frame"]) == len(contacts)
+
+
+def test_a_ligand_written_as_two_residues_still_gets_a_graph():
+    """RDKit's proximity bonding does not cross a residue boundary.
+
+    STI written as sequence 1 and 2 gave 41 of imatinib's 72 bonds, every
+    hydrogen unbonded, and bond-order assignment failed at every candidate
+    charge. The caller saw `None`: no symmetry mapping for the pose RMSD and no
+    strain sub-score, with nothing saying the molecule had never been typed.
+    """
+    from flexappeal.measure import _one_residue
+
+    block = "\n".join([
+        "ATOM      1  C1  LIG B   1      10.000  10.000  10.000  1.00  0.00           C",
+        "ATOM      2  H1  LIG B   2      10.500  10.500  10.500  1.00  0.00           H",
+        "TER",
+    ])
+    out = _one_residue(block).splitlines()
+    assert out[0][22:26] == "   1"
+    assert out[1][22:26] == "   1", "the hydrogen joins the heavy atoms"
+    # Only the sequence number moves: name, chain and coordinates stay put.
+    assert out[1][17:21] == "LIG " and out[1][21] == "B"
+    assert "10.500  10.500  10.500" in out[1]
+    assert out[2] == "TER", "a record that is not an atom is left alone"
+
+
+def test_the_ligand_panel_is_not_inside_the_membrane_block():
+    """It was, and a water row with a ligand would never have shown it.
+
+    `abl1_imatinib` is a water run with imatinib bound, so nesting the panel
+    inside `{% if membrane %}` hid it on exactly one of the two rows it exists
+    for. Caught by rendering the page rather than by reading the diff.
+    """
+    body = (Path(__file__).resolve().parents[1] / "flexappeal" / "templates"
+            / "refstates_run.html").read_text()
+    assert body.index("{% if ligand %}") < body.index("{% if membrane %}"), (
+        "the ligand panel must not depend on the run having a bilayer")
+
+
+def test_the_ligand_panel_says_whether_the_pose_was_symmetry_corrected():
+    """An uncorrected RMSD overstates drift, so a reader has to be told which."""
+    body = (Path(__file__).resolve().parents[1] / "flexappeal" / "templates"
+            / "refstates_run.html").read_text()
+    panel = body[body.index("{% if ligand %}"):body.index("{% if membrane %}")]
+    assert "ligand.symmetry_corrected" in panel
+    assert "overstate the drift" in panel
+    assert "superposing the frame on the same" in panel, (
+        "the page should say what the pose is measured against")

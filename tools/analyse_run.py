@@ -1226,7 +1226,23 @@ def main() -> int:
         viewer["lipids"] = {}
     log(f"viewer bundle: {viewer['n_frames']} frames at "
         f"{viewer['frame_ns']:.1f} ns, {viewer['bytes'] / 1e6:.1f} MB")
+    # Section 5.7's extra for a bound row: ligand pose drift and contact
+    # persistence. Returns nothing for the two apo rows, so this is
+    # unconditional and the page tests for the key.
+    from flexappeal.refstates import ligand as ligand_mod
+
+    bound = ligand_mod.pose_and_contacts(loaded, list(core.residues))
+    if bound:
+        log(f"ligand {bound.get('resname')}: pose RMSD ends at "
+            f"{bound.get('final_pose_rmsd_a')} A, max "
+            f"{bound.get('max_pose_rmsd_a')} A, "
+            f"{len(bound.get('persistent_contacts') or [])} persistent contacts"
+            + ("" if bound.get("symmetry_corrected")
+               else "; not symmetry corrected"))
+
     payload = run.as_row()
+    if bound:
+        payload["ligand"] = bound
     payload["viewer"] = viewer
 
     # Section 5.6 asks for a centred 2 ns window "for display only", with the

@@ -3394,6 +3394,80 @@ having pinned D025's sorted-order tiebreak. That was the correct thing to pin
 while modal length was deciding and is the wrong thing now. It asserts what
 D025 was actually protecting instead: that a uniform set loses nobody.
 
+## 4ay. Ligand RMSD and contact persistence, and why the graph was never built
+
+Section 5.7 asks the bound rows for "the same analysis plus ligand RMSD and
+contact persistence". Two of the four production rows are bound,
+`b2ar_carazolol` with carazolol and `abl1_imatinib` with imatinib, and neither
+measurement existed. Both land within two days, so this was the item with a
+deadline.
+
+Both readings are taken **after superposing the frame on the same core the
+state scores use**, which is the whole point of them: a ligand that holds its
+pose has not moved relative to the pocket, and a ligand that drifts while the
+protein drifts with it has not come loose. Measured in the trajectory's own
+frame, the protein's tumbling would be reported as the ligand moving. A test
+rotates the whole complex rigidly and asserts the drift stays at zero.
+
+The pose RMSD is to the run's own first frame rather than a deposited pose,
+because the question is whether the ligand stayed where this simulation started
+it.
+
+### The ligand is two residues, and that broke two things
+
+`abl1_imatinib`'s solvated system writes STI as **two residues**: 37 heavy
+atoms as sequence 1 and 31 hydrogens as sequence 2. Taking the largest residue
+returned imatinib's heavy atoms and happened to be right, which is the kind of
+correct that stops being correct when the writer changes. Grouped by residue
+name now, so one molecule split across residues is one ligand.
+
+The same split broke something further away, and the symptom was silence.
+`measure.ligand_mol` writes the selected atoms to a PDB block and lets RDKit
+perceive bonds by proximity, and **proximity bonding does not cross a residue
+boundary**. So it found 41 of imatinib's 72 bonds, left every hydrogen
+unbonded, and bond-order assignment failed at every candidate charge with
+"final molecular charge (0) does not match input (28)". The caller sees only
+`None`: no symmetry mapping for the pose RMSD, and on the Analysis tab no
+strain sub-score either, with nothing saying the molecule had never been typed.
+
+Normalising every atom record to one residue sequence number before parsing
+gives 72 bonds, assignment at neutral charge, and a graph whose SMILES is
+imatinib. `heavy_automorphisms` then returns four mappings, which is the
+1,4-phenyl and the piperazine two-folds: exactly the symmetry that matters,
+since an uncorrected RMSD reports a ring flip as one to two angstroms of drift
+on a molecule that has not moved.
+
+That fix is in `measure.py`, so the Analysis tab gets it too. A ligand already
+written as one residue is unaffected, every line being rewritten to the number
+it already had.
+
+### What the contacts say, which is the check that it works
+
+Run on the imatinib system, the persistent contacts at 4.0 Å are:
+
+    LEU248 TYR253 VAL256 ALA269 VAL270 LYS271 GLU286 VAL289 MET290 ILE293
+    VAL299 ILE313 THR315 PHE317 MET318 GLY321 ILE360 HIS361 LEU370 ALA380
+    ASP381 PHE382
+
+Tyr253 in the P-loop, Lys271 the catalytic lysine, Glu286 the αC glutamate,
+**Thr315 the gatekeeper**, Met318 the hinge, and Asp381 and Phe382, which are
+the DFG motif. That is the textbook imatinib site, in deposited numbering,
+arrived at from nothing but the coordinates and a 4.0 Å cutoff. Nothing here
+was told what imatinib binds to.
+
+Contacts are counted per residue rather than per atom pair, so a residue counts
+once however many of its atoms are near, and only residues held for at least
+half the run are reported: a table of everything the ligand ever brushed past
+is a table nobody reads.
+
+### And a panel that would never have shown
+
+The panel went in above the membrane one and inside its `{% if membrane %}`,
+so it drew for a bilayer run and not for a water run. `abl1_imatinib` is a
+water run with a ligand, which is one of the two rows the panel exists for. It
+was caught by rendering the page rather than by reading the diff, and there is
+now a test that the ligand block comes before the membrane block.
+
 ## 5. Production runs
 
 Tier 2 started at 17:04 on 10 October, in section 5.3's priority order: β2AR
