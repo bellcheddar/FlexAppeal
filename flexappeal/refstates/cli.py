@@ -417,6 +417,65 @@ def controls(args: argparse.Namespace) -> int:
 # ===========================================================================
 
 
+def verify_live_metrics(db: Path) -> list[str]:
+    """Every metric a motif reports must have a value in at least one frame.
+
+    Section 10, in full: "any metric with all-NaN for a motif is a test
+    failure". A metric that is NaN in every frame is not a result. It is a
+    measurement that did not happen: an atom the structure does not contain, a
+    residue the numbering did not resolve, a motif whose span ran off the end of
+    the chain. The distinction matters because of how it renders. An all-NaN
+    metric draws as an empty column and a flat line, which on the page is
+    indistinguishable from a quantity that genuinely did not move, and "did not
+    move" is the headline result this build is looking for.
+
+    Some NaN frames are ordinary and are not reported: a salt bridge whose atoms
+    are missing from a handful of frames is an honest gap. All of them is not.
+
+    Checked against the database rather than a fixture, for the same reason
+    `verify_summary` is: four rows land unattended, and the question is whether
+    what landed is measurable, not whether the code could measure it.
+
+    Returns a list of complaints, empty when every metric has a reading.
+    """
+    from . import store
+
+    problems: list[str] = []
+    with store.connect(db, read_only=True) as connection:
+        groups = list(connection.execute(
+            "SELECT run_id, motif_id, metric, COUNT(*) AS frames, "
+            "       SUM(value IS NOT NULL) AS values_present, "
+            "       SUM(s_score IS NOT NULL) AS scores_present "
+            "FROM motif_frames GROUP BY run_id, motif_id, metric "
+            "ORDER BY run_id, motif_id, metric"))
+        # A motif that reports no metric at all would never appear above, so the
+        # motifs themselves are checked separately. One with frames ingested for
+        # the run and none of its own is as dead as one that is all NaN, and
+        # grouping cannot see it.
+        silent = list(connection.execute(
+            "SELECT r.run_id, m.motif_id FROM runs r JOIN motifs m "
+            "  ON m.system_id = r.system_id "
+            "WHERE EXISTS (SELECT 1 FROM motif_frames f WHERE f.run_id = r.run_id) "
+            "  AND NOT EXISTS (SELECT 1 FROM motif_frames f "
+            "                  WHERE f.run_id = r.run_id AND f.motif_id = m.motif_id)"))
+
+    for row in groups:
+        where = f"{row['run_id']} {row['motif_id']} {row['metric']}"
+        if row["frames"] and not row["values_present"]:
+            problems.append(
+                f"{where}: NaN in all {row['frames']} frames, so the metric "
+                f"was never measured")
+        elif row["frames"] and not row["scores_present"]:
+            problems.append(
+                f"{where}: a value in every frame but no state score in any, "
+                f"so the motif has a measurement and no reading of it")
+    for row in silent:
+        problems.append(
+            f"{row['run_id']} {row['motif_id']}: the run has frames and this "
+            f"motif has none of them")
+    return problems
+
+
 def verify_summary(db: Path, analysis_dir: Path) -> list[str]:
     """Check the stored summary against the payload each run was built from.
 
@@ -527,6 +586,18 @@ def report(args: argparse.Namespace) -> int:
                 print(f"    {complaint}")
             return 1
         log("every stored number agrees with the analysis file it came from")
+
+        # Agreeing with the analysis file is not the same as having measured
+        # anything: an all-NaN metric round-trips perfectly. Section 10 makes
+        # that its own failure, so it is its own check.
+        dead = verify_live_metrics(args.db)
+        if dead:
+            print()
+            log(f"{len(dead)} motif metrics have no reading at all:")
+            for complaint in dead[:20]:
+                print(f"    {complaint}")
+            return 1
+        log("every motif metric has a reading in at least one frame")
 
     print()
     for system in systems:

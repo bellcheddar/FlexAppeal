@@ -774,3 +774,23 @@ and a trap on a pod billed by the hour, where it drops a 1 µs row to a fiftieth
 of the speed and goes on billing.
 
 FINDINGS 4ak. Five tests added, 956 passed, 1 skipped.
+
+### 11 October, 05:50 to 06:25
+
+Audited section 10's QC list. Five of six items have tests: numbering maps,
+metric functions on synthetic geometries, state-score symmetry, the membrane
+builder on 5 ps, and the resume. The sixth, "any metric with all-NaN for a
+motif is a test failure", had nothing, and the check that looks as though it
+would cover it cannot: an all-NaN metric passes the round-trip verifier
+perfectly, because the analysis file says NaN too.
+
+`verify_live_metrics` added, reporting three failures: a metric NaN in every
+frame, a value with no state score derived from it, and a motif that
+contributed no rows at all. The last needed its own query, because a motif with
+no rows leaves nothing for a `GROUP BY` to find. Some NaN frames are
+deliberately not reported; all of them is the failure.
+
+Live database: 2,536 rows, no NULL in any, every motif metric with a reading.
+The final pass echoes both verdicts rather than only the round trip's.
+
+FINDINGS 4al. Four tests added, 960 passed, 1 skipped.

@@ -2649,6 +2649,55 @@ is a console action behind G1 and G2, and a script that creates billable
 infrastructure is the wrong thing to leave in a public repository beside one
 that says it has never been run.
 
+## 4al. The one failure the round-trip verifier cannot see
+
+Section 10's QC list reads as six items. Five have tests: the numbering maps,
+the metric functions on synthetic geometries, the state-score symmetry on a
+two-reference toy, the membrane builder on a 5 ps run, and the resume. The
+sixth did not:
+
+> any metric with all-NaN for a motif is a test failure
+
+Nothing checked it. Worse, the check that looks as though it would is exactly
+the one that cannot. `verify_summary` compares every stored number against the
+analysis file it came from, and an all-NaN metric passes that comparison
+perfectly, because the file says NaN too. Both sides agree, and they agree
+about nothing.
+
+What makes it worth a gate rather than a footnote is how it renders. An
+all-NaN metric draws as an empty column and a flat line. On the page that
+cannot be told apart from a quantity which genuinely did not move, and "did not
+move" is the headline this build exists to report. A missing atom, a residue
+the numbering failed to resolve, a motif whose span ran off the end of a chain:
+each of them produces a result that looks like the finding.
+
+So `verify_live_metrics` is its own check, against the database rather than a
+fixture, for the same reason `verify_summary` is: four rows land unattended and
+the question is whether what landed is measurable, not whether the code could
+measure it. It reports three distinct failures.
+
+**All-NaN.** Every frame of a metric with no value. Some NaN frames are not
+reported, deliberately: a salt bridge whose atoms are absent from a handful of
+frames has an honest reading in the rest, and complaining about that would make
+this noise rather than a gate.
+
+**A value with no score.** The distance is there and the state score derived
+from it is not, so the motif has a measurement and no reading of it. On the
+page the score column is empty while the distance column is full, which looks
+like two bugs and is one.
+
+**A motif that contributed nothing.** This one needed a second query. A motif
+whose every frame failed to ingest leaves no rows for a `GROUP BY` to find, so
+it passes a check built on groups while being as absent as one that is all NaN.
+The group query cannot see what is not there, which is the recurring shape of
+the faults in this section.
+
+On the live database: 2,536 rows, no NULL in any of them, every motif metric
+with a reading. The final pass echoes both verdicts now rather than only the
+round trip's, because a check whose result never reaches the log is close to a
+check that did not run, and that log is the only account of the pass anyone
+reads.
+
 ## 5. Production runs
 
 Tier 2 started at 17:04 on 10 October, in section 5.3's priority order: β2AR

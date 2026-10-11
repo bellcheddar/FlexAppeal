@@ -4153,3 +4153,90 @@ def test_the_runpod_scripts_say_they_have_never_been_run():
             key, _, value = line.partition("=")
             assert not value or value.startswith(("https://", "/")), (
                 f"{key} should not carry a value: {line}")
+
+
+def test_a_metric_that_is_nan_in_every_frame_is_caught(tmp_path: Path):
+    """Section 10: "any metric with all-NaN for a motif is a test failure".
+
+    This is the one failure the round-trip verifier cannot see. An all-NaN
+    metric agrees with its own analysis file perfectly, because the file says
+    NaN too. What makes it worth catching is how it renders: an empty column
+    and a flat line, which on the page cannot be told apart from a quantity
+    that genuinely did not move, and "did not move" is the headline this build
+    is looking for.
+    """
+    payload = _payload_with_frames(20)
+    database = tmp_path / "t.db"
+    store.ingest_analysis(database, payload, system_id="abl1",
+                          run_id="abl1_apo", family="kinase",
+                          environment="water")
+    assert _cli().verify_live_metrics(database) == [], (
+        "a clean ingest has a reading for every metric")
+
+    # Blank one metric across every frame, which is what a missing atom or an
+    # unresolved residue produces.
+    with store.connect(database) as connection:
+        connection.execute(
+            "UPDATE motif_frames SET value = NULL "
+            "WHERE motif_id LIKE '%xDFG' AND metric = 'd_act_a'")
+    problems = _cli().verify_live_metrics(database)
+    assert problems, "a metric that was never measured went unnoticed"
+    assert any("xDFG" in p and "d_act_a" in p for p in problems), problems
+    assert any("all 20 frames" in p for p in problems), problems
+
+
+def test_some_nan_frames_are_not_a_failure(tmp_path: Path):
+    """A gap is honest; the whole thing missing is not.
+
+    A salt bridge whose atoms are absent from a handful of frames has a real
+    reading in the rest, and reporting that would make the check noise rather
+    than a gate.
+    """
+    payload = _payload_with_frames(20)
+    database = tmp_path / "t.db"
+    store.ingest_analysis(database, payload, system_id="abl1",
+                          run_id="abl1_apo", family="kinase",
+                          environment="water")
+    with store.connect(database) as connection:
+        connection.execute(
+            "UPDATE motif_frames SET value = NULL "
+            "WHERE motif_id LIKE '%xDFG' AND metric = 'd_act_a' AND frame < 5")
+    assert _cli().verify_live_metrics(database) == []
+
+
+def test_a_measurement_with_no_state_score_is_caught(tmp_path: Path):
+    """Half a reading is its own fault, and a different one.
+
+    The distance is there and the score derived from it is not, so the motif
+    has a measurement and no reading of it. The page's score column would be
+    empty while its distance column was full, which looks like two different
+    bugs and is one.
+    """
+    payload = _payload_with_frames(20)
+    database = tmp_path / "t.db"
+    store.ingest_analysis(database, payload, system_id="abl1",
+                          run_id="abl1_apo", family="kinase",
+                          environment="water")
+    with store.connect(database) as connection:
+        connection.execute(
+            "UPDATE motif_frames SET s_score = NULL WHERE motif_id LIKE '%hinge'")
+    problems = _cli().verify_live_metrics(database)
+    assert problems and any("no state score" in p for p in problems), problems
+
+
+def test_a_motif_with_no_frames_at_all_is_caught(tmp_path: Path):
+    """Grouping cannot see a motif that contributed no rows to group.
+
+    A motif whose every frame failed to ingest leaves nothing behind for a
+    `GROUP BY` to find, so it would pass a check built only on groups while
+    being as absent as one that is all NaN.
+    """
+    payload = _payload_with_frames(20)
+    database = tmp_path / "t.db"
+    store.ingest_analysis(database, payload, system_id="abl1",
+                          run_id="abl1_apo", family="kinase",
+                          environment="water")
+    with store.connect(database) as connection:
+        connection.execute("DELETE FROM motif_frames WHERE motif_id LIKE '%hinge'")
+    problems = _cli().verify_live_metrics(database)
+    assert problems and any("none of them" in p for p in problems), problems

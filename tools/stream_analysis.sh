@@ -132,12 +132,19 @@ main() {
     # of the pass over it would lose the controls below as well.
     echo "[$(date +%H:%M:%S)] verifying the stored numbers against the analyses"
     VERIFY_LOG="data/md/verify.log"
+    # Both of the verifier's checks are echoed, not just the first. They catch
+    # different things: the round-trip proves the stored numbers match the
+    # analysis they came from, and the metric check proves there was something
+    # to store, which an all-NaN metric passes the round trip without having.
+    # A check whose result never reaches this log is close to one that did not
+    # run, since this log is the only account of the pass anyone reads.
     if pixi run python -m flexappeal.refstates.cli report --verify \
           > "$VERIFY_LOG" 2>&1; then
-        grep -E "agrees with the analysis" "$VERIFY_LOG" || true
+        grep -E "agrees with the analysis|has a reading" "$VERIFY_LOG" || true
     else
         echo "VERIFICATION FAILED; the first lines of $VERIFY_LOG:"
-        grep -E "disagree|^    [a-z0-9_]+ " "$VERIFY_LOG" | head -20
+        grep -E "disagree|no reading at all|^    [a-z0-9_]+ " "$VERIFY_LOG" \
+            | head -20
     fi
 
     # And the controls, which is what says whether P5 and P6 came out. They read
