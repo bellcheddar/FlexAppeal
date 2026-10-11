@@ -1,75 +1,36 @@
 # Gates waiting on Marc
 
-Written per section 0.2's gate protocol. Everything these gates do not block is
-still running: Tier 1 is finishing, Tier 2 is chained behind it, and nothing
-below needs an answer before those complete.
+Written per section 0.2's gate protocol. G4 is now open and pushed. G3 is the
+only gate still waiting and it blocks nothing: Tier 2 is running, with
+`b2ar_apo` producing and the other three rows queued behind it.
 
 ---
 
-## G4 Publish — waiting
+## G4 Publish — OPEN, pushed 10 October 22:24
 
-**What it blocks.** Any `git push`. `main` is **74 commits ahead of
-`origin/main`** and none has left this machine. That is the whole
-reference-states build, from `phase 0: vendor BoltzMaker` onwards: nothing from
-it has ever been pushed, because G4 has been closed since it started.
+Marc authorised the push. `main` went to `origin/main` as **82 commits**, the
+whole reference-states build from `phase 0: vendor BoltzMaker` to
+`d2da3ee`, and `main` is now level with the remote.
 
-This figure is measured with `git rev-list --count origin/main..HEAD` on each
-update, because it has been wrong before: it said 23 twice, written from memory
-rather than from `git`, in the one file whose purpose is to carry numbers you
-can act on. It was 57 earlier in this build and is 74 now.
+**Checked before sending, because the remote is public.** Nothing private is
+tracked: no `DEEPFLEX_*`, no `FXA2_BUILD_PROMPT`, no `.env`, no credential, and
+no reference anywhere to a GLP1R or GIPR programme. The only matches for
+`smiles` and its siblings are `fxa2.py`'s refusal lists, which exist to block
+those field names, and one runtime log line in a bundle's own run script that
+prints a user's own ligand to their own console. No literal structure string in
+any tracked file.
 
-**What is done.** Phases 0 to 4 and 6 are complete, Phase 5 is running, Phase 7
-is drafted. The spec's own acceptance criteria are met for every finished phase:
+Nothing with coordinates in it left the machine either. `data/md`,
+`data/cache`, `data/analysis`, `data/manifests`, `data/systems` and
+`data/refstates.db` are all ignored, so the trajectories, the built systems, the
+reference manifests and the explorer database travel by rsync or get rebuilt.
+Five files under `data/` are tracked: `references.json` and four
+`*_start.json` provenance records holding a PDB code, a chain, a span and an
+expected state. The committed structure fixtures are lysozyme, trypsin,
+glycophorin, haemoglobin and a 12-mer peptide, all long-published.
 
-| Control | Result |
-|---|---|
-| P1 DFG label against KLIFS | 17 / 17 (spec wants ≥ 90 %) |
-| P2 αC label against KLIFS | 17 / 17 (≥ 85 %) |
-| P3 TM3–TM6 state separation, leave-one-out | 100 / 100 at 11.39 Å (≥ 90 %) |
-| P4 each start scores as its own state | 4 / 4 |
-| All four rows buildable | yes; `abl1_imatinib` built after D019 fixed it |
-| P6 membrane integrity | passes on a real bilayer: APL 68.9 Å², thickness 37.6 Å |
-| P5 inactive start stays inactive | the one control still genuinely waiting; needs `b2ar_carazolol` or `abl1_imatinib`, which are 3rd and 4th in the queue |
-| Manifests re-derived from source | ABL1 20/20, β2AR 116/116, 0 changed |
-| Test suite | 883 pass, 0 fail (`pixi run test`) |
-| axe-core, 8 pages | zero serious or critical |
-| Playwright, 8 pages x 2 viewports | no console errors |
-| First paint | 396 ms median against a 2 s budget |
-| Energy drift | within noise at 3 sigma; the 2 fs fallback is unused |
-| Receptor ingest path | exercised; 5 motifs, 116 references, 100/100 agreeing |
-| Bilayer QC rows | exercised on a real membrane trajectory; G6 closed |
-
-The test figure in this file has now been wrong twice, at 833 and at 837, both
-times because I wrote it from memory or from arithmetic rather than from a run.
-883 is measured, and it moves as tests are added. A bare `pytest` from the repository root also used to collect
-the vendored BoltzMaker suite, whose 17 environment failures I briefly read as a
-regression of this project; `pytest.ini` now scopes collection so that the plain
-command and `pixi run test` agree.
-
-**What unblocks it.** One of:
-
-```
-# everything, as 74 commits
-git -C /Users/dellboy/Documents/Vibe_Coding/FlexAppeal push origin main
-```
-
-or a narrower answer if you would rather keep some of it local. Worth knowing
-before you decide:
-
-- The repository is **public**. Nothing in these commits contains a compound
-  series, a SMILES string or a private structure; the systems are ABL1 with
-  imatinib and β2AR with carazolol, both long-published, and every structure is
-  fetched at run time rather than committed.
-- `.gitignore` now names `DEEPFLEX_*.md` and `FXA2_BUILD_PROMPT.md`. Those were
-  untracked and one `git add -A` from being published, which nearly happened
-  earlier in this build.
-- `DECISIONS.md` and `FINDINGS.md` describe several of my own mistakes in
-  detail, including one case where I misread a comparison and spent four
-  diagnostics on the wrong cause. That is deliberate, and it is public if this
-  pushes.
-
-**What happens next either way.** Tier 2 keeps running. The analysis, the
-explorer pages and the findings all work from the local checkout.
+`DECISIONS.md` and `FINDINGS.md` describe a good many of my own mistakes in
+detail, and that is public now. It was deliberate.
 
 ---
 

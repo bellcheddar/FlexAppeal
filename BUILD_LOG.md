@@ -340,3 +340,16 @@ Timestamped, one line per meaningful event, for the reference-state build
   write is buffered, and the patience is 20 minutes against a 2.4-minute frame
   interval. It follows whichever row the queue says it is on rather than naming
   one. Both branches tested.
+- `22:2x` G4 opened. Marc authorised the push and 82 commits went to
+  `origin/main`, the whole reference-states build. Checked first, because the
+  remote is public: nothing private tracked, no structure string in any tracked
+  file, and every directory holding coordinates, trajectories, caches, built
+  systems, manifests or the explorer database is ignored. Five files under
+  `data/` are tracked and none holds a coordinate.
+- `22:2x` That check found a correction worth more than the push. The reference
+  manifests are gitignored and were never committed, and my own write-up had
+  called them committed. It makes the gap `tools/build_references.py` closes
+  worse rather than smaller: a fresh clone has no manifests at all, so before
+  that script the reference browser, both state maps and P3's threshold could
+  not be reproduced on any other machine. Corrected in FINDINGS 4g and in the
+  script's own wording, which now says "on disk" rather than "committed".
