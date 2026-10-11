@@ -199,8 +199,60 @@
 <section class="md-card md-panel is-wide">
   <h3>Secondary structure over time</h3>
   <div id="dssp-ribbon" class="md-plot" style="min-height:420px"></div>
+  {% if sse_rows %}
+    <h4>How far each motif's secondary structure matches the references</h4>
+    <table class="md-table">
+      <thead>
+        <tr>
+          <th scope="col">Motif</th>
+          <th scope="col">Helix</th>
+          <th scope="col">Matches active</th>
+          <th scope="col">Matches inactive</th>
+          <th scope="col">Margin</th>
+          <th scope="col">Leans</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for row in sse_rows %}
+          <tr>
+            <th scope="row">{{ row.motif }} <small>({{ row.n_residues }})</small></th>
+            <td>{% if row.helix_fraction is not none %}{{ "%.0f"|format(row.helix_fraction * 100) }}%{% else %}&mdash;{% endif %}</td>
+            <td>{{ "%.3f"|format(row.active) }}</td>
+            <td>{{ "%.3f"|format(row.inactive) }}</td>
+            <td>{% if row.margin is not none %}{{ "%.3f"|format(row.margin) }}{% else %}&mdash;{% endif %}</td>
+            <td>
+              {% if row.decisive %}
+                <span class="md-state md-state-{{ row.leans }}">{{ row.leans }}</span>
+              {% else %}
+                <span class="md-note">neither</span>
+              {% endif %}
+            </td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    <details class="md-readmore">
+      <summary>Why most of these say neither</summary>
+      <p>
+        Secondary structure is far less discriminating than geometry. Most
+        residues of a transmembrane helix are helical in both states, so every
+        agreement here is high and the differences are small. A lean is only
+        called above a 0.05 margin, which was chosen from the observed spread:
+        the motifs that discriminate separate by 0.07 to 0.15 and the ones
+        carrying no signal by 0.02 to 0.04.
+      </p>
+      <p>
+        Where this does agree with the state score it is worth more than either
+        alone, because the two share none of their machinery. For the kinase the
+        hinge discriminates by neither measure: 0.18 &#8491; from active against
+        0.16 from inactive, and secondary-structure agreements identical to
+        three decimal places.
+      </p>
+    </details>
+  {% endif %}
+
   <details class="md-readmore">
-    <summary>How to read this</summary>
+    <summary>How to read the ribbon</summary>
     <p>
       One column per saved frame, one row per residue, coloured by the DSSP
       class. A motif unwinding shows up as a horizontal band changing colour

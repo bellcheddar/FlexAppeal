@@ -231,6 +231,7 @@ def run(run_id: str):
         "refstates_run.html", run=detail, system=system, motifs=motifs,
         viewer=viewer, has_map=has_map,
         measurements=frame_measurements(run_id),
+        sse_rows=sse_agreement(run_id),
         membrane=membrane, summary=summary, finding=finding(run_id),
         shapes=STATE_SHAPES, active="refstates",
         core=json.loads(system.get("notes") or "{}").get("core", {}))
@@ -415,6 +416,39 @@ def _dig(payload: dict, path: tuple):
             return None
         found = found.get(key)
     return found
+
+
+def sse_agreement(run_id: str) -> list[dict[str, Any]]:
+    """Per motif, how far its secondary structure matches each reference set.
+
+    Section 5.6's comparison. Reported with the margin, because secondary
+    structure is far less discriminating than geometry and a lean on a small
+    margin is noise: most residues of a helix are helical in both states.
+    """
+    path = analysis_file(run_id)
+    if not path.is_file():
+        return []
+    try:
+        motifs = (json.loads(path.read_text()).get("dssp") or {}).get("motifs") or {}
+    except json.JSONDecodeError:
+        return []
+
+    rows = []
+    for name, found in sorted(motifs.items()):
+        agreement = found.get("reference_agreement") or {}
+        if not agreement.get("n_residues"):
+            continue
+        rows.append({
+            "motif": name,
+            "n_residues": agreement["n_residues"],
+            "active": agreement["mean_active_agreement"],
+            "inactive": agreement["mean_inactive_agreement"],
+            "margin": agreement.get("margin"),
+            "leans": agreement.get("leans"),
+            "decisive": agreement.get("decisive"),
+            "helix_fraction": found.get("helix_fraction_last"),
+        })
+    return rows
 
 
 def frame_measurements(run_id: str) -> list[dict[str, Any]]:

@@ -1668,3 +1668,42 @@ def test_an_sse_lean_on_a_tiny_margin_is_not_called():
     decided = sse.summarise(sse.agreement(frame, active, inactive_far))
     assert decided["decisive"] is True
     assert decided["leans"] == "active"
+
+
+def test_the_sse_panel_shows_the_margin_and_withholds_an_undecided_lean(tmp_path: Path):
+    """A lean on a small margin must not appear as a finding on the page."""
+    import json as _json
+
+    from flexappeal.refstates import web
+    from flexappeal.webapp import create_app
+
+    analysis = tmp_path / "analysis"
+    analysis.mkdir()
+    (analysis / "r.json").write_text(_json.dumps({"dssp": {"motifs": {
+        "decides": {"helix_fraction_last": 0.9, "reference_agreement": {
+            "n_residues": 20, "mean_active_agreement": 0.90,
+            "mean_inactive_agreement": 0.70, "margin": 0.20,
+            "decisive": True, "leans": "active"}},
+        "undecided": {"helix_fraction_last": 0.8, "reference_agreement": {
+            "n_residues": 12, "mean_active_agreement": 0.864,
+            "mean_inactive_agreement": 0.888, "margin": 0.024,
+            "decisive": False, "leans": "neither"}},
+        "unscored": {"helix_fraction_last": 0.5, "reference_agreement": {
+            "n_residues": 0}},
+    }}}))
+
+    app = create_app()
+    original = web.analysis_file
+    web.analysis_file = lambda run_id: analysis / f"{run_id}.json"
+    try:
+        with app.app_context():
+            rows = web.sse_agreement("r")
+    finally:
+        web.analysis_file = original
+
+    by_motif = {r["motif"]: r for r in rows}
+    assert set(by_motif) == {"decides", "undecided"}, "an unscored motif leaked in"
+    assert by_motif["decides"]["decisive"] is True
+    assert by_motif["decides"]["leans"] == "active"
+    assert by_motif["undecided"]["decisive"] is False
+    assert by_motif["undecided"]["margin"] == pytest.approx(0.024)
