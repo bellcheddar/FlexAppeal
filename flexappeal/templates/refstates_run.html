@@ -126,6 +126,62 @@
   </details>
 </section>
 
+{% if measurements %}
+  <section class="md-card md-panel is-wide">
+    <h3>What the published criteria measured</h3>
+    <table class="md-table">
+      <thead>
+        <tr>
+          <th scope="col">Measure</th>
+          <th scope="col">At the start</th>
+          <th scope="col">At the end</th>
+          <th scope="col">Change</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for row in measurements %}
+          <tr>
+            <th scope="row">
+              {{ row.label }}
+              {% if row.state %}<span class="md-tag">{{ row.state }}</span>{% endif %}
+            </th>
+            {% if row.numeric %}
+              <td>{{ "%.2f"|format(row.start) }}{{ row.unit }}</td>
+              <td>{{ "%.2f"|format(row.end) }}{{ row.unit }}</td>
+              <td>
+                {% if row.change is defined %}
+                  {{ "%+.2f"|format(row.change) }}{{ row.unit }}
+                {% else %}&mdash;{% endif %}
+              </td>
+            {% else %}
+              <td>{{ row.start or "&mdash;" | safe }}</td>
+              <td>{{ row.end or "&mdash;" | safe }}</td>
+              <td>&mdash;</td>
+            {% endif %}
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    <details class="md-readmore">
+      <summary>Why these sit beside the state score rather than inside it</summary>
+      <p>
+        These are the published criteria for the protein family: the &alpha;C
+        salt bridge and the regulatory spine for a kinase, the TM3&ndash;TM6
+        cleft and the ionic lock for a receptor. They are measurements, and the
+        state score is an interpretation, so they are kept apart. Where one
+        contradicts the score the motif is labelled
+        <strong>conflict</strong> rather than averaged.
+      </p>
+      <p>
+        Helix rotations and the connector RMSD are measured against the start
+        model after superposing on the structural core, so what is reported is
+        the helix moving rather than the whole protein drifting. A structure
+        compared with itself reads exactly zero, which is asserted in the tests.
+      </p>
+    </details>
+  </section>
+{% endif %}
+
 <section class="md-card md-panel is-wide">
   <h3>State score over time</h3>
   <div id="state-timeline" class="md-plot" style="min-height:340px"></div>

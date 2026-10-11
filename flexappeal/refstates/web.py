@@ -230,6 +230,7 @@ def run(run_id: str):
     return render_template(
         "refstates_run.html", run=detail, system=system, motifs=motifs,
         viewer=viewer, has_map=has_map,
+        measurements=frame_measurements(run_id),
         membrane=membrane, summary=summary, finding=finding(run_id),
         shapes=STATE_SHAPES, active="refstates",
         core=json.loads(system.get("notes") or "{}").get("core", {}))
@@ -382,6 +383,74 @@ def about():
     return render_template("refstates_about.html", references=rows,
                            n_verified=len(verified), boltzmaker_sha=vendored,
                            active="refstates")
+
+
+# How the per-frame measurements are presented: a label, where to find the
+# value, and its unit. A table rather than code per measurement, so adding one
+# to the analysis does not mean editing the page.
+MEASUREMENT_ROWS = [
+    ("alphaC salt bridge", ("alphac_salt_bridge", "distance_a"), "\u00c5",
+     ("alphac_salt_bridge", "state")),
+    ("alphaC axis rotation", ("alphac_displacement", "axis_rotation_deg"), "\u00b0", None),
+    ("alphaC centroid shift", ("alphac_displacement", "centroid_shift_a"), "\u00c5", None),
+    ("P-loop tip to hinge", ("p_loop", "tip_to_hinge_a"), "\u00c5", None),
+    ("R-spine", ("r_spine", "state"), "", None),
+    ("TM3\u2013TM6 cleft", ("micro_switches", "tm3_tm6_a"), "\u00c5", None),
+    ("Ionic lock", ("micro_switches", "ionic_lock", "distance_a"), "\u00c5",
+     ("micro_switches", "ionic_lock", "state")),
+    ("Y5.58\u2013Y7.53", ("micro_switches", "y5x58_y7x53_oh_a"), "\u00c5", None),
+    ("TM6 axis rotation", ("tm6_rotation", "axis_rotation_deg"), "\u00b0", None),
+    ("TM6 centroid shift", ("tm6_rotation", "centroid_shift_a"), "\u00c5", None),
+    ("PIF connector RMSD", ("connector", "rmsd_a"), "\u00c5", None),
+    ("Helix 8 to the membrane plane", ("helix8", "angle_to_membrane_plane_deg"),
+     "\u00b0", None),
+]
+
+
+def _dig(payload: dict, path: tuple):
+    """Follow a key path, returning None rather than raising on a gap."""
+    found: Any = payload
+    for key in path:
+        if not isinstance(found, dict):
+            return None
+        found = found.get(key)
+    return found
+
+
+def frame_measurements(run_id: str) -> list[dict[str, Any]]:
+    """The per-frame readings at the first and last frame, for the page.
+
+    First and last rather than every frame: the table says what moved over the
+    run, and the per-frame series belongs in a plot. A reading absent from both
+    ends is left out rather than shown blank, so the table is what was measured
+    rather than a list of what might have been.
+    """
+    path = analysis_file(run_id)
+    if not path.is_file():
+        return []
+    try:
+        frames = json.loads(path.read_text()).get("frames") or []
+    except json.JSONDecodeError:
+        return []
+    usable = [f for f in frames if f.get("measurements")]
+    if not usable:
+        return []
+
+    first, last = usable[0]["measurements"], usable[-1]["measurements"]
+    rows = []
+    for label, value_path, unit, state_path in MEASUREMENT_ROWS:
+        start, end = _dig(first, value_path), _dig(last, value_path)
+        if start is None and end is None:
+            continue
+        row = {"label": label, "unit": unit, "start": start, "end": end,
+               "numeric": isinstance(end if end is not None else start,
+                                     (int, float))}
+        if state_path:
+            row["state"] = _dig(last, state_path)
+        if row["numeric"] and start is not None and end is not None:
+            row["change"] = end - start
+        rows.append(row)
+    return rows
 
 
 @refstates_bp.get("/run/<run_id>/dssp.json")

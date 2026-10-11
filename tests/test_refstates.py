@@ -1573,3 +1573,48 @@ def test_the_core_fit_is_required_for_a_helix_measurement_to_mean_anything():
     assert T.axis_angle(T.helix_axis(fitted), T.helix_axis(helix)) == pytest.approx(
         0.0, abs=1e-4)
     assert T.axis_angle(T.helix_axis(moved_helix), T.helix_axis(helix)) > 30.0
+
+
+def test_the_measurement_table_shows_what_moved_and_omits_what_was_not_measured(tmp_path: Path):
+    """Driven by a table, so adding a measurement does not mean editing a page.
+
+    And a reading absent from both ends is left out rather than rendered blank,
+    so the panel is what was measured rather than a list of what might have
+    been.
+    """
+    import json as _json
+
+    from flexappeal.refstates import web
+    from flexappeal.webapp import create_app
+
+    analysis = tmp_path / "analysis"
+    analysis.mkdir()
+    (analysis / "r.json").write_text(_json.dumps({"frames": [
+        {"time_ns": 0.0, "measurements": {
+            "alphac_salt_bridge": {"distance_a": 3.40, "state": "in"},
+            "p_loop": {"tip_to_hinge_a": 16.0}}},
+        {"time_ns": 5.0, "measurements": {
+            "alphac_salt_bridge": {"distance_a": 2.60, "state": "in"},
+            "p_loop": {"tip_to_hinge_a": 15.0}}},
+    ]}))
+
+    app = create_app()
+    original = web.analysis_file
+    web.analysis_file = lambda run_id: analysis / f"{run_id}.json"
+    try:
+        with app.app_context():
+            rows = web.frame_measurements("r")
+    finally:
+        web.analysis_file = original
+
+    by_label = {r["label"]: r for r in rows}
+    assert "alphaC salt bridge" in by_label
+    bridge = by_label["alphaC salt bridge"]
+    assert bridge["start"] == pytest.approx(3.40)
+    assert bridge["end"] == pytest.approx(2.60)
+    assert bridge["change"] == pytest.approx(-0.80)
+    assert bridge["state"] == "in"
+
+    # Nothing in this run measured TM6, so it is absent rather than blank.
+    assert "TM6 axis rotation" not in by_label
+    assert "Ionic lock" not in by_label
