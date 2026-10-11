@@ -54,6 +54,11 @@ TIMESTEP_FS, FRAME_PS = 4.0, 100.0
 # 4.0 ns. Matching the intervals keeps them in step; `_truncate_trajectory`
 # below makes it exact.
 CHECKPOINT_NS = FRAME_PS / 1000.0
+# How far short of its target a row may land and still count as complete. The
+# step count is an integer and frames are 100 ps, so honest rounding is
+# sub-picosecond; 50 ps is generous and far below any real shortfall. Section
+# 4ag has why a row needs checking against what it produced at all.
+SHORT_ROW_TOLERANCE_NS = 0.05
 TEMPERATURE_K, FRICTION_PER_PS, PRESSURE_BAR = 300.0, 1.0, 1.0
 PADDING_NM, IONIC_STRENGTH_M = 1.2, 0.15
 RESTRAINT_KCAL = 10.0
@@ -413,6 +418,43 @@ def save_checkpoint(simulation, out_dir: Path, phase: str,
         json.dumps(payload) + "\n")
 
 
+def write_run_json(out_dir: Path, args, *, target_ns: float,
+                   produced_ns: float, platform_name: str, atoms: int,
+                   temperature: float, ns_per_day: float | None = None,
+                   wall_hours: float | None = None) -> None:
+    """Record the row, including what it actually produced.
+
+    `production_ns` is the target the row was asked for. `produced_ns` is where
+    the context ended up, which is not the same number: a resume that misreads
+    its checkpoint, or a row stopped and restarted, lands somewhere else while
+    the target stays whatever it always was. Writing only the target made
+    `run.json` self-certifying, and `queue_md.complete` then compared the target
+    against itself. Section 4ag.
+
+    `ns_per_day` and `wall_hours` are omitted rather than zeroed when this row
+    did no stepping, per section 0.3: a key that cannot be produced is left out.
+    """
+    short = produced_ns + SHORT_ROW_TOLERANCE_NS < target_ns
+    if short:
+        log(f"Warning: produced {produced_ns:.3f} ns against a target of "
+            f"{target_ns:.1f} ns; recording the row as short, not complete")
+    payload = {
+        "name": args.name, "production_ns": target_ns,
+        "produced_ns": round(produced_ns, 3),
+        "platform": platform_name,
+        "wall_hours": wall_hours, "ns_per_day": ns_per_day,
+        "atoms": atoms,
+        "status": f"short:{produced_ns:.2f}_of_{target_ns:.0f}ns" if short
+                  else "complete",
+        "forcefield": FORCEFIELD_FILES,
+        "temperature_k": temperature, "membrane": bool(args.membrane),
+        "equil_ns": args.equil_ns if args.equil_ns is not None
+                    else (MEMBRANE_EQUIL_NS if args.membrane else EQUIL_NS),
+    }
+    (out_dir / "run.json").write_text(json.dumps(
+        {k: v for k, v in payload.items() if v is not None}, indent=2))
+
+
 def platform(system=None):
     """The fastest platform that will actually build a context here.
 
@@ -657,6 +699,14 @@ def main() -> int:
     target_ns = args.production_ns
     if done_ns >= target_ns:
         log(f"already at {done_ns:.1f} ns of {target_ns}; nothing to do")
+        # Recorded, not just announced. This branch returned 0 and wrote
+        # nothing, so a row resumed to exactly its target had no `run.json`:
+        # `queue_md.complete` read it as unfinished and `tools/ingest.py` reads
+        # an absent `run.json` the same way, which would have left a finished
+        # row looking perpetually in flight.
+        write_run_json(out_dir, args, target_ns=target_ns,
+                       produced_ns=done_ns, platform_name=plat.getName(),
+                       atoms=topology.getNumAtoms(), temperature=temperature)
         return 0
 
     simulation.reporters.append(app.DCDReporter(
@@ -678,16 +728,13 @@ def main() -> int:
     ns_per_day = (target_ns - done_ns) / (elapsed / 86400)
     log(f"done in {elapsed / 3600:.2f} h ({ns_per_day:.1f} ns/day)")
 
-    (out_dir / "run.json").write_text(json.dumps({
-        "name": args.name, "production_ns": target_ns,
-        "platform": plat.getName(), "ns_per_day": round(ns_per_day, 1),
-        "wall_hours": round(elapsed / 3600, 2),
-        "atoms": topology.getNumAtoms(), "status": "complete",
-        "forcefield": FORCEFIELD_FILES,
-        "temperature_k": temperature, "membrane": bool(args.membrane),
-        "equil_ns": args.equil_ns if args.equil_ns is not None
-                    else (MEMBRANE_EQUIL_NS if args.membrane else EQUIL_NS),
-    }, indent=2))
+    produced_ns = simulation.context.getState().getTime().value_in_unit(
+        unit.nanoseconds)
+    write_run_json(out_dir, args, target_ns=target_ns,
+                   produced_ns=produced_ns, platform_name=plat.getName(),
+                   atoms=topology.getNumAtoms(), temperature=temperature,
+                   ns_per_day=round(ns_per_day, 1),
+                   wall_hours=round(elapsed / 3600, 2))
     return 0
 
 

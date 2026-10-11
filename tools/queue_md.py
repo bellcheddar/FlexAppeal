@@ -58,6 +58,10 @@ QUEUE = [
 SMOKE_NS = 1.0
 SMOKE_EQUIL_NS = 0.2
 PRODUCTION_NS = 50.0
+# Matches `run_md.SHORT_ROW_TOLERANCE_NS`. Kept as a literal rather than
+# imported because `run_md` builds an OpenMM system at import time on some
+# paths, and the queue should not pay that to read one float.
+SHORT_ROW_TOLERANCE_NS = 0.05
 
 
 def log(message: str) -> None:
@@ -70,6 +74,14 @@ def complete(out_dir: Path, name: str, target_ns: float) -> bool:
     Read from `run.json`, which `run_md.py` writes only after production
     finishes, rather than from the trajectory length: a trajectory that is being
     appended to right now has a length and is not complete.
+
+    Judged on `produced_ns`, where the row's context actually ended, in
+    preference to `production_ns`, the target it was asked for. Comparing the
+    target against itself made this unfalsifiable: a row that stopped 10 ns
+    short still wrote 50 into `production_ns` and was certified by it. A row
+    found short returns False and is resumed to its target on the next pass.
+    Rows written before `produced_ns` existed carry only the target and are
+    taken at their word. Section 4ag.
     """
     path = out_dir / name / "run.json"
     if not path.is_file():
@@ -78,7 +90,10 @@ def complete(out_dir: Path, name: str, target_ns: float) -> bool:
         done = json.loads(path.read_text())
     except json.JSONDecodeError:
         return False
-    return float(done.get("production_ns", 0.0)) >= target_ns
+    reached = done.get("produced_ns", done.get("production_ns"))
+    if reached is None:
+        return False
+    return float(reached) >= target_ns - SHORT_ROW_TOLERANCE_NS
 
 
 def run_row(row: dict, *, out_dir: Path, production_ns: float,

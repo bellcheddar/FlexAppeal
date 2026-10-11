@@ -2344,6 +2344,110 @@ will log the figure when it runs.
 
 ---
 
+## 4ag. The resume ran unattended, because I killed the queue myself
+
+Section 4af left one question open: where exactly would the `abl1_apo` resume
+restart, given a checkpoint written three minutes before its trajectory
+stopped. Reading the checkpoint needed the GPU, and the GPU was busy, so the
+answer waited.
+
+It stopped waiting at 04:19 on 11 October, when I stopped a background shell I
+had read as a stale poller. It was not stale. Its command ended in `exec
+caffeinate -dimsu pixi run python tools/queue_md.py`, so the shell I stopped
+*was* the production queue, and `b2ar_apo` went from 17.2 ns of 50 to no
+process at all. Nothing in the shell's one-line summary said so; the summary
+showed the heredoc that wrote `tools/after_smoke.sh`, and the `exec` was the
+last of twenty lines. The lesson is cheap to state and was not free to learn:
+read what a shell actually runs before stopping it, not what its first line
+suggests.
+
+What it bought was the rehearsal. The resume path for a membrane row had never
+executed. At 04:20 it did, unattended, and every piece of it behaved:
+
+    [04:20:25] barostat re-added for the resumed run
+    [04:20:26] platform: OpenCL {'Precision': 'single'}
+    [04:20:26] resumed from checkpoint at 17.000 ns
+    [04:20:26]   dropped 2 trajectory frame(s) and 2 state row(s) written past the checkpoint
+    [04:20:26] producing 33.0 ns (8,249,999 steps)
+
+So the open question has its answer, on a different row than expected and with
+a real number rather than an inference: **17.000 ns, with two frames and two
+state rows dropped.** The barostat re-add from section 4ac ran on a resumed
+membrane row for the first time. The platform guard from section 4af did not
+fire, which is the right outcome: the OpenCL device that wrote the checkpoint
+was still there, and the guard exists for the case where it is not. Cost of the
+whole episode was 0.2 ns of discarded sampling and two minutes of idle GPU.
+
+### A row in flight runs the code it started with
+
+The restart turned up something that would have mattered more if it had gone
+the other way. `data/md/b2ar_apo/` had no `checkpoint_phase.json`, although
+`save_checkpoint` writes one on every save. The reason is that the row started
+at 16:07 and the marker was added to `tools/run_md.py` at 21:47, in commit
+f225a33. Python had already loaded the module. **A fix committed while a row is
+running does not reach that row**, and the queue's own 24-hour rows are long
+enough for that gap to be ordinary rather than exotic.
+
+Here it was harmless because `checkpoint_phase()` treats an absent marker as
+production, which is what its docstring says it is for. Had the default been
+`equil`, the restart would have thrown away 17 ns and repeated a 10 ns
+equilibration, and the log would have looked entirely normal while doing it.
+
+That left the clock question. A resume that mistook production time for total
+time would have read 27.2 ns rather than 17.2 and stopped the row 10 ns short,
+and the code that resets the clock was last touched in the same post-21:47
+commit, so the running row could not be assumed to have it. The row's own
+`state_data.csv` settled it without the GPU: step 4,300,000 at 4 fs is
+17,200 ps exactly, so the clock had been reset at production start. Then the
+resume read 17.000 ns and agreed.
+
+### A row certified itself on the number it was aiming at
+
+Checking the clock question raised a worse one. `run.json` recorded
+`production_ns` as **the target the row was asked for**, and `queue_md.complete`
+then checked that number against the same target:
+
+    return float(done.get("production_ns", 0.0)) >= target_ns
+
+Which cannot fail. A row that stopped at 40 ns of 50 still wrote 50 into
+`production_ns`, and `complete` certified it, and `tools/ingest.py` ingested it,
+and the explorer showed a 50 ns row. Run against the short case the old
+expression returns `True`; the new one returns `False` and the queue resumes the
+row to its target on the next pass.
+
+So `run.json` now carries `produced_ns` as well, read off the context at the end
+rather than assumed:
+
+    produced_ns = simulation.context.getState().getTime().value_in_unit(
+        unit.nanoseconds)
+
+`complete` prefers it, falling back to the target for rows written before the
+field existed, and a row more than 50 ps short records
+`status = "short:40.00_of_50ns"` instead of `complete`. The tolerance covers
+integer step counts rounding sub-picosecond and nothing larger. It is a literal
+in both files, because the queue should not build an OpenMM system to read one
+float, and a test parses both and asserts they agree.
+
+The same exit had a second fault. The branch for a row already at its target
+
+    log(f"already at {done_ns:.1f} ns of {target_ns}; nothing to do")
+    return 0
+
+announced itself and wrote nothing. A row resumed to exactly its target would
+have had no `run.json` at all, and `complete` and `ingest.py` both read an
+absent `run.json` as a row still in flight, so a finished row would have shown
+as running for good. It writes one now, through the same writer as the normal
+exit, omitting `ns_per_day` and `wall_hours` rather than zeroing them because a
+row that did no stepping has no speed to report, which is section 0.3's rule.
+
+Section 4ag's own lesson then applied to the fix within the hour. `b2ar_apo` is
+in flight on the `run_md.py` that existed at 04:20, so it will write the old
+`run.json` with no `produced_ns`, which is exactly the case the fallback was
+written for. The live queue process is likewise the 04:20 `queue_md.py` and
+carries the old `complete`; that one is harmless, because `complete` only
+decides what to skip at the head of a row and each of the four runs once per
+invocation. The next invocation gets both fixes.
+
 ## 5. Production runs
 
 Tier 2 started at 17:04 on 10 October, in section 5.3's priority order: β2AR

@@ -3626,3 +3626,139 @@ def test_a_thin_reference_ensemble_is_reported_in_the_output():
     block = block[:800]
     assert 'payload.setdefault("notes"' in block, (
         "the warning must reach the payload, not only the log")
+
+
+def _queue_md():
+    import importlib.util
+
+    script = Path(__file__).resolve().parents[1] / "tools" / "queue_md.py"
+    spec = importlib.util.spec_from_file_location("_queue_md", script)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def _written(tmp_path: Path, **over):
+    """A `run.json` as `run_md.py` writes one, with fields overridden."""
+    payload = {"name": "b2ar_apo", "production_ns": 50.0,
+               "produced_ns": 50.0, "status": "complete"}
+    payload.update(over)
+    for key in [k for k, v in payload.items() if v is None]:
+        del payload[key]
+    run_dir = tmp_path / "b2ar_apo"
+    run_dir.mkdir(exist_ok=True)
+    (run_dir / "run.json").write_text(json.dumps(payload))
+    return tmp_path
+
+
+def test_a_short_row_is_not_certified_by_the_target_it_aimed_at(tmp_path: Path):
+    """`complete` compared the target against itself, so it could not fail.
+
+    `run.json` recorded `production_ns` as the target the row was asked for, and
+    `complete` then checked that number against the same target. A row that
+    stopped early still wrote 50 and was certified by it. Section 4ag: a resume
+    that misread its clock would have ended 10 ns short with every log line
+    looking ordinary.
+    """
+    queue = _queue_md()
+    assert queue.complete(_written(tmp_path, produced_ns=50.0),
+                          "b2ar_apo", 50.0), "a row at its target is complete"
+    assert not queue.complete(_written(tmp_path, produced_ns=40.0),
+                              "b2ar_apo", 50.0), (
+        "40 ns of a 50 ns target is short, whatever production_ns says")
+
+
+def test_a_short_row_is_judged_on_what_it_produced_not_what_it_claimed(
+        tmp_path: Path):
+    """The case the old check got wrong: target intact, row short."""
+    queue = _queue_md()
+    assert not queue.complete(
+        _written(tmp_path, production_ns=50.0, produced_ns=39.9,
+                 status="short:39.90_of_50ns"), "b2ar_apo", 50.0)
+
+
+def test_rounding_at_the_last_step_does_not_make_a_row_short(tmp_path: Path):
+    """An integer step count lands sub-picosecond off, which is not a shortfall."""
+    queue = _queue_md()
+    assert queue.complete(_written(tmp_path, produced_ns=49.9999),
+                          "b2ar_apo", 50.0)
+
+
+def test_a_row_recorded_before_produced_ns_existed_is_taken_at_its_word(
+        tmp_path: Path):
+    """Rows finished before the field existed have only the target.
+
+    Same reasoning as `checkpoint_phase`: the fallback has to describe what is
+    already on disk, not what the current code would write.
+    """
+    queue = _queue_md()
+    assert queue.complete(_written(tmp_path, produced_ns=None),
+                          "b2ar_apo", 50.0)
+    assert not queue.complete(
+        _written(tmp_path, produced_ns=None, production_ns=None),
+        "b2ar_apo", 50.0), "neither field present is not a finished row"
+
+
+def test_the_short_row_tolerance_agrees_between_the_runner_and_the_queue():
+    """Two literals that have to match, held together by this test.
+
+    `queue_md` keeps its own copy rather than importing `run_md`, which builds
+    an OpenMM system at import on some paths. The duplication is deliberate and
+    this is what stops it drifting.
+    """
+    import ast
+
+    root = Path(__file__).resolve().parents[1]
+    values = {}
+    for name in ("run_md", "queue_md"):
+        tree = ast.parse((root / "tools" / f"{name}.py").read_text())
+        for node in ast.walk(tree):
+            if (isinstance(node, ast.Assign)
+                    and any(getattr(t, "id", None) == "SHORT_ROW_TOLERANCE_NS"
+                            for t in node.targets)):
+                values[name] = ast.literal_eval(node.value)
+    assert set(values) == {"run_md", "queue_md"}, values
+    assert values["run_md"] == values["queue_md"], values
+
+
+def test_a_row_already_at_its_target_still_records_itself(tmp_path: Path):
+    """The branch that returned 0 and wrote nothing.
+
+    A row resumed to exactly its target took the "nothing to do" exit, which
+    announced itself and wrote no `run.json`. `queue_md.complete` reads an
+    absent `run.json` as unfinished and so does `tools/ingest.py`, so a finished
+    row would have shown as in flight for good.
+    """
+    import types
+
+    module = _run_md()
+    args = types.SimpleNamespace(name="b2ar_apo", membrane=True, equil_ns=None)
+    module.write_run_json(tmp_path, args, target_ns=50.0, produced_ns=50.0,
+                          platform_name="OpenCL", atoms=61234,
+                          temperature=303.15)
+    written = json.loads((tmp_path / "run.json").read_text())
+    assert written["status"] == "complete"
+    assert written["produced_ns"] == 50.0
+    assert "ns_per_day" not in written and "wall_hours" not in written, (
+        "section 0.3: omit a key you cannot produce rather than writing a "
+        "stand-in, and a row that did no stepping has no speed")
+    queue = _queue_md()
+    assert queue.complete(tmp_path.parent, tmp_path.name, 50.0)
+
+
+def test_a_short_row_records_itself_as_short_rather_than_complete(
+        tmp_path: Path):
+    """The status has to say so, because that is what the explorer reads."""
+    import types
+
+    module = _run_md()
+    args = types.SimpleNamespace(name="b2ar_apo", membrane=True, equil_ns=None)
+    module.write_run_json(tmp_path, args, target_ns=50.0, produced_ns=40.0,
+                          platform_name="OpenCL", atoms=61234,
+                          temperature=303.15, ns_per_day=59.7,
+                          wall_hours=16.1)
+    written = json.loads((tmp_path / "run.json").read_text())
+    assert written["status"].startswith("short:"), written
+    assert "40" in written["status"] and "50" in written["status"], (
+        "the status should name both numbers, as failed:<reason> does")
+    assert written["ns_per_day"] == 59.7, "a short row still measured a speed"

@@ -657,3 +657,35 @@ Timestamped, one line per meaningful event, for the reference-state build
   deliberately not recovered from: restarting would discard the checkpoint's
   progress unasked. The original question stays open, because reading the
   checkpoint needs the GPU production is using.
+
+### 11 October, 04:19 to 04:55
+
+Stopped a background shell I had read as a stale poller. Its command ended in
+`exec caffeinate -dimsu pixi run python tools/queue_md.py`, so the shell was the
+production queue and `b2ar_apo` went from 17.2 ns of 50 to no process. Restarted
+it at 04:20: resumed from the checkpoint at 17.000 ns, barostat re-added,
+2 trajectory frames and 2 state rows past the checkpoint dropped, 33.0 ns
+remaining, ETA about 17:35. Cost 0.2 ns of sampling and two minutes of idle GPU,
+and bought the first unattended run of the resume path on a membrane row.
+
+Two faults found while checking the restart was safe, both fixed:
+
+- `run.json` recorded `production_ns`, the target the row was asked for, and
+  `queue_md.complete` compared it against the same target, so a row that
+  stopped short certified itself. Now records `produced_ns` from the context and
+  judges on that, with `status = "short:40.00_of_50ns"` for a row more than
+  50 ps short, and the target as the fallback for rows written before the field
+  existed. Verified against the bug: the old expression returns True on a
+  40-of-50 row.
+- The "already at target, nothing to do" exit returned 0 without writing
+  `run.json`, so a row resumed to exactly its target would have read as in
+  flight for good. Both exits now go through one writer, which omits
+  `ns_per_day` and `wall_hours` rather than zeroing them.
+
+Also found: a row in flight runs the code it started with. `b2ar_apo` had no
+`checkpoint_phase.json` because the marker was added at 21:47 and the row
+started at 16:07. Harmless, because an absent marker means production, but had
+the default been `equil` the restart would have discarded 17 ns and silently
+repeated a 10 ns equilibration.
+
+FINDINGS 4ag. Seven tests added, 939 passed, 1 skipped.
