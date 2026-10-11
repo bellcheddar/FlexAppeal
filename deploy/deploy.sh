@@ -23,6 +23,13 @@ fi
 SSH_OPTS=()
 [[ -n "$SSH_KEY" ]] && SSH_OPTS=(-e "ssh -i ${SSH_KEY/#\~/$HOME}")
 
+# Measured, not claimed. These three are what the explorer reads, and a deploy
+# that is suddenly much bigger than the last one is worth seeing before it runs
+# rather than wondering about afterwards.
+SERVED=$(du -ch data/refstates.db data/analysis data/systems 2>/dev/null \
+         | tail -1 | cut -f1)
+echo "==> Explorer data to send: ${SERVED:-none found}"
+
 echo "==> Syncing to ${DROPLET_SSH}:${DROPLET_PATH}"
 # The vendored JavaScript is ~10 MB and rsync will only send it once, but it is
 # genuinely needed on the server -- nginx serves it from disk. Not excluded.
@@ -65,7 +72,12 @@ fi
 # `data/cache/` and `data/refs/` are downloaded structures, which exist so a
 # rebuild does not hit KLIFS and GPCRdb again. The web app reads none of the
 # three: it reads `data/refstates.db`, `data/analysis/` and `data/systems/`,
-# which together are under 5 MB and are not excluded. The example run's
+# which are not excluded and whose size is printed below rather than asserted
+# here. It used to say "under 5 MB"; it passed 5 MB while the second row was
+# still a third of the way through, because `data/analysis/` carries a viewer
+# bundle per row and those grow with the trajectory. Section 6.3 caps a
+# per-system web bundle at 150 MB, so there is room, but the number in a
+# comment goes stale and the number from `du` cannot. The example run's
 # untracked output is the same story, 183 MB of trajectory and terminal log
 # that nothing serves.
 #

@@ -307,3 +307,43 @@ def test_the_example_directory_case_matches_what_the_code_expects():
     on_disk = [p.name for p in root.iterdir() if p.name.lower() == "examples"]
     assert on_disk == ["examples"], f"expected examples/, found {on_disk}"
     assert EXAMPLE_DIR.parent.name == "examples"
+
+
+def test_the_deploy_reports_the_explorer_payload_rather_than_claiming_it():
+    """The comment said "under 5 MB" and it passed 5 MB during the build.
+
+    `data/analysis/` carries a viewer bundle per row and those grow with the
+    trajectory, so any figure written into a comment is a figure that will be
+    wrong later. There is plenty of room, section 6.3 capping a per-system web
+    bundle at 150 MB, which is exactly why nobody would notice the comment
+    going stale.
+    """
+    script = _read("deploy.sh")
+    assert "du -ch data/refstates.db data/analysis data/systems" in script
+    assert "Explorer data to send" in script
+    # The comment still quotes the old wording, which is the point of it.
+    # What must be gone is the claim.
+    assert "are under 5 MB" not in script, "the claim should be gone"
+
+
+def test_the_deploy_still_sends_what_the_explorer_reads():
+    """The three paths the app reads must not join the exclude list.
+
+    `data/refstates.db` is gitignored, so a tidier `--filter=':- .gitignore'`
+    would ship a droplet whose reference-states tab is silently empty: the app
+    treats an absent database as an empty section by design, so the page would
+    come up looking fine.
+    """
+    script = _read("deploy.sh")
+    # Code, not comments: the script explains at length why the gitignore
+    # filter would be wrong, so the string is in the file on purpose.
+    code = [line for line in script.splitlines()
+            if not line.lstrip().startswith("#")]
+    joined = " ".join(code)
+    for served in ("data/refstates.db", "data/analysis/", "data/systems/"):
+        assert f"--exclude '{served}'" not in joined, (
+            f"{served} must still be sent")
+    assert "--filter=':- .gitignore'" not in joined, (
+        "it would ship a droplet with no explorer database")
+    for excluded in ("data/md/", "data/cache/", "data/refs/"):
+        assert f"--exclude '{excluded}'" in joined, f"{excluded} should not be sent"

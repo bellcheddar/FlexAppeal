@@ -1030,3 +1030,23 @@ and the run page returned 500 with `'dfg_published_a' is undefined`. Caught by
 rendering all five pages; `tests/test_pages.py` catches it too.
 
 FINDINGS 4as. Three tests added, 992 passed, 1 skipped, 12 page tests green.
+
+### 11 October, 12:38 to 12:55
+
+Checked what G3 would send. `deploy/deploy.sh` is right about the hard part: it
+excludes data/md, data/cache and data/refs and keeps data/refstates.db,
+data/analysis and data/systems, by listing paths rather than filtering on
+.gitignore, since the database is itself gitignored and the app renders an
+absent one as an empty section.
+
+Its size claim was stale: "under 5 MB" against 7.3 MB measured, with one row a
+third done. It prints the measured figure before syncing now. Two tests, the
+second scoped to non-comment lines because the script's explanation of why not
+to use the gitignore filter contains the filter.
+
+Also checked and clean this tick: the index cards count references from the
+database (20 and 116, the "4" I had seen was the fixture site), and
+config/benchmarks.toml is written by hwprobe in the final pass so its staleness
+between passes is expected.
+
+FINDINGS 4at. Two tests added, 994 passed, 1 skipped.

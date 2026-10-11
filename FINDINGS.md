@@ -3074,6 +3074,43 @@ two viewports and an undefined variable is not a 200. Both of those are worth
 more than the care that would have avoided it, because the care is not
 repeatable and they are.
 
+## 4at. What G3 would actually send
+
+G3 is waiting on the user and blocks nothing, which made it worth checking that
+it would work rather than leaving it to find out on the day.
+
+`deploy/deploy.sh` is right about the hard part. It excludes `data/md/`,
+`data/cache/` and `data/refs/`, and deliberately does **not** exclude
+`data/refstates.db`, `data/analysis/` or `data/systems/`, which are the three
+the explorer reads. Its own comment records why it does this by listing paths
+rather than with `--filter=':- .gitignore'`: `data/refstates.db` is itself
+gitignored, so the tidier form would ship a droplet whose reference-states tab
+is empty, and the app treats a missing database as an empty section by design,
+so the page would come up looking entirely fine.
+
+What it was wrong about was the size. "Which together are under 5 MB" was true
+when written and is not now: 7.3 MB, with one row a third of the way through
+its 50 ns and another at 4. `data/analysis/` carries a viewer bundle per row
+and those grow with the trajectory, so four finished rows will be perhaps
+double that again.
+
+Nothing breaks. Section 6.3 caps a per-system web bundle at 150 MB and this is
+an order under it, which is exactly why nobody would have noticed the figure
+going stale. The script measures it now and prints it before the sync:
+
+    ==> Explorer data to send: 7.3M
+
+The same move as the About page's reference counts in section 4as and the
+bilayer windows in 4aq. A number in a comment is a number nothing will ever
+check; a number from `du` cannot be wrong about the thing it just measured.
+A deploy that is suddenly much bigger than the last one is also worth seeing
+before it runs rather than wondering about afterwards.
+
+Two tests: that the payload is measured rather than claimed, and that the three
+paths the explorer reads are still not in the exclude list. The second had to
+be scoped to lines that are not comments, because the script's own explanation
+of why not to use the gitignore filter contains the gitignore filter.
+
 ## 5. Production runs
 
 Tier 2 started at 17:04 on 10 October, in section 5.3's priority order: β2AR
