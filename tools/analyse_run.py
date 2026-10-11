@@ -19,6 +19,11 @@ import time
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
+
+# The key the run's own structure takes in an intersection alongside the
+# references. A name no PDB code can collide with, because it sits in the same
+# dictionary as them.
+RUN_CORE_KEY = "__run__"
 sys.path.insert(0, str(ROOT))
 
 # The interval run_md.py saves frames at. One definition, because a mismatch
@@ -93,7 +98,8 @@ def kinase_setup(start_pdb: Path, reference_pdb: str,
     """
     from flexappeal.refstates import Catalogue, kinase_id, kinase_references
     from flexappeal.refstates import ensembles, pocket, refs, sse
-    from flexappeal.refstates.traj import core_agreement, scaffold_core
+    from flexappeal.refstates.traj import (core_agreement, intersect_core,
+                                           scaffold_core)
 
     catalogue = Catalogue(KLIFS_CACHE)
     kid = kinase_id(catalogue, name=protein)
@@ -224,7 +230,39 @@ def kinase_setup(start_pdb: Path, reference_pdb: str,
                 out[name] = theirs
         return out
 
+    # D025's deferred fix, built. The core is the KLIFS scaffold positions that
+    # the run's own structure and every reference all resolve, taken over
+    # positions rather than residue numbers because ABL1's references are split
+    # between the ABL1a and ABL1b numbering and intersecting numbers across them
+    # collapses to nothing. Resolved back per structure, so the i-th core
+    # coordinate is the same place in the fold everywhere, which is what the
+    # superposition was assuming all along.
+    #
+    # A no-op on a set that already resolves the same positions, which both
+    # production ensembles do; it is CDK2, with references resolving 38 of 42,
+    # that this is for.
+    shared_core = intersect_core(
+        {RUN_CORE_KEY: own,
+         **{code: pocket_for(code) for code in sorted(paths)}})
+    if shared_core["positions"]:
+        kept = shared_core["residues_by"]
+        narrowed = set(kept[RUN_CORE_KEY])
+        if narrowed != set(core.residues):
+            core.source += (f", intersected to {len(shared_core['positions'])} "
+                            f"positions shared by {shared_core['n_structures']} "
+                            f"structures")
+            core.helices = {region: [n for n in residues if n in narrowed]
+                            for region, residues in core.helices.items()}
+            core.helices = {r: v for r, v in core.helices.items() if v}
+            log(f"core intersected to {len(shared_core['positions'])} KLIFS "
+                f"positions shared by {shared_core['n_structures']} structures, "
+                f"from {len(core.residues)} on the start model")
+        core.residues = list(kept[RUN_CORE_KEY])
+
     def core_for(code: str):
+        kept = shared_core["residues_by"].get(code)
+        if kept:
+            return kept
         return scaffold_core(pocket_for(code)).residues
 
     # No coverage intersection here, unlike the receptor path, and the reason is
@@ -264,11 +302,9 @@ def kinase_setup(start_pdb: Path, reference_pdb: str,
         f"({agreement.get('worst')})")
     return motif_residues, core, built, own, {"rigidity": agreement,
                                               "alignment": alignment,
-                                              "sse_profiles": sse_profiles,
-                                              "overlay_inputs": {
-                                                  "rows_by_state": rows,
-                                                  "motifs_for": motifs_for,
-                                                  "core_for": core_for}}
+                                              "sse_profiles": sse_profiles}, \
+        {"rows_by_state": rows, "motifs_for": motifs_for,
+         "core_for": core_for}
 
 
 def gpcr_setup(start_pdb: Path, protein: str = "adrb2_human",
@@ -397,11 +433,10 @@ def gpcr_setup(start_pdb: Path, protein: str = "adrb2_human",
     return (motif_residues, core, built, numbering,
             {"rigidity": rigidity, "alignment": alignment,
              "sse_profiles": sse_profiles,
-             "overlay_inputs": {"rows_by_state": rows,
-                                "motifs_for": motifs_for,
-                                "core_for": core_for},
              "map_axis": {"motif": "NPxxY", "against": "inactive",
-                          "values": npxxy}})
+                          "values": npxxy}},
+            {"rows_by_state": rows, "motifs_for": motifs_for,
+             "core_for": core_for})
 
 
 # Section 6.3: coordinates for the web at a 1 ns stride, full resolution kept
@@ -946,10 +981,11 @@ def main() -> int:
 
     if args.kind == "kinase":
         (motif_residues, core, built, own,
-         agreement) = kinase_setup(args.start, args.reference_pdb)
+         agreement, overlay_inputs) = kinase_setup(args.start,
+                                                   args.reference_pdb)
     else:
         (motif_residues, core, built, own,
-         agreement) = gpcr_setup(args.start)
+         agreement, overlay_inputs) = gpcr_setup(args.start)
     log(f"core: {len(core.residues)} residues, {core.source}")
     for name, residues in sorted(motif_residues.items()):
         log(f"  motif {name}: {len(residues)} residues {residues[:4]}"
@@ -1066,9 +1102,6 @@ def main() -> int:
     # Taken out of the payload rather than written to it: it is a numpy array
     # for the lipid bundle's use and has no business in the analysis JSON.
     viewer_centres = viewer.pop("centres", None)
-    # Callables, so they cannot go into the payload. Popped here for the same
-    # reason the shift array is: `payload["report"] = agreement` below.
-    overlay_inputs = agreement.pop("overlay_inputs", None) or {}
     if overlay_inputs and run.frames:
         viewer["overlay"] = write_overlay_bundle(
             loaded[0], args.name, out_dir,

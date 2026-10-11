@@ -1121,3 +1121,35 @@ across the load and rethemed after it, at alpha 0.3 in the state colours.
 D030 records it, D023 marked superseded. 1007 passed, 1 skipped.
 
 FINDINGS 4aw. Six tests added.
+
+### 11 October, 14:30 to 15:05
+
+Third of the four: D025's deferred core intersection, built. `intersect_core`
+takes the KLIFS scaffold positions the run and every reference all resolve and
+resolves them back per structure, so every core is the same length and the i-th
+coordinate is the same place in the fold. CDK2 goes from 28 of 29 aligned to
+29 of 29 on 41 shared positions; the intersection across all 113 CDK2
+structures is 38, D025's estimate.
+
+Checked rather than assumed: among the 109 CDK2 structures with 42 positions
+there is exactly one distinct position set, and the same for ABL1's 19, so the
+old same-length cores were comparing like with like. This is more coverage, not
+a corrected measurement. ABL1 re-analyses bit-identical.
+
+Uniform cores then left modal length deciding nothing, so the target fell
+through to sorted order and picked 1F5Q on CDK2, residual 0.94 A. Target is the
+medoid now: CDK2 onto 3BHT at 0.40, ABL1 onto 2HYY at 0.425 against 2F4J's
+0.568.
+
+I was wrong that the target could not move the scores: each reference is fitted
+onto it separately, so it is not one rigid motion. Measured on abl1_apo over 43
+frames, largest distance change 0.0146 A, largest score change 0.0016, no label
+moves, P4 four of four. abl1_apo's P4 margin is thin at +0.304 against +0.300,
+as it was before at +0.305.
+
+An existing test pinning the sorted-order tiebreak failed and was right to;
+rewritten to assert what D025 protected, that a uniform set loses nobody.
+
+D031 records it, D025 marked superseded. 1011 passed, 1 skipped.
+
+FINDINGS 4ax. Four tests added.

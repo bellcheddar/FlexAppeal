@@ -287,9 +287,35 @@ def align_to_common_frame(ensembles: dict[str, MotifEnsemble]) -> dict[str, Any]
     lengths = Counter(
         len(ensembles[state].by_code[code][CORE_KEY]) for state, code in codes)
     modal = lengths.most_common(1)[0][0]
-    target_state, target_code = next(
-        (state, code) for state, code in codes
-        if len(ensembles[state].by_code[code][CORE_KEY]) == modal)
+    usable = [(state, code) for state, code in codes
+              if len(ensembles[state].by_code[code][CORE_KEY]) == modal]
+
+    # The medoid of the usable set: the reference whose core is nearest to
+    # every other, by mean residual after superposition. Deterministic, and
+    # ties break on the sorted order `codes` already carries.
+    #
+    # Modal length alone used to decide this, and it stopped deciding anything
+    # once `traj.intersect_core` made every core the same length: the rule then
+    # fell through to whichever code sorted first, which on CDK2 is 1F5Q, a
+    # structure far enough from the rest that fitting all 29 onto it put the
+    # mean residual at 0.94 A. The same set onto its medoid is less than half
+    # that. Nothing downstream depends on the choice, a different target being
+    # one rigid transform of the whole ensemble and motif RMSDs invariant under
+    # it, but the residual this reports is read as a measure of how rigid the
+    # core is, and against an outlier it measures the outlier instead.
+    def mean_residual(state: str, code: str) -> float:
+        here = np.asarray(ensembles[state].by_code[code][CORE_KEY], dtype=float)
+        others = [
+            np.asarray(ensembles[s].by_code[c][CORE_KEY], dtype=float)
+            for s, c in usable if c != code]
+        if not others:
+            return 0.0
+        return float(np.mean([
+            rmsd(apply_transform(other, *superpose(other, here)), here)
+            for other in others]))
+
+    target_state, target_code = min(
+        usable, key=lambda pair: (mean_residual(*pair), pair[1]))
     target = np.asarray(
         ensembles[target_state].by_code[target_code][CORE_KEY], dtype=float)
 

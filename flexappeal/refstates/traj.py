@@ -468,6 +468,59 @@ def scaffold_core(pocket, exclude: tuple[str, ...] = ()) -> Core:
     return core
 
 
+def scaffold_core_positions(pocket, exclude: tuple[str, ...] = ()) -> dict:
+    """KLIFS position to residue number, for the scaffold positions resolved here.
+
+    `scaffold_core` returns residue numbers and throws the positions away.
+    The positions are what makes two structures comparable: a KLIFS index means
+    the same place in the fold whatever a deposition numbers it, which is the
+    whole reason this package addresses residues through the catalogue.
+    """
+    mobile = set(exclude) or {"g.l", "alphaC", "b.l", "GK", "hinge", "c.l",
+                              "xDFG", "a.l"}
+    return {index: pocket.by_index[index]
+            for index in sorted(pocket.region_by_index)
+            if pocket.region_by_index[index] not in mobile
+            and index in pocket.by_index}
+
+
+def intersect_core(pockets: dict, exclude: tuple[str, ...] = ()) -> dict:
+    """The scaffold positions every one of these structures resolves.
+
+    D025 chose the alignment target by modal core length because cores of
+    different lengths cannot be superposed onto one another, and recorded the
+    thorough fix as unavailable: intersecting residue *numbers* across ABL1's
+    references fails, their numbering being split between ABL1a and ABL1b
+    nineteen residues apart, so the intersection collapses to three residues.
+
+    The intersection has to be taken over KLIFS positions, which are numbering
+    independent, and resolved back to residues per structure. That is this.
+    Every core then has the same length by construction and, more to the point,
+    its i-th coordinate is the same place in the fold in every structure, which
+    is what a superposition is assuming when it pairs them up.
+
+    Returns the shared positions and, per structure, the residue numbers in
+    position order. Position order rather than sorted residue order: they
+    coincide on a single chain and only one of them is the correspondence being
+    relied on.
+    """
+    per = {name: scaffold_core_positions(pocket, exclude)
+           for name, pocket in pockets.items()}
+    if not per:
+        return {"positions": [], "residues_by": {}, "n_structures": 0}
+    shared = sorted(set.intersection(*(set(v) for v in per.values())))
+    return {
+        "positions": shared,
+        "residues_by": {name: [values[index] for index in shared]
+                        for name, values in per.items()},
+        "n_structures": len(per),
+        # What each structure gave up, so a reference that resolves far less
+        # than the rest is visible rather than quietly shrinking everyone.
+        "dropped_by": {name: len(values) - len(shared)
+                       for name, values in per.items()},
+    }
+
+
 def core_agreement(core_coords_by_code: dict[str, Any]) -> dict[str, Any]:
     """How rigidly a candidate core superposes across the reference set.
 

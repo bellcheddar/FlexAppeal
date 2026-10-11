@@ -2310,19 +2310,29 @@ def test_one_odd_reference_does_not_discard_the_whole_ensemble():
         "the odd reference was chosen as the target again")
 
 
-def test_a_uniform_ensemble_keeps_the_first_reference_as_its_target():
-    """Choosing by modal length must not move a set that is already uniform.
+def test_a_uniform_ensemble_aligns_all_of_itself():
+    """Was: a uniform set keeps the first reference as its target.
 
-    Every ABL1 and beta2AR ensemble in this build is uniform, so this is what
-    makes the change safe for the production rows: same target, same transform,
-    same scores.
+    That assertion encoded D025's tiebreak, which was sorted order, and it was
+    the right thing to pin while modal length was doing the deciding. Once
+    `traj.intersect_core` made every core the same length the modal rule stopped
+    discriminating at all and sorted order became the whole rule, which on CDK2
+    picked 1F5Q and put the mean residual at 0.94 A against 0.40 onto the
+    medoid. So the target is the medoid now and the identity of it is not the
+    property worth pinning.
+
+    What is worth pinning is that a uniform set loses nobody, which is the
+    thing D025 was protecting. The fixture's cores are generated from one shape,
+    so every reference is equidistant and the medoid is decided by the sorted
+    tiebreak, which keeps this deterministic without asserting on it.
     """
     found = _ensemble_of({"active": [(f"B{i:03d}", 43) for i in range(5)],
                           "inactive": [(f"C{i:03d}", 43) for i in range(14)]})
     report = ensembles.align_to_common_frame(found)
-    assert report["target"] == "B000", "the target moved on a uniform set"
     assert report["n_aligned"] == 19
     assert report["n_dropped"] == 0
+    assert report["target"] in {f"B{i:03d}" for i in range(5)} | {
+        f"C{i:03d}" for i in range(14)}
 
 
 def _payload_with_frames(n: int = 12) -> dict:
@@ -5331,3 +5341,90 @@ def test_the_ghost_is_coloured_after_loading_not_by_the_preset():
     assert "old.type.params.alpha = 0.3" in script
     assert "getPropertyValue('--state-' + state)" in script, (
         "the ghost should take the state colour the badges use")
+
+
+def _fake_pocket(resolved: dict, regions: dict):
+    """A stand-in PocketMap: position to residue, and position to region."""
+    import types
+
+    return types.SimpleNamespace(by_index=dict(resolved),
+                                 region_by_index=dict(regions))
+
+
+def test_the_core_is_intersected_over_positions_not_residue_numbers():
+    """D025 deferred this because residue numbers cannot be intersected.
+
+    ABL1's references are split between the ABL1a and ABL1b numbering nineteen
+    residues apart, so intersecting numbers across them collapses to three
+    residues. KLIFS positions are numbering independent, which is the whole
+    reason this package addresses residues through the catalogue, so the
+    intersection is taken there and resolved back per structure.
+    """
+    from flexappeal.refstates.traj import intersect_core
+
+    regions = {1: "alphaE", 2: "alphaE", 3: "alphaE", 4: "hinge"}
+    # Same three scaffold positions, numbered nineteen apart, as ABL1a/ABL1b.
+    a = _fake_pocket({1: 100, 2: 101, 3: 102, 4: 103}, regions)
+    b = _fake_pocket({1: 119, 2: 120, 3: 121, 4: 122}, regions)
+    shared = intersect_core({"A": a, "B": b})
+
+    assert shared["positions"] == [1, 2, 3], "the hinge is mobile and excluded"
+    assert shared["residues_by"]["A"] == [100, 101, 102]
+    assert shared["residues_by"]["B"] == [119, 120, 121]
+    # The point of it: no residue number is shared, and the cores correspond.
+    assert not set(shared["residues_by"]["A"]) & set(shared["residues_by"]["B"])
+
+
+def test_a_structure_missing_a_position_narrows_everyone():
+    """Which is what makes every core the same length by construction.
+
+    CDK2's references resolve 42 positions where one resolves 41, and the
+    alignment used to drop whichever did not match the modal length.
+    """
+    from flexappeal.refstates.traj import intersect_core
+
+    regions = {i: "alphaE" for i in range(1, 5)}
+    full = _fake_pocket({1: 10, 2: 11, 3: 12, 4: 13}, regions)
+    short = _fake_pocket({1: 20, 2: 21, 4: 23}, regions)
+    shared = intersect_core({"FULL": full, "SHORT": short})
+
+    assert shared["positions"] == [1, 2, 4]
+    assert shared["residues_by"]["FULL"] == [10, 11, 13]
+    assert shared["residues_by"]["SHORT"] == [20, 21, 23]
+    assert shared["dropped_by"] == {"FULL": 1, "SHORT": 0}
+
+
+def test_an_empty_set_of_pockets_intersects_to_nothing():
+    """Rather than raising inside a production run."""
+    from flexappeal.refstates.traj import intersect_core
+
+    assert intersect_core({})["positions"] == []
+
+
+def test_the_alignment_target_is_the_medoid_not_whoever_sorts_first():
+    """Modal length stopped deciding anything once every core was the same.
+
+    With `intersect_core` making the lengths uniform, the modal rule fell
+    through to sorted order, which on CDK2 is 1F5Q: far enough from the rest
+    that fitting all 29 onto it put the mean residual at 0.94 A. Onto the
+    medoid it is 0.40.
+    """
+    import numpy as np
+
+    from flexappeal.refstates import ensembles as ens
+
+    # Three cores on a line: B sits between A and C, so B is the medoid and A
+    # sorts first.
+    def holder(points):
+        return {ens.CORE_KEY: [tuple(p) for p in points]}
+
+    base = np.array([[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [0.0, 1.0, 0.0],
+                     [0.0, 0.0, 1.0]])
+    built = {"active": ens.MotifEnsemble(state="active", by_code={
+        "AAAA": holder(base + np.array([0.0, 0.0, 0.0])),
+        "BBBB": holder(base * 1.10),
+        "CCCC": holder(base * 1.20),
+    })}
+    result = ens.align_to_common_frame(built)
+    assert result["target"] == "BBBB", result["target"]
+    assert result["n_aligned"] == 3

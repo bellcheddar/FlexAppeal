@@ -123,7 +123,10 @@ def annotate(args: argparse.Namespace) -> int:
         setup = module.gpcr_setup(args.start or args.topology,
                                   protein=args.protein or "adrb2_human",
                                   max_references=limit)
-    motif_residues, core, built, own, report = setup
+    # The sixth element is the overlay's inputs, which are callables and so
+    # are not part of a report anything serialises. `annotate` does not
+    # build an overlay: it has no viewer bundle to hang one on.
+    motif_residues, core, built, own, report = setup[:5]
 
     run = traj.analyse(loaded, name=args.name or args.trajectory.stem,
                        kind=family, core=core, motif_residues=motif_residues,
@@ -309,7 +312,7 @@ def _score_start(row: dict, systems: Path, work: Path) -> dict[str, Any]:
     except Exception as exc:                                    # noqa: BLE001
         return {**row, "status": f"setup failed: {str(exc)[:70]}"}
 
-    motif_residues, core, built, _own, _report = setup
+    motif_residues, core, built, _own, _report = setup[:5]
     scored = traj.load(start, frame)
     run = traj.analyse(scored, name=row["name"], kind=row["family"], core=core,
                        motif_residues=motif_residues,

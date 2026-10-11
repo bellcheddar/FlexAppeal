@@ -855,6 +855,11 @@ is one copy away whenever the user wants it.
 
 ## D025: the alignment target is the most common core length, not the first code
 
+**Superseded on 11 October by D031**, which builds the position-level
+intersection recorded below as unavailable. Modal length then stops
+discriminating, every core being the same length, so the target is the
+medoid instead.
+
 `align_to_common_frame` fits every reference onto one target and drops any
 whose core is a different length. The target was the first reference in sorted
 order, chosen that way for reproducibility, and reproducible it is: on CDK2 it
@@ -1041,3 +1046,59 @@ artefact to be corrected; it is the question the page is asking.
 **Written as its own PDB per state**, not merged into the viewer bundle, for
 the same reason the bilayer is separate: the topology every measurement is
 taken against must not grow atoms that are not the run.
+
+---
+
+## D031: the core is the KLIFS positions every structure resolves, and the target is the medoid
+
+D025 chose the alignment target by modal core length, and recorded the thorough
+fix as unavailable: intersecting residue *numbers* across ABL1's references
+fails, their numbering being split between ABL1a and ABL1b nineteen residues
+apart, so the intersection collapses to three residues. The user asked for it,
+and the note already said where it had to be taken instead.
+
+**Over positions, resolved back per structure.** `traj.intersect_core` takes
+the KLIFS scaffold positions the run's own structure and every reference all
+resolve, and returns each one's residue numbers in position order. Every core
+is then the same length by construction, and its i-th coordinate is the same
+place in the fold in every structure, which is what a superposition assumes
+when it pairs them up.
+
+**What it buys.** CDK2 goes from 28 of 29 references aligned to **29 of 29**,
+on 41 shared positions out of the 42 its start model resolves. Across all 113
+CDK2 structures KLIFS lists, the intersection is 38, which is the figure D025
+estimated.
+
+**What it does not buy, checked rather than assumed.** The worry was that
+same-length cores might hold *different* positions, so the old superposition
+could have been pairing non-corresponding places while reporting a small
+residual. It was not: among the 109 CDK2 structures with 42 positions there is
+exactly one distinct position set, and the same for ABL1's 19. The old numbers
+were comparing like with like.
+
+**The intersection is a no-op on both production ensembles.** ABL1 re-analyses
+bit-identical: same 43 core residues, same alignment, every one of 43 frames'
+scores unchanged, no motif distance moved.
+
+### The target had to change with it
+
+Making every core the same length left modal length deciding nothing, so the
+rule fell through to sorted order, which is exactly the arbitrariness D025 was
+fixing. On CDK2 that picked 1F5Q and fitting all 29 onto it gave a mean
+residual of 0.94 A.
+
+The target is the medoid now: the reference whose core is nearest to every
+other by mean residual, ties on sorted order. CDK2 fits onto 3BHT at 0.40 A and
+ABL1 onto 2HYY at 0.425 A against 2F4J's 0.568.
+
+**This does move the production numbers, slightly, and that is recorded rather
+than waved through.** Each reference is fitted onto the target separately, so a
+different target is not one rigid motion of the whole ensemble and the
+references' relative arrangement changes a little. Measured on `abl1_apo` over
+all 43 frames: the largest motif distance change is 0.0146 A, the largest
+whole-protein score change is 0.0016, and no label moves anywhere, per motif or
+per frame. P4 reads +0.304, -0.368, +0.593, -0.923 against +0.305, -0.368,
++0.593, -0.934, and all four still pass.
+
+`abl1_apo`'s P4 margin is thin at +0.304 against a +0.300 band. It was thin
+before at +0.305; this did not create it, and it is worth knowing.

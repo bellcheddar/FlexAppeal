@@ -3274,6 +3274,79 @@ the ones the badges and the state map use, at alpha 0.3, so a reader carries
 "green is active" from one part of the page to the other and the run reads in
 front of them.
 
+## 4ax. The core intersection D025 deferred, and the target it broke
+
+D025 chose the alignment target by modal core length and recorded the thorough
+fix as unavailable, with the reason: intersecting residue *numbers* across
+ABL1's references fails, because its numbering is split between ABL1a and ABL1b
+nineteen residues apart and the intersection collapses to three. It also said
+where the intersection had to be taken instead, over KLIFS positions, which are
+numbering independent.
+
+`traj.intersect_core` does that. It takes the scaffold positions the run's own
+structure and every reference all resolve, and returns each one's residue
+numbers in position order. Every core is the same length by construction, and
+its i-th coordinate is the same place in the fold everywhere, which is what a
+superposition is assuming when it pairs two cores up.
+
+**CDK2 goes from 28 of 29 references aligned to 29 of 29**, on 41 shared
+positions of the 42 its start model resolves. Across all 113 CDK2 structures
+KLIFS lists, the intersection is 38, which is exactly the figure D025
+estimated.
+
+### The thing I expected to find, and did not
+
+The worry worth having was that same-length cores might hold *different*
+positions. If so, the old superposition had been pairing position i of one
+structure with a different place in another, reporting a small residual for a
+comparison that was not one, and the 0.49 Å agreement would have been
+meaningless.
+
+Measured: among the 109 CDK2 structures with 42 positions there is **exactly
+one distinct position set**, and the same for ABL1's 19. The old numbers were
+comparing like with like. The intersection is an improvement in coverage, not a
+correction of a wrong measurement, and saying so is the difference between
+reporting a fix and claiming one.
+
+The no-op check matters as much. ABL1 re-analyses bit-identical: same 43 core
+residues, same alignment, all 43 frames' scores unchanged, no motif distance
+moved.
+
+### Making the cores uniform broke the rule that chose the target
+
+Modal length only discriminates when lengths differ. Once every core was the
+same length it decided nothing, and the rule fell through to sorted order,
+which is the arbitrariness D025 existed to remove. On CDK2 that picked 1F5Q,
+far enough from the rest that fitting all 29 onto it gave a mean residual of
+0.94 Å.
+
+So the target is the medoid: the reference whose core is nearest to every other
+by mean residual, ties on sorted order. CDK2 fits onto 3BHT at 0.40 Å; ABL1
+onto 2HYY at 0.425 Å against 2F4J's 0.568.
+
+**And I was wrong about the cost, which the data caught.** I expected the
+target to make no difference to any score, on the reasoning that a different
+target is one rigid transform of the whole ensemble and motif RMSDs are
+invariant under that. It is not one transform: `align_to_common_frame` fits
+each reference onto the target *separately*, so the references' relative
+arrangement changes slightly with the choice.
+
+Measured on `abl1_apo` across all 43 frames: largest motif distance change
+0.0146 Å, largest whole-protein score change 0.0016, and no label moves
+anywhere, per motif or per frame. P4 reads +0.304, −0.368, +0.593, −0.923
+against +0.305, −0.368, +0.593, −0.934. Four of four still pass.
+
+`abl1_apo`'s P4 margin is thin, +0.304 against a +0.300 band. It was thin
+before at +0.305, so this did not create it, and it is worth saying out loud
+rather than leaving in a table.
+
+### A test that was right to fail
+
+`test_a_uniform_ensemble_keeps_the_first_reference_as_its_target` failed,
+having pinned D025's sorted-order tiebreak. That was the correct thing to pin
+while modal length was deciding and is the wrong thing now. It asserts what
+D025 was actually protecting instead: that a uniform set loses nobody.
+
 ## 5. Production runs
 
 Tier 2 started at 17:04 on 10 October, in section 5.3's priority order: β2AR
