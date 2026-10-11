@@ -249,7 +249,7 @@ def analyse(traj, *, name: str, kind: str, core: Core,
             motif_residues: dict[str, list[int]],
             reference_motifs: dict[str, dict[str, Any]],
             frame_ps: float = 100.0,
-            rule_labels=None) -> RunAnalysis:
+            rule_labels=None, measure=None) -> RunAnalysis:
     """Score every frame of one trajectory against the reference ensembles.
 
     `reference_motifs` is `{"active": {code: {motif: coords}}, "inactive": ...}`,
@@ -257,7 +257,9 @@ def analyse(traj, *, name: str, kind: str, core: Core,
     `rule_labels` is an optional callable taking (gemmi chain, frame index) and
     returning `{motif: (label, metric)}`, which is how the rule-based half of
     section 5.6 reaches the score without this function knowing whether it is
-    looking at a kinase or a receptor.
+    looking at a kinase or a receptor. `measure` is the same arrangement for
+    sections 5.4 and 5.5's other per-frame readings, which are stored beside the
+    scores rather than folded into them.
     """
     import numpy as np
 
@@ -300,11 +302,16 @@ def analyse(traj, *, name: str, kind: str, core: Core,
         transform = superpose(core_coords[index], target_core)
         chain = None
         labels: dict[str, tuple[str | None, str | None]] = {}
-        if rule_labels is not None:
+        if rule_labels is not None or measure is not None:
+            # Built once per frame and shared: the conversion is the expensive
+            # part, and two callers each building their own would double it.
             chain = frame_to_gemmi(traj, index)[0]["A"]
+        if rule_labels is not None:
             labels = rule_labels(chain, index) or {}
 
         state = FrameState(time_ns=index * frame_ps / 1000.0)
+        if measure is not None:
+            state.measurements = measure(chain, index, transform) or {}
         for motif, (coords, found) in motif_coords.items():
             if not found:
                 continue

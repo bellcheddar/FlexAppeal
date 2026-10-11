@@ -146,6 +146,11 @@ class FrameState:
 
     time_ns: float
     motifs: list[MotifState] = field(default_factory=list)
+    # Section 5.4 and 5.5's per-frame readings that are not motif RMSDs: the
+    # salt bridge, the kinks, the helix rotations. Kept beside the scores
+    # rather than folded into them, because they are measurements and the
+    # score is an interpretation.
+    measurements: dict[str, Any] = field(default_factory=dict)
 
     @property
     def whole_s(self) -> float | None:
@@ -181,6 +186,8 @@ class FrameState:
         row: dict[str, Any] = {"time_ns": round(self.time_ns, 3),
                                "motifs": [m.as_row() for m in self.motifs],
                                "n_conflicts": self.n_conflicts}
+        if self.measurements:
+            row["measurements"] = self.measurements
         if self.whole_s is not None:
             row["whole_s"] = round(self.whole_s, 4)
             row["whole_label"] = self.whole_label

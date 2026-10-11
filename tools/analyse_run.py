@@ -413,8 +413,42 @@ def main() -> int:
         log(f"  motif {name}: {len(residues)} residues {residues[:4]}"
             f"{'...' if len(residues) > 4 else ''}")
 
+    # Section 5.4 and 5.5's per-frame readings that are not motif RMSDs. The
+    # reference chain for the helix comparisons is the start model, so a
+    # rotation is reported against where the run began rather than against an
+    # arbitrary frame.
+    import gemmi as _gemmi
+
+    _start = _gemmi.read_structure(str(args.start))
+    _start.setup_entities()
+    reference_chain = _start[0][0]
+
     if args.kind == "kinase":
+        from flexappeal.refstates import kinase as _K
         from flexappeal.refstates.pocket import r_spine, r_spine_state
+
+        def measure(chain, index, _unused):
+            """Section 5.4's readings for one frame.
+
+            The fit is onto the start model on the core, computed here: the
+            transform the scoring passes maps into the reference ensemble's
+            frame, which is not the frame these comparisons are against.
+            """
+            fit = _K.core_fit(chain, reference_chain, core.residues)
+            alpha_c = own.region("alphaC")
+            hinge = own.region("hinge")
+            found = {
+                "alphac_salt_bridge": _K.alphac_salt_bridge(chain, own),
+                "p_loop": _K.p_loop(chain, own),
+                "r_spine": r_spine_state(chain, r_spine(own, chain)),
+            }
+            if alpha_c:
+                found["alphac_displacement"] = _K.helix_displacement(
+                    chain, reference_chain, alpha_c, fit)
+            if hinge:
+                found["hinge_backbone"] = _K.backbone_flags(
+                    chain, reference_chain, hinge)
+            return found
 
         def rule_labels(chain, index):
             """The rule-based half of section 5.6, per frame.
@@ -426,7 +460,27 @@ def main() -> int:
             state = r_spine_state(chain, r_spine(own, chain))
             return {"xDFG": (state["state"], "r_spine")}
     else:
+        from flexappeal.refstates import gpcr as _G
         from flexappeal.refstates.gpcr import ionic_lock
+
+        def measure(chain, index, _unused):
+            """Section 5.5's readings for one frame.
+
+            Fitted onto the start model on the core, for the reason in the
+            kinase branch above.
+            """
+            from flexappeal.refstates import kinase as _K
+
+            fit = _K.core_fit(chain, reference_chain, core.residues)
+            return {
+                "micro_switches": _G.micro_switches(chain, own),
+                "tm6_rotation": _G.tm6_rotation(chain, reference_chain, own,
+                                                fit),
+                "connector": _G.connector_rmsd(chain, reference_chain, own,
+                                               fit),
+                "helix8": _G.helix8_angle(chain, own),
+                "kinks": _G.kink_angles(chain, own),
+            }
 
         def rule_labels(chain, index):
             """No corroborating rule for the receptor, and that is a result.
@@ -459,7 +513,7 @@ def main() -> int:
     run = traj.analyse(loaded, name=args.name, kind=args.kind, core=core,
                        motif_residues=motif_residues,
                        reference_motifs=ensembles.for_scoring(built),
-                       rule_labels=rule_labels)
+                       rule_labels=rule_labels, measure=measure)
 
     out_dir = Path(args.out)
     out_dir.mkdir(parents=True, exist_ok=True)

@@ -622,9 +622,23 @@ alone.
 | measure | active start | inactive start |
 |---|---|---|
 | alphaC salt bridge | 3.34 Å, in | 3.41 Å, in |
-| TM6 axis rotation, one against the other | 20.9° with a 5.87 Å centroid shift | |
-| PIF connector RMSD, one against the other | 3.13 Å over 14 shared side-chain atoms | |
+| TM6 axis rotation, one against the other | **25.4°** with a **7.56 Å** centroid shift | |
+| PIF connector RMSD, one against the other | **3.29 Å** over 14 shared side-chain atoms | |
 | H8 angle to the membrane plane | 20.4° | 16.4° |
+
+Those two figures are larger than the first ones measured, 20.9° and 3.13 Å,
+and the difference is the core superposition. Without it the whole-protein
+misalignment was partly cancelling the helix motion, so the uncorrected numbers
+*understated* the signal. The fit has to be onto the structure being compared
+against, which cost a round of debugging: passing the transform the scoring uses
+instead, which maps a frame into the reference ensemble's frame rather than the
+start model's, gave a 78 Å centroid shift and an 82 Å connector RMSD. Both
+obviously wrong, which was luck. The invariant that is not a matter of luck is
+now asserted: a structure compared with itself reports exactly zero.
+
+25.4° of axis rotation with a 7.6 Å centroid shift for the 6.28 to 6.40 span is
+the TM6 outward swing itself, and it is consistent with the roughly 14 Å the
+cytoplasmic tip is described as moving.
 
 The alphaC salt bridge reading `in` for both is correct rather than a failure:
 imatinib-bound ABL1 is the classic DFG-out, alphaC-in type II conformation, and

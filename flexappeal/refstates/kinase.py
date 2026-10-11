@@ -203,6 +203,25 @@ def _axis(coords):
     return helix_axis(coords)
 
 
+def core_fit(chain, reference_chain, core_numbers: list[int]):
+    """The superposition that puts one chain in another's frame, on the core.
+
+    Fitted here rather than taken from the caller, and that distinction cost a
+    debugging round: the per-frame transform the scoring uses maps a frame into
+    the *reference ensemble's* frame, while a comparison against the start model
+    needs the start model's frame. Passing the first where the second was wanted
+    gave a 78 angstrom centroid shift and an 82 angstrom connector RMSD, which
+    were at least obviously wrong rather than plausibly so.
+    """
+    from .traj import superpose
+
+    mine = _ca_array(chain, core_numbers)
+    theirs = _ca_array(reference_chain, core_numbers)
+    if mine.shape[0] < 3 or mine.shape != theirs.shape:
+        return None
+    return superpose(mine, theirs)
+
+
 def helix_displacement(chain, reference_chain, numbers: list[int],
                        core_transform=None) -> dict:
     """Centroid shift and axis rotation of one helix against a reference.
@@ -210,9 +229,10 @@ def helix_displacement(chain, reference_chain, numbers: list[int],
     Section 5.4's alphaC displacement, and section 5.5's TM6 rotation, are the
     same measurement on different helices, so one function does both.
 
-    `core_transform` is the superposition fitted on the structural core. Without
-    it this reports the whole protein drifting rather than the helix moving,
-    which is the error the core exists to prevent.
+    `core_transform` must be a fit of this chain onto `reference_chain` on the
+    structural core, which `core_fit` above produces. Without it this reports
+    the whole protein drifting rather than the helix moving, which is the error
+    the core exists to prevent.
     """
     import numpy as np
 

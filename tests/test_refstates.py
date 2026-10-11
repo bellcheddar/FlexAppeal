@@ -1495,3 +1495,81 @@ def test_an_unresolved_kink_is_reported_as_unresolved():
         assert "resolved" in row, generic
         if row["resolved"]:
             assert row["spread_deg"] < 0.5 * row["kink_deg"]
+
+
+def test_a_structure_compared_with_itself_reports_no_motion():
+    """The invariant that caught a wrong frame of reference.
+
+    Passing the scoring transform where a start-model fit was wanted gave a 78
+    angstrom centroid shift and an 82 angstrom connector RMSD. Both are
+    obviously wrong, which was luck; this asserts the version that is not a
+    matter of luck, that a structure against itself is exactly zero.
+    """
+    import gemmi
+
+    from flexappeal.refstates import Catalogue, receptor_residues
+    from flexappeal.refstates import gpcr as G
+    from flexappeal.refstates import kinase as K
+    from flexappeal.refstates.gpcr import build_numbering
+    from flexappeal.refstates.traj import gpcr_core
+
+    root = Path(__file__).resolve().parents[1]
+    start = root / "data" / "systems" / "b2ar_apo_start.pdb"
+    cache = root / "data" / "cache" / "gpcrdb"
+    if not start.is_file() or not cache.is_dir():
+        pytest.skip("the receptor start model or its catalogue cache is absent")
+
+    numbering = build_numbering(receptor_residues(Catalogue(cache)))
+    structure = gemmi.read_structure(str(start))
+    structure.setup_entities()
+    chain = structure[0]["A"]
+    core = gpcr_core(numbering, {r.seqid.num for r in chain})
+
+    fit = K.core_fit(chain, chain, core.residues)
+    assert fit is not None
+
+    rotation = G.tm6_rotation(chain, chain, numbering, fit)
+    assert rotation["centroid_shift_a"] == pytest.approx(0.0, abs=1e-6)
+    assert rotation["axis_rotation_deg"] == pytest.approx(0.0, abs=1e-6)
+
+    connector = G.connector_rmsd(chain, chain, numbering, fit)
+    assert connector["rmsd_a"] == pytest.approx(0.0, abs=1e-6)
+
+
+def test_the_core_fit_is_required_for_a_helix_measurement_to_mean_anything():
+    """Without it the number includes whole-protein drift.
+
+    Built rather than loaded: one helix, rotated and translated bodily. With a
+    core fit on the rest of the structure the helix has not moved relative to
+    it, so the measurement must be near zero; without one it reports the bodily
+    move.
+    """
+    import numpy as np
+
+    from flexappeal.refstates import traj as T
+
+    rng = np.random.RandomState(3)
+    core = rng.rand(20, 3) * 20.0
+    helix = np.column_stack([
+        2.3 * np.cos(np.radians(np.arange(14) * 100.0)),
+        2.3 * np.sin(np.radians(np.arange(14) * 100.0)),
+        1.5 * np.arange(14)]) + np.array([40.0, 0.0, 0.0])
+
+    # About y, not z. The helix axis is along z, so a rotation about z leaves
+    # the axis where it was and the test would prove nothing: the first version
+    # of this test did exactly that and measured 0.37 degrees.
+    angle = np.radians(35.0)
+    spin = np.array([[np.cos(angle), 0.0, np.sin(angle)],
+                     [0.0, 1.0, 0.0],
+                     [-np.sin(angle), 0.0, np.cos(angle)]])
+    shift = np.array([11.0, -4.0, 6.0])
+    moved_core, moved_helix = core @ spin.T + shift, helix @ spin.T + shift
+
+    transform = T.superpose(moved_core, core)
+    fitted = T.apply_transform(moved_helix, *transform)
+    assert T.rmsd(fitted, helix) < 1e-6, "the core fit should undo the move"
+
+    # And the axis angle is zero once fitted, where the unfitted axes differ.
+    assert T.axis_angle(T.helix_axis(fitted), T.helix_axis(helix)) == pytest.approx(
+        0.0, abs=1e-4)
+    assert T.axis_angle(T.helix_axis(moved_helix), T.helix_axis(helix)) > 30.0
