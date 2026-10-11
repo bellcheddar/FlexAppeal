@@ -1323,3 +1323,29 @@ size showed the fault.
 
 All three identified items are built. 1029 passed, 1 skipped.
 FINDINGS 4ba, 5 tests added.
+
+### 11 October, 16:35 to 17:10
+
+The withheld overlay is closed, and the cause was real. KLIFS lists a row per
+chain: ABL1's fourteen inactive structures are forty-five rows and 6NPV appears
+four times as chains A, B, B, A. `ensembles.build` assigns `by_code[code]` once
+per row so the last wins, while the overlay kept whichever row ranked best,
+which could be a different chain of the same deposition. Its core was fitted
+onto a stored core from the other chain, putting the ghost 0.05 A from where
+the analysis measured it. The overlay takes one row per code now, the last.
+
+All four ghosts on the two production rows write and verify to 0.005 A:
+abl1_apo 2HZ4 and 2HZ0, b2ar_apo 8GE8 and 9RKI.
+
+Two wrong diagnoses came first and both were the harness. One loaded the raw
+solvated trajectory instead of the prepared one. The other resolved ABL1's
+pocket from 1OPL, because I called kinase_setup without a reference PDB where
+analyse_all.sh passes 2GQG, giving a core shifted by the ABL1a/ABL1b nineteen
+residues: 38 of 43 differed from the production core. The third harness matched
+the pipeline and reproduced 0.5053 both ways, which proved the transform chain
+right and the inputs wrong.
+
+The tolerance never moved. At 0.1 A this would have passed on the first
+afternoon and buried a path silently reading a different chain.
+
+1030 passed, 1 skipped.

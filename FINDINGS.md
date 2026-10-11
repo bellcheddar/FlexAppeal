@@ -3299,27 +3299,38 @@ Selection is now the best mean **among references that are nearest for at least
 one motif**: verifiable first, then best. β2AR takes 8GE8 at 1.46 Å and 9RKI at
 2.62 Å, both verified, both sane.
 
-### One overlay is still withheld, and that is the honest outcome
+### The withheld overlay, found: a row per chain
 
-`abl1_apo`'s inactive ghost is refused: 6NPV's hinge measures 0.5600 Å against
-a stored 0.5053. The active ghost on the same run verifies to 0.005 Å, and both
-β2AR ghosts verify although neither is the alignment target, so the two-hop
-composition is right in general and this case is specific. I have not found it.
+**Closed.** `abl1_apo`'s inactive ghost was refused for several hours, 6NPV's
+hinge measuring 0.5600 Å against a stored 0.5053. KLIFS lists a row per chain. ABL1's fourteen inactive structures arrive as
+**forty-five rows**, and 6NPV alone appears four times, as chains A, B, B, A.
+`ensembles.build` assigns `by_code[code]` once per row, so the last row wins and
+the stored coordinates belong to one particular chain. This loop iterated every
+row and kept whichever ranked best, which could be a *different chain of the
+same deposition*. Its own-frame core was then fitted onto a stored core built
+from the other chain, and the ghost landed 0.05 Å from where the analysis had
+measured it.
 
-One candidate was chased and ruled out. The reference's own-frame to
-common-frame hop was being refitted onto the target core, where
-`align_to_common_frame` fits every reference onto the **medoid**, which is a
-different structure: refitting put the reference where it would have gone under
-a different target. That is now taken from the reference's own stored core,
-which recovers the alignment's transform exactly whatever target it used. It
-moved the hinge from 0.5593 to 0.5600, so it was not the cause, and the change
-stays because it removes a dependency that should not have been there.
+The overlay now takes one row per code, the last, which is the one whose
+coordinates `build` left behind. All four ghosts on the two production rows
+write and verify to 0.005 Å: `abl1_apo` takes 2HZ4 and 2HZ0, `b2ar_apo` 8GE8
+and 9RKI.
 
-The tolerance stays at 0.005 Å. Loosening it to 0.1 would make this pass and
-would be exactly the move D023 was warning about: the check exists to refuse
-what it cannot confirm, and a check tuned until it stops refusing is not one.
-Three of four ghosts are drawn and verified, the fourth says why it is missing,
-and the page says so where a reader will see it.
+**Two wrong diagnoses preceded the right one**, and both were my harness rather
+than the code. The first reproduced nothing because it loaded the raw solvated
+trajectory instead of the prepared one. The second resolved ABL1's pocket from
+1OPL, because I called `kinase_setup` without a reference PDB where
+`analyse_all.sh` passes 2GQG, and got a core shifted by the nineteen residues
+between the ABL1a and ABL1b numbering: 38 of its 43 residues differed from the
+production core and I did not notice until I compared them. Only the third
+harness, built to match the pipeline exactly, reproduced 0.5053 both ways and
+so proved the transform chain was right and the inputs were not.
+
+The tolerance never moved from 0.005 Å. Loosening it to 0.1 would have made
+this pass on the first afternoon and buried a real inconsistency between two
+code paths: one of them silently reading a different chain of the same
+structure. That is the argument for a check that refuses what it cannot
+confirm, and against ever tuning one until it stops refusing.
 
 ## 4ax. The core intersection D025 deferred, and the target it broke
 

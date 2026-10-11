@@ -5875,3 +5875,43 @@ def test_the_timeline_panels_are_drawn_per_motif():
     assert "Object.keys(payload.motifs).sort().forEach" in block
     assert "metrics.d_act_a" in block and "metrics.d_inact_a" in block, (
         "the panels plot the two distances the state score is built from")
+
+
+def test_the_overlay_uses_the_row_the_ensemble_kept(tmp_path: Path):
+    """KLIFS lists a row per chain, and `build` keeps the last one.
+
+    ABL1's fourteen inactive structures arrive as forty-five rows: 6NPV alone
+    appears four times, as chains A, B, B, A. `ensembles.build` assigns
+    `by_code[code]` once per row so the last wins, while this loop took
+    whichever row ranked best, which could be a different chain of the same
+    deposition. Its core was then fitted onto a stored core built from the
+    other chain, and the ghost landed 0.05 A from where the analysis had
+    measured it, which the check refused.
+
+    The two chains here are the same coordinates shifted, so picking the wrong
+    one is a transform that is wrong by the shift.
+    """
+    module = _analyse_run_module()
+    first_dir = tmp_path / "chain_a"
+    first_dir.mkdir()
+    frame, first, numbers = _overlay_fixture(first_dir)
+    second_dir = tmp_path / "chain_b"
+    second_dir.mkdir()
+    _, second, _ = _overlay_fixture(second_dir, shift=(4.0, 0.0, 0.0))
+
+    core = numbers[:8]
+    motifs = {"m1": numbers[8:]}
+    # Same code twice, as KLIFS would list two chains. The last is what
+    # `build` would have kept, so the stored core is built from it.
+    rows = {"active": [{"pdb": "TEST", "path": str(first), "chain": "A"},
+                       {"pdb": "TEST", "path": str(second), "chain": "A"}]}
+    out = tmp_path / "out"
+    out.mkdir()
+    written = module.write_overlay_bundle(
+        frame, "run", out, rows_by_state=rows,
+        motifs_for=lambda code: motifs, core_for=lambda code: core,
+        core_residues=core, motif_residues=motifs,
+        motif_records={"m1": {"nearest_active": "TEST", "d_act_a": 0.0}},
+        built=_built_many({"TEST": second}, core))
+    assert "active" in written, (
+        "the overlay should use the row whose core the ensemble stored")

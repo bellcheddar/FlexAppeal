@@ -628,8 +628,24 @@ def write_overlay_bundle(frame, name: str, out_dir, *, rows_by_state,
 
     out: dict = {}
     for state, rows in sorted(rows_by_state.items()):
-        best = None
+        # One row per code, the last, because that is the one whose
+        # coordinates `ensembles.build` left in `by_code`.
+        #
+        # KLIFS lists a row per chain, so ABL1's fourteen inactive structures
+        # arrive as forty-five rows and 6NPV appears four times as chains A, B,
+        # B, A. `build` assigns `by_code[code]` once per row and the last wins;
+        # this loop was taking whichever row ranked best, which could be a
+        # different chain of the same deposition. Its core was then fitted onto
+        # a stored core built from the other chain, and the ghost landed 0.05 A
+        # from where the analysis had measured it. The check refused it, which
+        # is how this was found at all.
+        effective = {}
         for row in rows:
+            code = str(row.get("pdb") or "").upper()
+            if code:
+                effective[code] = row
+        best = None
+        for row in effective.values():
             code = str(row.get("pdb") or "").upper()
             path = row.get("path")
             if not code or not path:
