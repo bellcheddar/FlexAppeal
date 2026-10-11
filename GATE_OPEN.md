@@ -6,6 +6,38 @@ only gate still waiting and it blocks nothing: Tier 2 is running, with
 
 ---
 
+## Acceptance criteria, measured
+
+Section 9's controls and section 6.3's budgets. This sits above the gates and
+not inside one: it was previously inside the G4 section and a rewrite of that
+section deleted the whole table, which is a poor place to keep the results.
+
+| Control | Result |
+|---|---|
+| P1 DFG label against KLIFS | 17 / 17 (spec wants >= 90 %) |
+| P2 alphaC label against KLIFS | 17 / 17 (>= 85 %) |
+| P3 TM3-TM6 separation, leave-one-out | 100 / 100 at 11.39 A (>= 90 %) |
+| P4 each start scores as its own state | 4 / 4: +0.305, -0.368, +0.593, -0.934 |
+| P6 membrane integrity | passes on a real bilayer: APL 68.9 A^2, thickness 37.6 A |
+| P5 inactive start stays inactive | the one control still waiting; needs `b2ar_carazolol` or `abl1_imatinib` |
+| Manifests re-derived from source | ABL1 20/20, beta2AR 116/116, 0 changed |
+| All four rows buildable | yes; `abl1_imatinib` built after D019 fixed its ligand |
+| G-REUSE on an unseen protein | CDK2 annotates against its own KLIFS ensembles, capped and flagged (D020, D021) |
+| Test suite | 887 pass, 0 fail (`pixi run test`) |
+| axe-core, 8 pages | zero serious or critical |
+| Playwright, 8 pages x 2 viewports | no console errors |
+| First paint | 396 ms median against a 2 s budget |
+| Endpoints at a finished row's size | 1 to 34 ms, largest payload 161 KB |
+| Analysis at 500 frames | 19.8 s; viewer bundle 1.4 MB against a 150 MB ceiling |
+| Energy drift | within noise at 3 sigma; the 2 fs fallback is unused |
+| Receptor ingest path | exercised: 5 motifs, 116 references, 100/100 agreeing |
+| Bilayer QC rows | exercised on a real membrane trajectory; G6 closed |
+
+Every figure here is measured rather than remembered. The test count was wrong
+twice, at 833 and 837, both times written from memory or arithmetic.
+
+---
+
 ## G4 Publish — OPEN, pushed 10 October 22:24
 
 Marc authorised the push. `main` went to `origin/main` as **82 commits**, the

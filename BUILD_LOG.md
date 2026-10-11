@@ -386,3 +386,10 @@ Timestamped, one line per meaningful event, for the reference-state build
   (D021). CDK2's run says so in its own output.
 - `23:1x` Verified the production path is untouched: P4 still 4 of 4 at +0.305,
   -0.368, +0.593 and -0.934, ABL1 still 12 active and 45 inactive.
+- `23:2x` Destroyed and restored the acceptance table in `GATE_OPEN.md`. It
+  lived inside the G4 section, and rewriting that section to record the push
+  deleted the whole thing: P1 to P6, the test count, the axe-core and Playwright
+  results and every budget. Caught because a later edit asserted on a line that
+  was no longer there, which is the only reason it did not go unnoticed.
+  Restored above the gates as its own section, so a gate rewrite cannot take the
+  results with it.
