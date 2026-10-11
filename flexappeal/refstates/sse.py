@@ -36,6 +36,13 @@ STRAND_CLASSES = ("E", "B")
 # to 0.04, so the line goes between them.
 DECISIVE_MARGIN = 0.05
 
+# How many discriminating residues a motif needs before its lean is called.
+# One or two is not a measurement: TM5 has two and gave the identical answer
+# for a structure built from the active reference and one built from the
+# inactive, while TM7 has seven and told them apart correctly in both
+# directions. The line goes between those.
+MIN_DISCRIMINATING = 3
+
 SIMPLIFIED = {"H": "H", "G": "H", "I": "H", "E": "E", "B": "E",
               "T": "C", "S": "C", " ": "C", "": "C", "C": "C",
               "NA": "NA"}
@@ -182,6 +189,32 @@ def agreement(frame_row: list[str], active: dict[int, Counter],
             row["n_inactive"] = sum(inact.values())
         rows.append(row)
     return rows
+
+
+def discriminating_residues(active: dict[int, Counter],
+                            inactive: dict[int, Counter]) -> set[int]:
+    """Residues where the two reference sets disagree about the dominant class.
+
+    Everywhere else carries no state information, however large the agreement
+    difference looks, and this is not a theoretical point. Measured across all
+    residues, TM6 gave **0.934 against 0.868 for two different structures**, one
+    built from the active reference and one from the inactive: bit-identical,
+    because a transmembrane helix is helical in both states so its SSE string is
+    the same and the agreement is the same. The lean was reporting that the
+    active reference set is more uniformly helical than the inactive one, which
+    is a fact about the catalogue rather than about the frame.
+
+    Restricting to residues where the consensus differs is what makes the
+    comparison a measurement of the frame. A motif with no such residues cannot
+    carry secondary-structure information and says so.
+    """
+    found = set()
+    for index in set(active) & set(inactive):
+        one = active[index].most_common(1)
+        two = inactive[index].most_common(1)
+        if one and two and one[0][0] != two[0][0]:
+            found.add(index)
+    return found
 
 
 def summarise(rows: list[dict[str, Any]]) -> dict[str, Any]:
@@ -341,12 +374,33 @@ def motif_profiles(references: dict[str, list[dict]], *,
 def motif_agreement(frame_labels: list[str], motif: str,
                     profiles: dict[str, dict[str, dict[int, Counter]]]
                     ) -> dict[str, object]:
-    """One motif's SSE agreement with each reference set, for one frame."""
+    """One motif's SSE agreement with each reference set, for one frame.
+
+    Scored only over the residues where the reference sets disagree about the
+    dominant class, because the rest cannot distinguish the states and including
+    them produced the same answer for two different structures.
+    """
     active = (profiles.get("active") or {}).get(motif) or {}
     inactive = (profiles.get("inactive") or {}).get(motif) or {}
     if not active and not inactive:
         return {}
-    rows = agreement(frame_labels, active, inactive)
+
+    informative = discriminating_residues(active, inactive)
+    rows = [r for r in agreement(frame_labels, active, inactive)
+            if r["index"] in informative]
     found = summarise(rows)
     found["motif"] = motif
+    found["n_discriminating"] = len(informative)
+    found["n_compared"] = sum(1 for _ in set(active) & set(inactive))
+    if not informative:
+        found["leans"] = "neither"
+        found["decisive"] = False
+        found["note"] = ("the reference sets agree on this motif's secondary "
+                         "structure at every residue, so it carries no state "
+                         "information")
+    elif len(informative) < MIN_DISCRIMINATING:
+        found["leans"] = "neither"
+        found["decisive"] = False
+        found["note"] = (f"only {len(informative)} residue(s) distinguish the "
+                         f"reference sets here, too few to read a state from")
     return found

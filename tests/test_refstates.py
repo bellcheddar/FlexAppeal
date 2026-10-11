@@ -1765,3 +1765,55 @@ def test_a_run_with_no_analysis_file_still_serves_its_motifs(tmp_path: Path):
     payload = app.test_client().get("/refstates/run/r/frames.json").get_json()
     assert payload["motifs"], "the motif series must survive a missing analysis file"
     assert payload["whole"] == {}
+
+
+def test_sse_is_scored_only_where_the_reference_sets_disagree():
+    """The fault that gave two different structures the same answer.
+
+    A transmembrane helix is helical in both states, so its SSE string is the
+    same in each and so is its agreement. Scored across all residues, TM6 read
+    0.934 active against 0.868 inactive for a structure built from the active
+    reference *and* for one built from the inactive: bit-identical, and the lean
+    was reporting that the active reference set is more uniformly helical, which
+    is a fact about the catalogue rather than about the frame.
+    """
+    # Every reference helical everywhere: nothing here can tell the states
+    # apart, however lopsided the agreement looks.
+    active = sse.reference_profile({"a": ["H"] * 10, "b": ["H"] * 10})
+    inactive = sse.reference_profile({"c": ["H"] * 9 + ["T"],
+                                      "d": ["H"] * 9 + ["T"]})
+    # The consensus differs at exactly one residue, below the minimum.
+    assert sse.discriminating_residues(active, inactive) == {9}
+    found = sse.motif_agreement(["H"] * 10, "m",
+                                {"active": {"m": active},
+                                 "inactive": {"m": inactive}})
+    assert found["leans"] == "neither"
+    assert found["decisive"] is False
+    assert "too few" in found["note"]
+
+    # No disagreement at all is reported as carrying no information.
+    same = sse.reference_profile({"c": ["H"] * 10, "d": ["H"] * 10})
+    none = sse.motif_agreement(["H"] * 10, "m",
+                               {"active": {"m": active}, "inactive": {"m": same}})
+    assert none["n_discriminating"] == 0
+    assert "no state information" in none["note"]
+
+
+def test_sse_tells_two_states_apart_when_enough_residues_differ():
+    """And the same measurement must give opposite answers for opposite frames.
+
+    This is the property the all-residue version did not have: it is not enough
+    that a frame matching the active set reads active, the frame matching the
+    inactive set has to read inactive.
+    """
+    # Five residues where the sets genuinely disagree.
+    active = sse.reference_profile({f"a{i}": ["H"] * 5 for i in range(3)})
+    inactive = sse.reference_profile({f"i{i}": ["T"] * 5 for i in range(3)})
+    profiles = {"active": {"m": active}, "inactive": {"m": inactive}}
+    assert len(sse.discriminating_residues(active, inactive)) == 5
+
+    looks_active = sse.motif_agreement(["H"] * 5, "m", profiles)
+    looks_inactive = sse.motif_agreement(["T"] * 5, "m", profiles)
+    assert looks_active["leans"] == "active"
+    assert looks_inactive["leans"] == "inactive"
+    assert looks_active["decisive"] and looks_inactive["decisive"]

@@ -662,7 +662,41 @@ On the Tier 1 receptor run:
 | NPxxY | 0.739 | 0.774 | 0.035 | **neither** |
 | H8 | 0.864 | 0.888 | 0.025 | **neither** |
 
-**The last two columns are the point.** Secondary structure is far less
+**Scored across every residue, it gave two different structures the same
+answer.** Running the ligand-bearing receptor path for the first time exposed
+it. The active-start and inactive-start systems, built from 4LDE and 5D5A, read:
+
+| motif | active run | inactive run |
+|---|---|---|
+| TM6 | 0.934 / 0.868 → active | 0.934 / 0.868 → active |
+| H8 | 0.864 / 0.888 → neither | 0.864 / 0.888 → neither |
+| TM5 | 0.982 / 0.832 → active | 0.953 / 0.813 → active |
+
+TM6 and H8 bit-identical for two different proteins in two different states.
+The reason is simple once seen: a transmembrane helix is helical in both states,
+so its SSE string is the same in each and so is its agreement. The lean was
+reporting that the active reference set is more uniformly helical than the
+inactive one, which is a fact about the catalogue rather than about the frame.
+
+The comparison is now scored only over residues where the two reference sets
+disagree about the dominant class, with at least three of them required. That
+line is drawn from the data: TM5 has two discriminating residues and gave the
+identical answer for both structures, TM7 has seven and tells them apart
+correctly in both directions.
+
+| run | built from | SSE call |
+|---|---|---|
+| β2AR apo | active 4LDE | TM7 = **active**, 7 residues |
+| β2AR carazolol | inactive 5D5A | TM7 = **inactive**, 7 residues |
+| ABL1 apo | DFG-in 2GQG | A-loop = **active**, 14 residues |
+
+One call per run instead of five, every one correct, and on the motifs that
+genuinely change secondary structure on activation. The test asserts the
+property the first version lacked: it is not enough that a frame matching the
+active set reads active, the frame matching the inactive set has to read
+inactive.
+
+**The margin threshold is still needed on top of that.** Secondary structure is far less
 discriminating than geometry: most residues of a transmembrane helix are helical
 in both states, so every agreement here is high and the differences are small.
 The first version reported H8 as leaning inactive on a margin of 0.024, which is
