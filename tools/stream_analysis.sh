@@ -59,4 +59,18 @@ done
 
 echo "[$(date +%H:%M:%S)] production has stopped; one final pass with the bilayer QC"
 bash tools/analyse_all.sh
+
+# The figures last, because they are drawn from the database the pass above has
+# just finished filling. Section 11 wants FINDINGS "with figures" and a figure
+# drawn from a half-written run is worse than no figure, so this is the one
+# place they are regenerated rather than on every streaming pass.
+echo "[$(date +%H:%M:%S)] redrawing the figures"
+pixi run python tools/make_figures.py || echo "figures failed, see above"
+
+# And the controls, which is what says whether P5 and P6 came out. They read
+# the same database and cost seconds, so there is no reason to make anyone
+# remember to run them.
+echo "[$(date +%H:%M:%S)] positive controls"
+pixi run python -m flexappeal.refstates.cli controls 2>&1   | sed -n '/^P[0-9]:/,$p' || true
+
 echo "[$(date +%H:%M:%S)] final pass done"

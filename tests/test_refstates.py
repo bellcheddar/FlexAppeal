@@ -742,6 +742,40 @@ def test_the_slab_keeps_the_calpha_between_the_phosphate_planes():
     assert keep == [0, 1, 2, 5]
 
 
+def test_the_cli_runs_as_a_script_and_not_only_as_an_import():
+    """Section 11's deliverable is a CLI, so the script path has to work.
+
+    Everything else here reaches `cli` by importing it, and an import defines
+    every function before anything calls one. Running the module as a script
+    does not: the `__main__` guard sat directly under `main`, above the
+    subcommand functions, so `build_parser` reached `set_defaults(func=controls)`
+    before `controls` existed and every invocation died on a `NameError`. The
+    one path a user would take was the only one nothing covered.
+
+    A subprocess rather than calling `main`, because calling `main` is the
+    import path again and would have passed throughout.
+    """
+    import subprocess
+    import sys
+
+    root = Path(__file__).resolve().parents[1]
+    for argv in (["--help"], ["build", "--help"], ["controls", "--help"],
+                 ["report", "--help"], ["annotate", "--help"], ["run", "--help"]):
+        done = subprocess.run(
+            [sys.executable, "-m", "flexappeal.refstates.cli", *argv],
+            cwd=root, capture_output=True, text=True)
+        assert done.returncode == 0, (
+            f"`cli {' '.join(argv)}` exited {done.returncode}: {done.stderr}")
+        assert "Traceback" not in done.stderr, done.stderr
+
+    # And every subcommand the deliverable names is actually wired up.
+    listed = subprocess.run(
+        [sys.executable, "-m", "flexappeal.refstates.cli", "--help"],
+        cwd=root, capture_output=True, text=True).stdout
+    for name in ("build", "run", "annotate", "report"):
+        assert name in listed, f"section 11 names `{name}` and it is not there"
+
+
 def test_the_state_score_is_symmetric_between_two_references():
     """Section 10's two-reference toy: s(active ref) = -s(inactive ref).
 
@@ -1440,6 +1474,62 @@ def test_p6_fails_on_g6_but_tolerates_outside_expected(tmp_path: Path):
         store.put_membrane(connection, "b2ar_apo", [
             {"start_ns": 0.0, "apl_a2": 40.0, "thickness_a": 38.0}])
     assert _cli().control_p6(path)[0]["passed"] is False
+
+
+def test_the_figures_are_drawn_from_whatever_the_database_holds(tmp_path: Path):
+    """Section 11 asks for FINDINGS "with figures", so they have to generate.
+
+    Run against a database built here rather than against the real one, so the
+    test says whether the generator works and not whether production has got
+    far enough. A membrane figure and a motif figure are both exercised,
+    because they take different routes through the store.
+    """
+    import subprocess
+    import sys
+
+    database = tmp_path / "t.db"
+    store.ingest_analysis(database, _analysis_payload(), system_id="b2ar",
+                          run_id="b2ar_apo", family="gpcr", environment="POPC")
+    with store.connect(database) as connection:
+        store.put_membrane(connection, "b2ar_apo", [
+            {"start_ns": float(i * 10), "apl_a2": 64.0 + i * 0.3,
+             "thickness_a": 38.0, "tilt_deg": 7.0 + i} for i in range(4)])
+
+    out = tmp_path / "figures"
+    root = Path(__file__).resolve().parents[1]
+    done = subprocess.run(
+        [sys.executable, str(root / "tools" / "make_figures.py"),
+         "--db", str(database), "--out", str(out)],
+        cwd=root, capture_output=True, text=True)
+    assert done.returncode == 0, done.stderr
+
+    drawn = sorted(f.name for f in out.glob("*.png"))
+    assert "b2ar_apo_motifs.png" in drawn, drawn
+    assert "b2ar_apo_bilayer.png" in drawn, drawn
+    # Every file is a real PNG and not a zero-length one.
+    for figure in out.glob("*.png"):
+        assert figure.stat().st_size > 1000, f"{figure.name} is empty"
+        assert figure.read_bytes()[:8] == b"\x89PNG\r\n\x1a\n"
+
+
+def test_a_figure_with_no_data_is_skipped_rather_than_drawn_empty(tmp_path: Path):
+    """An axis with nothing on it looks like a result of zero, not an absence."""
+    import subprocess
+    import sys
+
+    database = tmp_path / "t.db"
+    store.ingest_analysis(database, _analysis_payload(), system_id="b2ar",
+                          run_id="b2ar_apo", family="gpcr", environment="POPC")
+    out = tmp_path / "figures"
+    root = Path(__file__).resolve().parents[1]
+    done = subprocess.run(
+        [sys.executable, str(root / "tools" / "make_figures.py"),
+         "--db", str(database), "--out", str(out)],
+        cwd=root, capture_output=True, text=True)
+    assert done.returncode == 0, done.stderr
+    assert not (out / "b2ar_apo_bilayer.png").exists(), (
+        "a run with no membrane chunks drew a bilayer figure anyway")
+    assert "no membrane chunks" in done.stdout, done.stdout
 
 
 # ===========================================================================

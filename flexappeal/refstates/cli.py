@@ -219,6 +219,15 @@ def build_parser() -> argparse.ArgumentParser:
                        / "data" / "refstates.db")
     three.set_defaults(func=report)
 
+    five = sub.add_parser(
+        "build", help="build a start system or the reference manifests")
+    five.add_argument("target", choices=sorted(BUILD_TARGETS),
+                      help="abl1 or b2ar for a start system, references for "
+                           "the KLIFS and GPCRdb manifests")
+    five.add_argument("build_args", nargs=argparse.REMAINDER,
+                      help="passed through, for example: --which apo")
+    five.set_defaults(func=build)
+
     four = sub.add_parser("run", help="run the MD queue (tools/queue_md.py)")
     four.add_argument("queue_args", nargs=argparse.REMAINDER,
                       help="passed through, for example: --smoke --only b2ar_apo")
@@ -231,9 +240,6 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
     return args.func(args)
 
-
-if __name__ == "__main__":
-    raise SystemExit(main())
 
 
 # ===========================================================================
@@ -468,6 +474,36 @@ def run(args: argparse.Namespace) -> int:
     return subprocess.run(command, cwd=root).returncode
 
 
+# Section 11 names `build` on the CLI surface, so it is here for the same
+# reason `run` is: the deliverable is a CLI with these four subcommands, and a
+# subcommand that only exists in the document is not delivered. Each target
+# delegates to the tool that already owns it rather than reimplementing a
+# builder, so there is one definition of each system.
+BUILD_TARGETS = {
+    "abl1": "build_abl1.py",
+    "b2ar": "build_b2ar.py",
+    "references": "build_references.py",
+}
+
+
+def build(args: argparse.Namespace) -> int:
+    """Build a start system or regenerate the reference manifests.
+
+    Delegates, the way `run` does. The builders carry real defaults of their
+    own and refuse clearly when a required argument is missing, so passing the
+    remainder through straight is better than restating their arguments here
+    where the two copies could drift.
+    """
+    import subprocess
+
+    root = Path(__file__).resolve().parents[2]
+    script = root / "tools" / BUILD_TARGETS[args.target]
+    command = [sys.executable, str(script)] + (args.build_args or [])
+    log(f"delegating to tools/{script.name} "
+        + " ".join(args.build_args or []))
+    return subprocess.run(command, cwd=root).returncode
+
+
 # ===========================================================================
 #  Positive controls P5 and P6
 # ===========================================================================
@@ -587,3 +623,14 @@ def control_p6(database: Path) -> list[dict[str, Any]]:
                 "passed": all(acceptable[0] <= v <= acceptable[1] for v in apl),
             })
     return out
+
+
+# The guard belongs at the end of the file and not in the middle of it. It used
+# to sit directly under `main`, which is above the subcommand functions, so
+# running this module as a script executed `build_parser` before `controls`,
+# `report` and `run` had been defined and died on a `NameError` every time.
+# Importing the module defines everything before anything calls it, which is
+# why the tests never saw this and why the only broken path was the one a user
+# would take.
+if __name__ == "__main__":
+    raise SystemExit(main())
