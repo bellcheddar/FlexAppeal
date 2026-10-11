@@ -293,12 +293,18 @@ def _side_chain_centroid(chain, number: int):
 
 
 def r_spine_state(chain, spine: dict[str, int]) -> dict[str, Any]:
-    """`assembled` if every consecutive spine pair is within 6.0 A.
+    """`assembled` if every consecutive spine pair is within R_SPINE_CONTACT_A.
 
     Consecutive along the spine, not along the sequence: the order is beta4,
     alphaC+4, DFG-Phe, HRD-His, which is how the four side chains stack in space.
     A missing residue makes the state `unresolved` rather than `broken`, because
     an unmeasured pair is not an open one.
+
+    The threshold is 7.7 A and not the published 6.0: D015 moved it into the
+    empty gap between the crystal clusters, because 6.0 sits a tenth of an
+    angstrom above the top of the active range and left no room for a side chain
+    at 300 K. `tools/build_references.py` re-derives the separation it was fitted
+    to, so the number can be checked rather than taken on trust.
     """
     centroids = {name: _side_chain_centroid(chain, number)
                  for name, number in spine.items()}

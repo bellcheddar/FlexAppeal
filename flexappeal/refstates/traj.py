@@ -84,29 +84,6 @@ def gpcr_core(numbering, present: set[int] | None = None) -> Core:
     return core
 
 
-def kinase_core(pocket, dssp_helices: dict[str, list[int]] | None = None) -> Core:
-    """The C-lobe helices alphaE, alphaF and alphaH.
-
-    Only alphaE is inside the KLIFS pocket, so it comes from the pocket map and
-    the other two come from `dssp_helices`, which a caller derives by running
-    DSSP on the ensemble medoid. Without them the core is alphaE alone, and
-    `source` says so rather than pretending to three helices.
-    """
-    core = Core()
-    alpha_e = pocket.region("alphaE")
-    if alpha_e:
-        core.helices["alphaE"] = sorted(alpha_e)
-    for name in ("alphaF", "alphaH"):
-        found = (dssp_helices or {}).get(name)
-        if found:
-            core.helices[name] = sorted(found)
-    core.residues = sorted(n for v in core.helices.values() for n in v)
-    core.source = ("KLIFS alphaE plus DSSP alphaF and alphaH"
-                   if len(core.helices) == 3
-                   else "KLIFS alphaE only; alphaF and alphaH were not resolved")
-    return core
-
-
 # ===========================================================================
 #  Frames
 # ===========================================================================

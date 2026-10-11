@@ -43,10 +43,6 @@ DECISIVE_MARGIN = 0.05
 # directions. The line goes between those.
 MIN_DISCRIMINATING = 3
 
-SIMPLIFIED = {"H": "H", "G": "H", "I": "H", "E": "E", "B": "E",
-              "T": "C", "S": "C", " ": "C", "": "C", "C": "C",
-              "NA": "NA"}
-
 
 # Display character for a residue DSSP could not assign. mdtraj writes it as
 # the two-character "NA", which is why nothing here joins labels into a string
@@ -86,10 +82,6 @@ class MotifSSE:
         if self.boundaries:
             row["boundaries"] = self.boundaries
         return row
-
-
-def simplify(labels: list[str]) -> list[str]:
-    return [SIMPLIFIED.get(c, "C") for c in labels]
 
 
 def fractions(labels: list[str]) -> tuple[float | None, float | None]:

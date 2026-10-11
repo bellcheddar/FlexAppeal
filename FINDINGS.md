@@ -753,6 +753,184 @@ a logic fault in `motif_agreement`, which worked perfectly in isolation when
 tested. The fix was to reapply and then verify each part had landed, rather than
 trust that an assertion passing meant the file had changed.
 
+## 4g. Three committed numbers nobody could re-derive
+
+An audit for unreferenced public functions turned up six. Three were dead and
+are now deleted. The other three were the interesting half:
+`refs.prepare_kinase_reference`, `refs.write_manifest` and `gpcr.fit_threshold`
+were all reachable only by reading them, because the code that drove them was a
+one-off in a session and was never committed.
+
+What they had produced was not scratch output. `data/manifests/refs_abl1.jsonl`
+and `refs_b2ar.jsonl` feed the reference browser and both state maps, P1 and P2
+are counted off the kinase manifest, and P3's 11.39 angstrom threshold sits in
+`tools/ingest.py` as a constant. So four of the spec's own acceptance numbers
+rested on artefacts that could not be regenerated. That is a reproducibility
+gap and not a tidiness one: a committed number nobody can re-derive is a number
+nobody can check, including me.
+
+`tools/build_references.py` closes it. `--verify` rebuilds everything in memory
+and diffs it per record rather than per file, because the order a catalogue
+returns rows in is not stable and a file diff would report a shuffle as a
+change.
+
+Both halves now reproduce exactly:
+
+| manifest | rebuilt | committed | changed | controls |
+|---|---|---|---|---|
+| `refs_abl1.jsonl` | 20 | 20 | 0 | P1 17/17, P2 17/17 |
+| `refs_b2ar.jsonl` | 116 | 116 | 0 | P3 100/100 at 11.39 A |
+
+and the script checks that `GPCR_CLEFT_THRESHOLD_A` still matches the fit rather
+than leaving the two to drift apart silently.
+
+### The first rebuild disagreed, and it was the script that was wrong
+
+It reported 42 kinase rows against 20 committed, with P1 at 37/37 and P2 at
+36/37. Both numbers pass their marks, which is what made this worth chasing
+rather than accepting: a rebuild that passes is not the same as a rebuild that
+reproduces.
+
+KLIFS lists one row per chain and per alternate conformation, so ABL1 comes
+back as 61 rows over 20 depositions, with 2G1T alone appearing four times. My
+script deduplicated on `(pdb, chain)` where the original had deduplicated on the
+deposition. Per-PDB first occurrence reproduces all 20 committed chains exactly,
+including the six that are not chain A, so the original intent was unambiguous
+once tested.
+
+The per-entry choice is also the defensible one. Chains of one asymmetric unit
+are copies in one crystal, not independent checks of whether our label agrees
+with KLIFS's, so counting them weights a four-chain deposition four times and
+quotes an n larger than what was actually measured. The wider set is kept as
+`--all-chains`, which reports rather than writes, because it answers a different
+question: whether our labels are stable *within* a crystal.
+
+### What the per-chain check then found
+
+One chain in 37 disagrees, and it is informative:
+
+| 2HZ4 chain | Lys NZ to Glu carboxylate | our aC | KLIFS |
+|---|---|---|---|
+| A | 4.20 A | out | in |
+| B | 2.71 A | in | in |
+| C | 2.74 A | in | in |
+
+The cutoff is 4.0 angstrom. Chain A misses it by 0.20 angstrom while B and C sit
+at 2.7 with the bridge plainly intact, so this is a side chain modelled at the
+edge of a threshold in one copy, not a systematic error in the call.
+
+It is still worth stating plainly that the manifest uses chain B here, and that
+first occurrence picked it rather than any judgement of mine. Had the order come
+back the other way, P2 would read 16/17, or 94 per cent, against its 85 per cent
+mark. The control passes either way, which is the useful part: the result does
+not depend on which copy of this crystal the catalogue happened to list first.
+
+A test now asserts that no deposition appears twice in the kinase manifest. The
+invariant needs guarding precisely because breaking it is silent: the per-chain
+rebuild passed both controls and only the record count gave it away.
+
+### The same gap, in a second place
+
+Having found it once, the obvious question is which other committed numbers are
+fitted rather than chosen. Going through the module constants, most are policy
+or published contact distances: the 4.0 angstrom salt bridge, the 3.5 angstrom
+sodium coordination, the decisive bands. Two were fitted to data. One was P3's
+11.39 angstrom cleft threshold, now re-derived above. The other was
+`R_SPINE_CONTACT_A`, D015's 7.7 angstrom, and it had the same problem: a
+measurement quoted in a decision record with nothing able to reproduce it.
+
+The kinase verify now recomputes it. The separation holds and D015's conclusion
+is unchanged, but re-deriving it corrected two of its figures and found a case
+it had missed:
+
+| quantity | D015 stated | re-derived |
+|---|---|---|
+| active cluster, deciding pair | 5.33 to 5.89 A | 5.33 to 5.96 A |
+| inactive cluster, deciding pair | 9.53 to 11.08 A | 10.35 to 12.92 A |
+| empty region between them | 3.6 A | 4.39 A, from 5.96 to 10.35 |
+| margin left by the published 6.0 A | a tenth of an angstrom | 0.04 A |
+
+D015 had quoted the DFG-Phe to HRD-His pair, but the call is made on whichever
+consecutive pair is widest, because one pair over the threshold is enough to
+make the state `broken`. Measured that way the active bound is 5.96 rather than
+5.89, so the published 6.0 angstrom clears the top of the active cluster by four
+hundredths of an angstrom. That is a stronger argument for moving the threshold
+than the one D015 actually made.
+
+It also surfaced the reference that turns on the choice. 2G1T, the Src-like
+inactive start, sits at 6.14 angstrom: `assembled` at 7.7 and `broken` at 6.0.
+D015 counted 19 references and had left the Src-like ensemble out of that count,
+so the one structure where the two thresholds disagree was invisible. It happens
+to be the clearest illustration of the point, because 2G1T is DFG-in with the
+alphaC helix out and its spine stack is genuinely intact, so `assembled` is
+correct and the published threshold gives the wrong answer.
+
+Two notes on what this does and does not establish. The control checks that the
+threshold still sits in an empty region and that every crystal classifies
+correctly, and it fails the run if either stops being true, so a catalogue
+change that moved the clusters would be caught. It does not validate 7.7 against
+anything other than these 20 depositions, and the trajectory evidence for it is
+still the 43 frames D015 cites.
+
+A stale docstring went with it: `r_spine_state` still said "within 6.0 A" after
+D015 moved the threshold, so the code described a behaviour it no longer had.
+
+## 4h. What was still untested with the results about to land
+
+Asked once more whether everything is ready for the Tier 2 trajectories, the
+useful move was to stop asserting it and go and run the paths that had never
+run. Two had not.
+
+**The receptor ingest path had never executed.** The database held one system,
+one run and 20 reference structures, all of them ABL1. The 116 beta2AR
+references, the five receptor motifs and the whole GPCRdb annotation path were
+written, tested against fixtures and never once run against a real analysis.
+Run against the existing receptor analysis on a scratch database it works: 5
+motifs, 100 frame rows, 116 references annotated and 100 of 100 agreeing with
+GPCRdb, with the second map axis merged onto the same records. Nothing needed
+fixing, but "it is implemented" and "it has run" were not the same claim, and
+only one of them was true.
+
+**The bilayer QC had never written a row.** `membrane` was empty. The pass runs
+at ingest rather than analysis time, which is why it is invisible in the
+analysis JSON, and it needs `solvated.pdb` beside the trajectory. The Tier 1
+smoke run does not have one, because `--system-dir` put the system files
+elsewhere, so pointing the pass at the smoke trajectory with the production
+topology was the way to exercise it. On 1 ns:
+
+| quantity | measured | window |
+|---|---|---|
+| lipids, per leaflet | 476, 238 / 238 | balanced |
+| area per lipid | 68.9 A^2, sd 0.23 | 60 to 68 expected, 55 to 75 acceptable |
+| thickness | 37.62 A, sd 0.11 | 36 to 41 expected |
+| core waters | 10.1 | was 8,622 before the periodic fix |
+| G6 | closed | the bilayer does not invalidate the result |
+
+Area per lipid is 0.9 A^2 above the literature window and inside the gate's, so
+the chunk reads `outside expected` while G6 stays closed. I first read that pair
+as a contradiction. It is not: there are deliberately two windows, a tight one
+from the literature and a wider one for the gate, and a value between them is
+exactly the case they exist to distinguish. Worth recording because the mistake
+was mine and the design was right.
+
+The production run directory does have its `solvated.pdb`, so this pass will
+find its topology when `b2ar_apo` lands rather than silently returning nothing.
+That was the specific failure I went looking for and it is not there.
+
+**And a false alarm I raised myself.** Running `pytest -q` from the repository
+root reported 17 failures. They are all in `vendor/boltzmaker/tests`, which
+shells out to `vendor/boltzmaker/.venv/bin/python3`, an interpreter that does not
+exist inside this pixi environment. `pixi run test` was already scoped to
+`tests/` and reports 871 passing; the bare command was not. `pytest.ini` now
+scopes collection so both agree.
+
+Two process points from that, both about the same habit. The run I did before it
+piped pytest into `tail`, so the exit code I read was `tail`'s and it was 0 while
+pytest was returning 1: a suite I reported as passing had 17 failures in it.
+And the count in `GATE_OPEN.md` has now been wrong twice, at 833 and 837,
+because I wrote it from memory and then from arithmetic instead of from a run.
+It is 871, measured.
+
 ## 5. Production runs
 
 Tier 2 started at 17:04 on 10 October, in section 5.3's priority order: β2AR

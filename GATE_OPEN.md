@@ -27,11 +27,21 @@ is drafted. The spec's own acceptance criteria are met for every finished phase:
 | P3 TM3–TM6 state separation, leave-one-out | 100 / 100 at 11.39 Å (≥ 90 %) |
 | P4 each start scores as its own state | 4 / 4 |
 | P5, P6 | pending the Tier 2 rows |
-| Test suite | 833 pass, 0 fail |
+| Manifests re-derived from source | ABL1 20/20, β2AR 116/116, 0 changed |
+| Test suite | 871 pass, 0 fail (`pixi run test`) |
 | axe-core, 8 pages | zero serious or critical |
 | Playwright, 8 pages x 2 viewports | no console errors |
 | First paint | 396 ms median against a 2 s budget |
 | Energy drift | within noise at 3 sigma; the 2 fs fallback is unused |
+| Receptor ingest path | exercised; 5 motifs, 116 references, 100/100 agreeing |
+| Bilayer QC rows | exercised on a real membrane trajectory; G6 closed |
+
+The test figure in this file has now been wrong twice, at 833 and at 837, both
+times because I wrote it from memory or from arithmetic rather than from a run.
+871 is measured. A bare `pytest` from the repository root also used to collect
+the vendored BoltzMaker suite, whose 17 environment failures I briefly read as a
+regression of this project; `pytest.ini` now scopes collection so that the plain
+command and `pixi run test` agree.
 
 **What unblocks it.** One of:
 

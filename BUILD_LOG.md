@@ -169,3 +169,65 @@ Timestamped, one line per meaningful event, for the reference-state build
   in a different journal a year later.
 - `16:4x` Viewer bundle at a 1 ns stride: 0.4 MB for the partial ABL1 run,
   about 1 MB for a finished row, against section 6.3's 150 MB ceiling.
+- `21:0x` Both reference manifests now reproduce from source.
+  `tools/build_references.py --verify` rebuilds them in memory and diffs per
+  record: ABL1 20 of 20 and beta2AR 116 of 116 with nothing changed, P1 17/17,
+  P2 17/17, P3 100 of 100 at 11.39 A, and `GPCR_CLEFT_THRESHOLD_A` confirmed
+  against the fresh fit. Until this ran, four of the spec's acceptance numbers
+  rested on artefacts no code in the repository could regenerate.
+- `21:0x` The first kinase rebuild disagreed and the script was wrong, not the
+  manifest: 42 rows against 20, because it deduplicated on `(pdb, chain)` where
+  the original deduplicated on the deposition. KLIFS lists a row per chain, so
+  ABL1 is 61 rows over 20 depositions. Per-PDB first occurrence reproduces all
+  20 committed chains exactly, including the six that are not chain A. Worth
+  noting that the wrong version still *passed*, at P1 37/37 and P2 36/37, so
+  passing and reproducing are not the same check (D016).
+- `21:1x` The per-chain set is kept as `--all-chains` and found one disagreement
+  in 37: 2HZ4 chain A reads the catalytic Lys to alphaC Glu at 4.20 A against a
+  4.0 A cutoff and calls alphaC `out`, where chains B and C read 2.71 and 2.74
+  and call it `in`. A 0.2 A threshold miss in one copy of a three-chain crystal.
+  P2 would still pass at 16/17 had that copy been listed first, which is the
+  useful part: the control does not depend on catalogue row order.
+- `21:1x` Asked which other committed constants are fitted rather than chosen,
+  and found one more with the same problem: D015's 7.7 A R-spine threshold.
+  The kinase verify now re-derives it. The conclusion holds, two of D015's
+  figures were wrong, and the correction strengthens it: measured on the pair
+  that actually decides the call, the published 6.0 A clears the active cluster
+  by 0.04 A rather than by a tenth of an angstrom. It also surfaced 2G1T at
+  6.14 A, the one reference whose label flips between the two thresholds, which
+  D015 had left out of its count.
+- `21:1x` Deleted `ensembles.common_core`, `traj.kinase_core` and `sse.simplify`
+  with its `SIMPLIFIED` table, the three functions from the audit that were
+  genuinely unreferenced rather than a missing caller.
+- `21:1x` Corrected `PROGRESS.md`, which still attributed the +136,000,000
+  kJ/mol to single precision and to the wrong fault. It was the non-periodic
+  lipid restraint, and that correction had reached FINDINGS and BUILD_LOG but
+  not the file a reader is most likely to open first.
+- `21:1x` Went looking for what was still untested with Tier 2 about to produce,
+  rather than asserting readiness again. The receptor ingest path had never
+  executed: the database held one system, one run and 20 ABL1 references, so the
+  116 beta2AR references and the five receptor motifs were implemented, fixture
+  tested and never run on a real analysis. Exercised on a scratch database it
+  works unchanged: 5 motifs, 100 frame rows, 116 references annotated, 100 of
+  100 agreeing with GPCRdb.
+- `21:1x` The bilayer QC had also never written a row. It runs at ingest rather
+  than analysis time and needs `solvated.pdb` beside the trajectory, which the
+  smoke run does not have because `--system-dir` put the system files elsewhere.
+  Run on the smoke trajectory with the production topology: 476 lipids at
+  238/238, thickness 37.62 A, area per lipid 68.9 A^2, 10.1 core waters, G6
+  closed. The production directory does have its topology, so this will not
+  return silently when the row lands.
+- `21:1x` Misread `outside expected` beside a closed G6 as a contradiction.
+  There are two windows by design, 60 to 68 A^2 from the literature and 55 to 75
+  for the gate, and 68.9 falling between them is the case they exist to tell
+  apart. The design was right and the reading was mine.
+- `21:2x` A false alarm worth keeping. `pytest -q` from the repository root
+  reported 17 failures, all in `vendor/boltzmaker/tests`, which shell out to an
+  interpreter that does not exist under pixi. `pixi run test` was already scoped
+  to `tests/`; `pytest.ini` now scopes the bare command too.
+- `21:2x` Two process faults behind that. The run before it piped pytest into
+  `tail`, so the exit status I read was `tail`'s: 0 while pytest returned 1, and
+  I reported a suite as passing that had 17 failures in it. Never read an exit
+  code through a pipe. And the test count in `GATE_OPEN.md` had been wrong
+  twice, 833 then 837, written from memory and then from arithmetic. Measured it
+  is 871.

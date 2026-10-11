@@ -1817,3 +1817,94 @@ def test_sse_tells_two_states_apart_when_enough_residues_differ():
     assert looks_active["leans"] == "active"
     assert looks_inactive["leans"] == "inactive"
     assert looks_active["decisive"] and looks_inactive["decisive"]
+
+
+# --- the reference manifests, and the script that rebuilds them --------------
+#
+# `tools/build_references.py` exists so the committed manifests can be
+# re-derived rather than trusted. These tests cover the part of it that does
+# not need the network: the invariant it has to preserve, and the diff it
+# reports. The invariant is worth a test because getting it wrong is silent --
+# a per-chain rebuild still passes P1 and P2, it just counts a different n.
+
+def _build_references():
+    import importlib.util
+    from pathlib import Path
+
+    root = Path(__file__).resolve().parents[1]
+    spec = importlib.util.spec_from_file_location(
+        "_build_references", root / "tools" / "build_references.py")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def test_kinase_manifest_holds_one_row_per_deposition():
+    """KLIFS lists a row per chain; the manifest must not.
+
+    ABL1 comes back as 61 KLIFS rows over 20 depositions, with 2G1T appearing
+    four times. Chains of one asymmetric unit are not independent checks of
+    whether our labels agree with KLIFS's, so a duplicate PDB code here would
+    mean P1 and P2 were quoting an n larger than what was actually measured.
+    """
+    import json
+    from collections import Counter
+    from pathlib import Path
+
+    path = (Path(__file__).resolve().parents[1]
+            / "data" / "manifests" / "refs_abl1.jsonl")
+    rows = [json.loads(line) for line in path.read_text().splitlines()
+            if line.strip()]
+    assert rows, "the kinase manifest is empty"
+    repeated = {code: n for code, n in
+                Counter(r["pdb"] for r in rows).items() if n > 1}
+    assert not repeated, f"these depositions appear more than once: {repeated}"
+
+
+def test_manifest_diff_is_per_record_not_per_file():
+    """A reordering is not a change.
+
+    The order a catalogue returns its rows in is not stable, so a diff taken on
+    the file would report a shuffle as a difference and the verify mode would
+    cry wolf on every run.
+    """
+    module = _build_references()
+    one = [{"pdb": "1ABC", "chain": "A", "our_dfg": "in"},
+           {"pdb": "2DEF", "chain": "B", "our_dfg": "out"}]
+    shuffled = list(reversed(one))
+    assert not module.compare(shuffled, one)["changed"]
+
+    changed = [dict(one[0], our_dfg="out"), one[1]]
+    diff = module.compare(changed, one)
+    assert [row["record"] for row in diff["changed"]] == [("1ABC", "A")]
+    assert diff["changed"][0]["fields"]["our_dfg"] == ("in", "out")
+
+    diff = module.compare(one[:1], one)
+    assert diff["removed"] == [("2DEF", "B")] and not diff["added"]
+    diff = module.compare(one, one[:1])
+    assert diff["added"] == [("2DEF", "B")] and not diff["removed"]
+
+
+def test_manifest_diff_tolerates_float_noise():
+    """A distance that moves in the sixth decimal is not a changed reference."""
+    module = _build_references()
+    committed = [{"pdb": "1ABC", "chain": "A", "tm3_tm6": 11.3900}]
+    jittered = [{"pdb": "1ABC", "chain": "A", "tm3_tm6": 11.3901}]
+    assert not module.compare(jittered, committed)["changed"]
+    moved = [{"pdb": "1ABC", "chain": "A", "tm3_tm6": 11.5}]
+    assert module.compare(moved, committed)["changed"]
+
+
+def test_row_adapter_exposes_what_agreement_reads():
+    """`refs.agreement` takes prepared references; verify re-runs it on dicts.
+
+    Rebuilding PreparedReference objects to re-run a control would mean
+    fetching and annotating all 20 structures a second time.
+    """
+    from flexappeal.refstates import refs
+
+    module = _build_references()
+    rows = [{"status": "ok", "dfg_agrees": True, "alphac_agrees": True},
+            {"status": "ok", "dfg_agrees": False, "alphac_agrees": True}]
+    control = refs.agreement([module._Row(r) for r in rows], "dfg")
+    assert control["compared"] == 2 and control["agreed"] == 1

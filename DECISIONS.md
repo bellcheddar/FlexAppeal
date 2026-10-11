@@ -520,3 +520,58 @@ Checked both ways. The references still classify perfectly at the new threshold,
 5 of 5 active `assembled` and 14 of 14 inactive `broken`, and the trajectory's
 standing conflict disappears. The published 6.0 A is kept as
 `R_SPINE_CONTACT_CRYSTAL_A` for structure-only comparisons.
+
+**Re-derived, with two numbers above corrected.** This paragraph was written
+from a measurement that nothing in the repository could reproduce, which is the
+fault 4g describes for the manifests. `tools/build_references.py` now recomputes
+it on every kinase verify. The separation holds and the conclusion is unchanged,
+but the figures need amending:
+
+| quantity | stated above | re-derived |
+|---|---|---|
+| active DFG-Phe to HRD-His | 5.33 to 5.89 A | 5.33 to **5.96** A |
+| deciding pair, active | not stated | 5.33 to 5.96 A |
+| deciding pair, inactive | 9.53 to 11.08 A | **10.35 to 12.92** A |
+| empty region | 3.6 A | **4.39** A, from 5.96 to 10.35 |
+| 6.0 A clears the active cluster by | "a tenth of an angstrom" | **0.04 A** |
+
+The ranges above were the DFG-Phe to HRD-His pair alone. The call is made on
+whichever pair is *widest*, since one pair over the threshold makes the state
+`broken`, so that is what the control reports and what the empty region is now
+measured on. Correcting the active bound to 5.96 narrows the published
+threshold's margin from a tenth of an angstrom to four hundredths, which
+strengthens the case for moving it rather than weakening it.
+
+**And one reference does turn on the choice.** 2G1T, the Src-like inactive
+start, has a deciding pair of 6.14 A: `assembled` at 7.7 and `broken` at the
+published 6.0. D015 counted 19 references and left the Src-like ensemble out of
+that count, so this was not visible before. It is the clearest single
+illustration of the point, because 2G1T is DFG-in with the alphaC helix out and
+its spine stack is intact, so `assembled` is the right answer and 6.0 gives the
+wrong one.
+
+## D016: the kinase manifest holds one row per deposition, not per chain
+
+KLIFS's `structures_list` returns a row per chain and per alternate
+conformation. For ABL1 that is 61 rows over 20 depositions: 2G1T appears four
+times, 2HZ4 three times. The manifest keeps the first row for each deposition
+and `tools/build_references.py --verify` reproduces the committed file exactly
+on that rule, including the six entries whose chain is not A.
+
+The alternative would count every chain, giving 37 usable references instead of
+17. It was tried, and it passes: P1 37/37 and P2 36/37. It is still the wrong
+denominator. Chains of one asymmetric unit are copies in a single crystal, so
+they are not independent tests of whether our label agrees with KLIFS's, and
+counting them gives a four-chain deposition four times the weight of a
+single-chain one while quoting an n that overstates what was measured.
+
+Kept as `--all-chains`, which reports and refuses to write the manifest, because
+it answers a genuinely different question: whether a label is stable within one
+crystal. It found that 2HZ4 chain A reads the catalytic Lys to alphaC Glu
+distance at 4.20 A against a 4.0 A cutoff and so calls alphaC `out`, where
+chains B and C read 2.71 and 2.74 A and call it `in`. A 0.2 A threshold miss in
+one copy, and P2 would still pass at 16/17 had that copy been listed first.
+
+This is deliberately not applied to the receptor manifest, which is keyed on
+`(pdb, chain)` because GPCRdb lists a preferred chain per entry and the 116 rows
+are already one per structure.

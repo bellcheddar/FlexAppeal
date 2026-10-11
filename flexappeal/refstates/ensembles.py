@@ -230,23 +230,6 @@ def build(references: dict[str, list[dict[str, Any]]], *,
     return out
 
 
-def common_core(core_by_code: dict[str, list[int]]) -> list[int]:
-    """Residues present in every reference's core, as section 5.5 asks.
-
-    The core has to be the same length everywhere or the superposition cannot be
-    applied across the set, so it is the intersection and not the union. Taken on
-    generic or KLIFS positions by the caller, which is what makes an intersection
-    meaningful across structures with different numbering.
-    """
-    if not core_by_code:
-        return []
-    shared: set[int] | None = None
-    for residues in core_by_code.values():
-        current = set(residues)
-        shared = current if shared is None else (shared & current)
-    return sorted(shared or [])
-
-
 def for_scoring(ensembles: dict[str, MotifEnsemble]) -> dict[str, dict[str, Any]]:
     """The plain nested dict `traj.analyse` takes."""
     return {state: ensemble.by_code for state, ensemble in ensembles.items()}

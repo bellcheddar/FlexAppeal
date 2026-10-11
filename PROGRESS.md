@@ -81,24 +81,40 @@ Two things the spec leaves to run time and that shape everything after them:
 | 3 System building | done; ABL1 46,721 atoms, β2AR 194,032 and 188,xxx with the bilayer |
 | 4 Analysis | done; kinase and receptor paths both verified against real structures |
 | 6 App | done; fifth tab, per-run explorer, reference browser, 28 tests |
-| 5 Production | ABL1 apo paused at 4.3 ns of 50; membrane rows pending the Tier 1 result |
+| 5 Production | Tier 1 passed at 59.8 ns/day; Tier 2 running, b2ar_apo through its restraint ladder |
 | 7 Deliverables | FINDINGS.md and DECISIONS.md current; the production section is open |
 
-**The three things that cost the most time, all in phase 3.** Each presented as
+**The four things that cost the most time, all in phase 3.** Each presented as
 `Particle coordinate is NaN` and none of them was a timestep problem:
 
-1. gemmi's placeholder `CRYST1` of 1 1 1 made `addMembrane` size the box from
+1. The lipid z restraint was a plain `(z - z0)^2`. OpenMM wraps coordinates into
+   the box, the lower leaflet sits at negative z and wraps by one box vector, so
+   the restraint saw an 11.77 nm deviation on 238 phosphorus atoms that had not
+   moved: about **+138,000,000 kJ/mol** on a system at rest. Written as
+   `periodicdistance(0, 0, z, 0, 0, z0)^2` the same system reads
+   **-2,213,385** with both restraints at exactly zero. This was the real
+   blocker and it took four wrong hypotheses to reach.
+2. gemmi's placeholder `CRYST1` of 1 1 1 made `addMembrane` size the box from
    the lipid patch rather than from the 9.4 nm receptor (D014).
-2. The barostat was on during what section 5.2 defines as NVT heating.
-3. The built system's contents exceed its own periodic box, so `addSolvent`
+3. The barostat was on during what section 5.2 defines as NVT heating.
+4. The built system's contents exceed its own periodic box, so `addSolvent`
    placed 246 waters where overhanging lipid and patch-water atoms already sat.
-   As-built energy **+136,000,000 kJ/mol** in single precision against
-   **-2,060,000** on the CPU at double. After the repair both platforms agree
-   exactly at **-2,213,385**, which is the check that the fix is real rather
-   than a change that happened to run.
+   Repaired by deleting them, preferring water over ions so neutrality holds.
 
-**What is not yet known.** The membrane ns/day. Everything in the compute budget
-below is still a projection scaled from atom counts, and the Tier 1 smoke run
-measures it. Both membrane systems came in near 194 k atoms rather than the
-spec's 80 to 110 k (D012), so the projection is the number most likely to be
-wrong, and it is the one G1 turns on.
+**One of those four wrong hypotheses is worth keeping.** The +136,000,000 was
+attributed to single precision for several hours, on the strength of a CPU run
+reading -2,060,000 for what was described as the same system. The two runs did
+not differ in precision: one had no restraints and the other had both. Nothing
+measured anywhere in this build ever showed the two platforms disagreeing. A
+difference between two runs is only evidence about the variable that actually
+differed, and an earlier version of this file carried the wrong version of it.
+
+**The membrane ns/day is now measured, not projected.** The Tier 1 run gives
+**59.8 ns/day** with the barostat on, against the 86 the heating stages had
+suggested: the `MonteCarloMembraneBarostat` costs about 30 per cent. That was
+the one number the compute budget turned on, and it closes G1 rather than
+opening it. Including the equilibration that section 5.2 puts in front of every
+row, the four rows come to **59.4 GPU-hours** against a 96-hour ceiling, with
+36.6 spare. Both membrane systems came in near 194 k atoms rather than the
+spec's 80 to 110 k (D012), which is why the projection was worth replacing with
+a measurement.
