@@ -2319,6 +2319,109 @@ def test_a_uniform_ensemble_keeps_the_first_reference_as_its_target():
     assert report["n_dropped"] == 0
 
 
+def _payload_with_frames(n: int = 12) -> dict:
+    """The shared fixture has two frames, which is below the four `summarise`
+    needs before it will report halves at all. That is correct behaviour and
+    makes it the wrong fixture for testing them."""
+    payload = _analysis_payload()
+    payload["frames"] = [
+        {"time_ns": i * 0.1, "n_conflicts": 0, "motifs": [
+            {"motif": "xDFG", "d_act_a": 1.0, "d_inact_a": 4.0,
+             "s": 0.6 + 0.01 * i, "label": "active"},
+            {"motif": "hinge", "d_act_a": 2.0, "d_inact_a": 2.0,
+             "s": 0.0, "label": "intermediate"}]}
+        for i in range(n)]
+    return payload
+
+
+def test_the_summary_counts_frames_and_not_rows(tmp_path: Path):
+    """`motif_frames` holds one row per metric, and a motif has two.
+
+    Counting rows reports twice as many frames as the run has, which is the
+    same rows-against-things error section 4m records for the kinase reference
+    ensembles. The means and the scatter survive the duplication; the count
+    does not, and it is the number a reader would quote.
+    """
+    database = tmp_path / "t.db"
+    payload = _payload_with_frames(12)
+    store.ingest_analysis(database, payload, system_id="abl1",
+                          run_id="abl1_apo", family="kinase",
+                          environment="water")
+    summary = store.summarise(database, "abl1_apo")
+    counted = {motif: values.get("n_scored_frames")
+               for motif, values in summary["motifs"].items()}
+    assert counted, "no motif was summarised"
+    for motif, n in counted.items():
+        assert n == 12, f"{motif} counted {n} where the payload has 12 frames"
+
+
+def test_the_summary_reports_the_halves_and_the_scatter(tmp_path: Path):
+    """A start and a final cannot tell a motif that moved from a noisy one.
+
+    Section 5.0b is the case: beta2AR's H8 falls 0.176 between the halves with
+    a standard deviation of 0.168 behind it, and reading only the endpoints
+    would have called that a drift. Both numbers live in `summarise` so the
+    page and the report cannot derive them differently.
+    """
+    database = tmp_path / "t.db"
+    store.ingest_analysis(database, _payload_with_frames(12), system_id="abl1",
+                          run_id="abl1_apo", family="kinase",
+                          environment="water")
+    summary = store.summarise(database, "abl1_apo")
+
+    # xDFG rises steadily, so its second half must read higher than its first.
+    rising = summary["motifs"]["abl1:xDFG"]
+    assert rising["second_half_mean_s"] > rising["first_half_mean_s"]
+    assert rising["sd_s"] > 0.0
+
+    # hinge is constant, so it has no scatter and no difference at all.
+    flat = summary["motifs"]["abl1:hinge"]
+    assert flat["sd_s"] == 0.0
+    assert flat["first_half_mean_s"] == flat["second_half_mean_s"]
+
+
+def test_every_motif_keeps_its_final_tenth_mean(tmp_path: Path):
+    """The trend work shadowed the name holding the final-tenth time cut.
+
+    `cut` is computed once before the motif loop as a time in nanoseconds, and
+    the halves calculation reused the name for a frame count. The first motif
+    was summarised before the overwrite and looked right; every one after it
+    asked the database for frames past 73 ns of a 14.6 ns run and got NULL. The
+    page still rendered a number for the first motif and then raised a 500 on
+    the second, which is the only reason it was noticed at all.
+
+    One motif having a value is not evidence, so this asserts on all of them.
+    """
+    database = tmp_path / "t.db"
+    store.ingest_analysis(database, _payload_with_frames(12), system_id="abl1",
+                          run_id="abl1_apo", family="kinase",
+                          environment="water")
+    summary = store.summarise(database, "abl1_apo")
+    assert len(summary["motifs"]) >= 2, (
+        "a single motif cannot show an error that starts at the second")
+    for motif, values in summary["motifs"].items():
+        assert values["final_tenth_mean_s"] is not None, (
+            f"{motif} lost its final-tenth mean, which is what happens when "
+            f"the time cut is overwritten inside the loop")
+
+
+def test_a_run_too_short_to_halve_reports_no_trend(tmp_path: Path):
+    """Two frames cannot give a meaningful half-mean, so none is offered.
+
+    Section 0's rule: omit a key you cannot produce rather than writing a
+    number that reads like a measurement.
+    """
+    database = tmp_path / "t.db"
+    store.ingest_analysis(database, _analysis_payload(), system_id="abl1",
+                          run_id="abl1_apo", family="kinase",
+                          environment="water")
+    summary = store.summarise(database, "abl1_apo")
+    for motif, values in summary["motifs"].items():
+        assert "sd_s" not in values, motif
+        assert values.get("final_s") is not None, (
+            f"{motif} lost its endpoints as well")
+
+
 # ===========================================================================
 #  Resuming without duplicating frames
 # ===========================================================================

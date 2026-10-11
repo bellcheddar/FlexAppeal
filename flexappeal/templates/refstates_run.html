@@ -146,7 +146,12 @@
           {% if row and row.start_s is not none %}
             <td>{{ "%+.3f"|format(row.start_s) }}</td>
             <td>{{ "%+.3f"|format(row.final_s) }}</td>
-            <td>{{ "%+.3f"|format(row.final_tenth_mean_s) }}</td>
+            <td>
+              {{ "%+.3f"|format(row.final_tenth_mean_s) }}
+              {%- if row.get("sd_s") is not none %}
+                <em class="md-note" title="standard deviation of this motif's score over the run">&plusmn;&thinsp;{{ "%.3f"|format(row.sd_s) }}</em>
+              {%- endif %}
+            </td>
             <td>
               {%- if row.nearest_active or row.nearest_inactive -%}
                 {%- if row.nearest_active %}

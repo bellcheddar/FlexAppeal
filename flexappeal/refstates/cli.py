@@ -451,9 +451,35 @@ def report(args: argparse.Namespace) -> int:
                 if values.get("final_s") is None:
                     continue
                 name = motif.split(":", 1)[-1]
+                # The halves and the scatter beside the endpoints, because a
+                # start and a final on their own cannot tell a motif that
+                # moved from one that is noisy, and section 5.0b is an
+                # instance of exactly that: H8 reads a 0.18 fall between the
+                # halves with a 0.17 standard deviation behind it.
+                #
+                # The comparison is against the standard deviation and is a
+                # deliberately blunt heuristic, not a test. The test would
+                # compare the difference of two means against their standard
+                # error, and the standard error of a mean over MD frames needs
+                # the autocorrelation time, because consecutive frames 100 ps
+                # apart are not independent samples. Against the standard
+                # deviation the bar is far too high for a real trend and will
+                # never call noise a movement, which is the error worth
+                # avoiding in a line a reader skims.
+                trend = ""
+                if values.get("sd_s") is not None:
+                    change = (values["second_half_mean_s"]
+                              - values["first_half_mean_s"])
+                    verdict = ("within the scatter"
+                               if abs(change) <= values["sd_s"]
+                               else "larger than the scatter")
+                    trend = (f"   halves {values['first_half_mean_s']:+.3f} "
+                             f"-> {values['second_half_mean_s']:+.3f} "
+                             f"({change:+.3f}, sd {values['sd_s']:.3f}, "
+                             f"{verdict})")
                 print(f"        {name:12s} start {values['start_s']:+.3f} "
                       f"-> final {values['final_s']:+.3f}  "
-                      f"{values.get('final_label') or ''}")
+                      f"{values.get('final_label') or ''}{trend}")
         print()
     return 0
 

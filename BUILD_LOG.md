@@ -592,3 +592,32 @@ Timestamped, one line per meaningful event, for the reference-state build
   demonstrate the trap: a checkpoint written with a barostat loads without
   complaint into a system without one, and the context still reports
   MonteCarloPressure. The source test stays; the two are different claims.
+- `03:5x` First real per-motif production reading, at 14.6 ns. The
+  whole-protein score has not moved, -0.022, while H8 falls 0.176 and NPxxY
+  rises 0.101 underneath it: the first case in real data where the headline
+  number alone would have said nothing happened. Checked before writing it up,
+  which was worth doing: H8 split into thirds is 0.328, 0.153, 0.143, a step
+  then a plateau with scatter nearly as large as the change, and its helix
+  fraction is 0.909 throughout. "H8 is drifting" is not supported; NPxxY's
+  approach to 0.42 A from the nearest active reference is the cleaner signal.
+- `04:0x` Put the halves and the scatter into `store.summarise` so section 5
+  does not need hand computation per row, with the page and the report reading
+  the same definition. Two faults while adding it, both caught by the test: the
+  count read 294 frames for a 147-frame run, because motif_frames holds one row
+  per metric, which is 4m's rows-against-things error made again; and the first
+  test asserted on the shared two-frame fixture, which is below the four frames
+  summarise needs, so it passed by skipping everything.
+- `04:0x` The third fault in that change broke the run page. The halves needed
+  a midpoint and I named it `cut`, which already held the final-tenth time
+  boundary computed before the motif loop. First motif correct, every one after
+  it querying for frames past 73 ns of a 14.6 ns run and getting NULL: nine of
+  eleven lost their final-tenth mean and the page 500'd. The suite caught it in
+  ten tests as well. The regression test asserts on every motif, because an
+  error that starts at the second element is invisible to one that checks the
+  first.
+- `04:1x` Fixing the shadowing took the suite from ten failures to four, and
+  the four were the new column: `row.sd_s is not none` does not catch a missing
+  key, because Jinja gives Undefined rather than None and `Undefined is not
+  none` is true. `summarise` omits the scatter for a run too short to halve,
+  which is section 0's rule working as intended, so the template has to test
+  for absence. `row.get("sd_s")` does.

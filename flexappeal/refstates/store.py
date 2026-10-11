@@ -19,6 +19,7 @@ a table and is a single compact array on disk.
 from __future__ import annotations
 
 import json
+import statistics
 import sqlite3
 from contextlib import contextmanager
 from pathlib import Path
@@ -312,12 +313,43 @@ def summarise(path: Path, run_id: str) -> dict[str, Any]:
                 "SELECT AVG(s_score) AS mean FROM motif_frames WHERE run_id = ? "
                 "AND motif_id = ? AND time_ns >= ?",
                 (run_id, motif_id, cut)).fetchone()
+            # The halves and the scatter, which is what separates a motif
+            # that moved from one that is noisy. A first-half against
+            # second-half comparison on its own calls a step change a drift,
+            # so the standard deviation goes beside it: a change smaller than
+            # the scatter is not a trend, and the reader needs both numbers to
+            # see that. Computed here rather than in the report, because the
+            # page reads this too and the two must not derive it differently.
+            scores = [row["s_score"] for row in connection.execute(
+                "SELECT DISTINCT frame, s_score FROM motif_frames "
+                "WHERE run_id = ? AND motif_id = ? AND s_score IS NOT NULL "
+                "ORDER BY frame", (run_id, motif_id))]
+            halves: dict[str, Any] = {}
+            if len(scores) >= 4:
+                # Not `cut`: that name already holds the final-tenth time
+                # boundary, computed once before this loop and used by the
+                # `tail` query above. Shadowing it here replaced 13.14 ns with
+                # a frame count of 73, so every motif after the first asked for
+                # frames past 73 ns of a 14.6 ns run and got NULL back. The
+                # first motif was computed before the overwrite and looked
+                # fine, which is why the page still rendered a number.
+                midpoint = len(scores) // 2
+                halves = {
+                    "first_half_mean_s": round(
+                        sum(scores[:midpoint]) / midpoint, 4),
+                    "second_half_mean_s": round(
+                        sum(scores[midpoint:]) / len(scores[midpoint:]), 4),
+                    "sd_s": round(statistics.pstdev(scores), 4),
+                    "n_scored_frames": len(scores),
+                }
+
             out["motifs"][motif_id] = {
                 "start_s": first["s_score"] if first else None,
                 "start_label": first["label"] if first else None,
                 "final_s": last["s_score"] if last else None,
                 "final_label": last["label"] if last else None,
                 "final_tenth_mean_s": tail["mean"] if tail else None,
+                **halves,
             }
         return out
 

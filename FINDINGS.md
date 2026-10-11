@@ -2303,6 +2303,124 @@ is relaxation out of a bound pose and not the beginning of a transition, which
 is what section 5.5 hedged about on the 1 ns data and can now be said with
 fifteen times as much of it.
 
+### 5.0b Per motif at 14.6 ns, with the whole-protein number hiding it
+
+The first production observation that needs the per-motif breakdown to be
+visible at all. β2AR, 147 frames, 14.6 ns of 50, so preliminary.
+
+| motif | start | first half | second half | change |
+|---|---|---|---|---|
+| H8 | +0.474 | +0.297 | +0.120 | **−0.176** |
+| NPxxY | +0.677 | +0.646 | +0.747 | **+0.101** |
+| TM5 | −0.013 | −0.046 | −0.036 | +0.009 |
+| TM6 | +0.534 | +0.476 | +0.437 | −0.040 |
+| TM7 | +0.377 | +0.403 | +0.400 | −0.003 |
+| **whole protein** | +0.319 | +0.278 | +0.256 | **−0.022** |
+
+The whole-protein score has not moved. Underneath it, two motifs have moved in
+opposite directions by roughly a tenth and two tenths, and the weighted mean of
+a fall and a rise is neither. Section 2 argued for keeping the per-motif
+breakdown beside the headline number rather than replacing it with it; this is
+the first instance in real data where the headline alone would have said
+nothing happened.
+
+**What the two motifs are actually doing, which is less than it first looks.**
+
+Split into thirds, H8 reads 0.328, 0.153, 0.143: a step down early and then a
+plateau, not a continuing decline. Its scatter is 0.168 across the run, which
+is almost the size of the whole change, so the honest description is a motif
+that settled once and is noisy, not one that is drifting. The distances behind
+it wander in both directions, 0.64 then 0.99 then 0.76 Å to the nearest active
+reference. H8's helix fraction is 0.909 at the first frame, 0.909 at the last
+and 0.909 on average, so whatever it is doing it is doing as an intact helix
+rather than unwinding.
+
+NPxxY is the cleaner signal of the two. Its thirds are 0.655, 0.672, 0.764 with
+a scatter of 0.079, and it is driven by a real approach: 0.66, 0.66 then 0.42 Å
+to the nearest active reference. The receptor's NPxxY motif is getting closer
+to the active crystals, modestly, while the cleft below it stays put.
+
+I had started writing this up as "H8 is drifting away from the active state",
+which the thirds do not support and which the helix fraction argues against. It
+is in here as a caution: a first-half against second-half comparison will call
+a step change a drift every time, and the step was in the first third.
+
+**So the halves and the scatter are now in the summary**, not computed by hand
+at four in the morning for one row. `store.summarise` reports
+`first_half_mean_s`, `second_half_mean_s`, `sd_s` and `n_scored_frames` beside
+the endpoints it already had, which puts them where the page reads them too so
+the two cannot derive the same number differently. `flexappeal refstates
+report` prints them, and marks a change larger than the scatter:
+
+    H8     start +0.474 -> final +0.257  halves +0.297 -> +0.120
+                                         (-0.176, sd 0.168, larger than the scatter)
+    TM6    start +0.534 -> final +0.528  halves +0.477 -> +0.436
+                                         (-0.040, sd 0.061, within the scatter)
+
+That comparison is against the standard deviation and is deliberately blunt. A
+real test would compare the difference of two means against their standard
+error, and the standard error of a mean over MD frames needs the
+autocorrelation time, because frames 100 ps apart are not independent samples.
+Against the standard deviation the bar is far too high for a genuine trend and
+will never call noise a movement, which is the error worth avoiding in a line
+somebody skims. The code says so rather than implying a test it does not run.
+
+Three faults of my own while adding it. The first count read 294 frames for a
+147-frame run, because `motif_frames` holds one row per metric and a motif has
+two: the same rows-against-things error that section 4m records for the kinase
+reference ensembles, made again four sections later. The first version of the
+test asserted on the shared two-frame fixture, which is below the four frames
+`summarise` needs before it reports halves at all, so it passed by skipping
+everything it was meant to check.
+
+**And the third one broke the page.** The halves need a midpoint, and I called
+it `cut`:
+
+```python
+cut = span["hi"] - 0.1 * (span["hi"] - (span["lo"] or 0.0))   # 13.14 ns
+...
+for row in motifs:
+    tail = connection.execute("... AND time_ns >= ?", (run_id, motif_id, cut))
+    cut = len(scores) // 2                                    # 73
+```
+
+`cut` already held the final-tenth time boundary, computed once before the
+loop. The first motif was summarised while it still did and came out correct.
+Every motif after it asked the database for frames past 73 ns of a 14.6 ns run
+and got NULL, so nine of eleven motifs silently lost their final-tenth mean,
+and the run page raised a 500 on the first one it could not format.
+
+Two things found it independently and the difference between them matters. The
+page broke immediately and loudly, which is what a template with no `None`
+guard buys you. The suite caught it too, in ten separate tests, which is what
+says the fault was real and not a rendering accident. What neither would have
+caught is the version of this bug where the overwritten value still formats:
+the first motif had a number, and a glance at the page would have shown a
+column that looked populated.
+
+The regression test asserts on **every** motif rather than one, because an
+error that starts at the second element is invisible to a test that checks the
+first.
+
+**And a fourth, found by the same run.** Fixing the shadowing took the suite
+from ten failures to four, and the four left were the new column itself:
+
+```jinja
+{%- if row.sd_s is not none %}
+```
+
+`summarise` omits the scatter for a run too short to halve, which is section
+0's rule working exactly as intended. On a dict with no such key Jinja returns
+`Undefined` rather than `None`, and `Undefined is not none` is true, so the
+guard let the missing key straight through to the format filter. `row.get("sd_s")`
+is the version that copes with absent as well as null.
+
+Worth recording because the two halves of that pairing are both correct on
+their own. Omitting a key you cannot produce is the right rule for the data.
+Treating a missing key as null is the right instinct in a template. Putting
+them together needs the template to test for absence and not for null, and
+`is not none` reads like it does that and does not.
+
 ### 5.1 Measured speeds
 
 | row | atoms | ns/day |
