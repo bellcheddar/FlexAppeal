@@ -4321,3 +4321,158 @@ def test_the_score_plot_draws_and_labels_its_threshold():
     # And the view has to supply it, or the page renders `undefined`.
     view = (root / "flexappeal" / "refstates" / "web.py").read_text()
     assert "decisive_s=DECISIVE_S," in view
+
+
+def _jumping_trajectory(n_frames: int = 6, box=(12.5, 13.1, 11.4)):
+    """A small molecule that crosses a periodic boundary half the time.
+
+    Modelled on what beta2AR actually does: whole in every frame, with its
+    centre of mass alternating between the bottom of the box and the top, a
+    full box length apart.
+    """
+    import mdtraj as md
+    import numpy as np
+
+    topology = md.Topology()
+    chain = topology.add_chain()
+    residue = topology.add_residue("ALA", chain)
+    for name in ("N", "CA", "C", "O"):
+        topology.add_atom(name, md.element.carbon, residue)
+
+    base = np.array([[0.0, 0.1, 0.0], [0.3, 0.1, 0.0],
+                     [0.3, 0.4, 0.0], [0.0, 0.4, 0.3]])
+    frames = []
+    for index in range(n_frames):
+        xyz = base.copy()
+        # Every other frame is written in the other image along y.
+        if index % 2:
+            xyz[:, 1] += box[1]
+        frames.append(xyz)
+    traj = md.Trajectory(np.array(frames), topology)
+    traj.unitcell_lengths = np.tile(np.array(box, dtype=float), (n_frames, 1))
+    traj.unitcell_angles = np.tile(np.array([90.0, 90.0, 90.0]), (n_frames, 1))
+    return traj
+
+
+def test_a_molecule_on_a_periodic_boundary_is_brought_back_to_one_image():
+    """beta2AR sits on the boundary and is written into either image.
+
+    Its centre of mass alternates between y = 0.5 A and y = 129 A in a
+    131.2 A box while the protein stays whole in every frame. Nothing measured
+    within a frame cares, which is why the analysis is unaffected. The viewer
+    does: it fits the camera to the whole trajectory, so a receptor occupying
+    54 A of a 187 A bounding box is drawn small and off centre and teleports
+    when the slider is dragged.
+    """
+    import numpy as np
+
+    traj = _jumping_trajectory()
+    shifts = _analyse_run_module().periodic_shifts(traj)
+    fixed = traj.xyz + shifts[:, None, :]
+
+    before = traj.xyz.reshape(-1, 3).ptp(axis=0) if hasattr(
+        np.ndarray, "ptp") else (traj.xyz.reshape(-1, 3).max(axis=0)
+                                 - traj.xyz.reshape(-1, 3).min(axis=0))
+    after = (fixed.reshape(-1, 3).max(axis=0)
+             - fixed.reshape(-1, 3).min(axis=0))
+    assert before[1] > 13.0, "the fixture should span more than one box in y"
+    assert after[1] < 1.0, f"the images were not collapsed: {after}"
+
+    # And nothing about any single frame moved, which is what makes this safe
+    # to do to a trajectory the page draws.
+    assert np.allclose(traj.xyz.max(axis=1) - traj.xyz.min(axis=1),
+                       fixed.max(axis=1) - fixed.min(axis=1))
+
+
+def test_a_trajectory_that_does_not_jump_is_left_alone():
+    """The correction has to be a no-op on the common case."""
+    import numpy as np
+
+    traj = _jumping_trajectory(n_frames=4)
+    traj.xyz[1::2, :, 1] -= traj.unitcell_lengths[0, 1]   # undo the jumps
+    shifts = _analyse_run_module().periodic_shifts(traj)
+    assert np.allclose(shifts, 0.0), shifts
+
+
+def test_a_non_orthorhombic_box_is_not_guessed_at():
+    """A whole-box translation is the wrong correction for a triclinic cell.
+
+    Section 0.3's shape: where the right answer is not available, do nothing
+    and leave the data as it is rather than apply something that looks like a
+    fix.
+    """
+    import numpy as np
+
+    traj = _jumping_trajectory()
+    traj.unitcell_angles[:, 0] = 109.47
+    assert np.allclose(_analyse_run_module().periodic_shifts(traj), 0.0)
+
+
+def test_a_trajectory_with_no_box_is_not_guessed_at():
+    import numpy as np
+
+    traj = _jumping_trajectory()
+    traj.unitcell_lengths = None
+    traj.unitcell_angles = None
+    assert np.allclose(_analyse_run_module().periodic_shifts(traj), 0.0)
+
+
+def test_the_bilayer_moves_with_the_receptor(tmp_path: Path):
+    """The lipids take the protein's shift, not their own.
+
+    A bilayer spans the box, so its centroid does not jump when the protein
+    crosses a boundary: a shift computed from the lipid atoms would be zero,
+    and the membrane would be drawn a box length away from the receptor it
+    belongs to.
+    """
+    import mdtraj as md
+    import numpy as np
+
+    module = _analyse_run_module()
+    pdb, dcd = _tiny_bilayer(tmp_path)
+    out = tmp_path / "analysis"
+    out.mkdir()
+
+    frames = md.load(str(dcd), top=str(pdb)).n_frames
+    shift = np.zeros((frames, 3))
+    shift[:, 1] = 5.0                       # 5 nm, every frame
+    moved = module.write_lipid_bundle(pdb, dcd, "b2ar_apo", out, stride=1,
+                                      shifts=shift)
+    plain_out = tmp_path / "plain"
+    plain_out.mkdir()
+    module.write_lipid_bundle(pdb, dcd, "b2ar_apo", plain_out, stride=1)
+
+    with_shift = md.load(str(out / moved["trajectory"]),
+                         top=str(out / moved["topology"]))
+    without = md.load(str(plain_out / moved["trajectory"]),
+                      top=str(plain_out / moved["topology"]))
+    delta = (with_shift.xyz - without.xyz).mean(axis=(0, 1))
+    assert abs(delta[1] - 5.0) < 0.05, delta
+    assert abs(delta[0]) < 0.05 and abs(delta[2]) < 0.05, delta
+
+
+def test_a_frame_count_mismatch_leaves_the_bilayer_where_it_was(tmp_path: Path,
+                                                                capsys):
+    """Rather than applying a shift that does not line up frame for frame."""
+    import numpy as np
+
+    module = _analyse_run_module()
+    pdb, dcd = _tiny_bilayer(tmp_path)
+    out = tmp_path / "analysis"
+    out.mkdir()
+    module.write_lipid_bundle(pdb, dcd, "b2ar_apo", out, stride=1,
+                              shifts=np.zeros((99, 3)))
+    assert "may sit a box length from the receptor" in capsys.readouterr().out
+
+
+def test_the_analysis_payload_does_not_carry_the_shift_array():
+    """It is a numpy array for the lipid bundle's use, not a result.
+
+    Left in the viewer dict it would reach `json.dumps`, which cannot
+    serialise it, and the run that found this out would be one that had just
+    finished.
+    """
+    source = (Path(__file__).resolve().parents[1]
+              / "tools" / "analyse_run.py").read_text()
+    assert 'viewer.pop("shifts", None)' in source, (
+        "the caller should take it out of the payload")

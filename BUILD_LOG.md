@@ -810,3 +810,29 @@ contains a name.
 
 FINDINGS 4am. Three tests added, 963 passed, 1 skipped. Screenshot confirms the
 labelled lines.
+
+### 11 October, 06:54 to 07:30
+
+First look at the live beta2AR page, served from the production database rather
+than the fixture site. It renders: 200, no console errors, every panel
+populated, membrane health 68.0 then 67.3 A^2 with working verdict badges, tilt
+13.6 then 16.1 degrees.
+
+The structure viewer was empty. Partly a timing artefact, the membrane system
+taking longer than two and a half seconds to build, but with a longer wait the
+receptor appears a fifth of its proper size at the bottom of the panel. The
+trajectory's bounding box is 186.7 A in y against a 131.2 A box: the receptor
+sits on the periodic boundary and ten of twenty-four frames are written into
+the other image.
+
+Established first that it affects nothing measured: the protein is whole in
+every frame, largest y span 58.3 A, and every metric here is within-frame. The
+numbers are unaffected.
+
+`periodic_shifts` added to tools/analyse_run.py, applied to the viewer bundle
+and passed to the lipid bundle so the bilayer moves with the receptor rather
+than being left a box length away. Collapses y from 186.7 to 60.8 A on the live
+trajectory with every per-frame span bit-identical. Returns zeros for a
+non-orthorhombic box rather than guessing.
+
+FINDINGS 4an. Eight tests added, 970 passed, 1 skipped.

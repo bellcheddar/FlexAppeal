@@ -2743,6 +2743,74 @@ itself was labelled intermediate, and both numbers would be internally
 consistent, round-trip verified, and drawn on a page that offered no way to
 tell they came from different rules.
 
+## 4an. The receptor was drawn in two places at once
+
+Every page screenshot so far has been of the fixture site. The live β2AR page,
+served from the production database with 23 ns of real membrane trajectory
+behind it, had never been looked at. It renders: 200, no console errors, every
+panel populated, the membrane health table reading 68.0 Å² at 0 ns against
+67.3 Å² at 10 ns with the verdict badges working, tilt 13.6° then 16.1°.
+
+The structure viewer was a black box.
+
+The first explanation was the cheap one, and it was half right. With a twenty
+second wait rather than two and a half, Mol\* finishes and the receptor appears.
+It appears about a fifth of the size it should be, near the bottom edge of the
+panel.
+
+### What the camera was fitting to
+
+The viewer fits its camera to the whole trajectory, so the question is what the
+trajectory's bounding box actually is:
+
+    all frames   x  60.3    y  186.7    z  96.6 Å
+    frame 0      x  54.6    y   53.8    z  89.1 Å
+
+186.7 Å in y, in a box 131.2 Å across. The receptor's centre of mass alternates
+between y = 0.5 Å and y = 129 Å, frame to frame, a full box length apart: it
+sits on the periodic boundary and is written into whichever image the
+integrator last wrapped it to. Ten of the twenty-four frames are in the other
+one. On the page that is a receptor drawn small and off centre, which teleports
+across the box when the slider is dragged.
+
+### What it does not affect
+
+The protein is whole in every frame. Its largest per-frame span in y is 58.3 Å
+against a 131.2 Å box, so no frame has it split across the boundary, and every
+metric here is measured within a frame: the tilt, the thickness, the area per
+lipid, every motif distance. **The numbers on the page are unaffected and this
+changes none of them.** That was worth establishing before anything else,
+because a protein split across a boundary would have made the helix axes
+nonsense and the tilt with them, and the two faults look identical in a
+bounding box.
+
+### The correction, and where it had to be applied
+
+`periodic_shifts` returns, per frame, the whole number of box vectors that puts
+that frame's centroid in the same image as the first frame's. On the live
+trajectory it collapses y from 186.7 Å to 60.8 Å and leaves every per-frame
+span bit-identical, which is the check that it moved images rather than atoms.
+
+It is returned rather than applied because the bilayer has to move by the same
+amount. A bilayer spans the box, so its centroid does not jump when the protein
+crosses a boundary, and a shift computed from the lipid atoms would be zero:
+the membrane would then be drawn a box length away from the receptor it
+belongs to, which is a worse picture than the one being fixed. So the protein's
+shifts are passed to the lipid bundle, and a frame-count disagreement between
+the two says so rather than applying a correction that does not line up.
+
+Two smaller things fell out. The viewer trajectory is now copied before being
+moved, because `loaded` is the trajectory every metric is measured on and a
+function that reached back into it to tidy up a picture would be the wrong
+shape whatever it did. And the shift array is taken out of the viewer payload
+at the call site: left in, it would reach `json.dumps`, which cannot serialise
+a numpy array, and the run that discovered this would have been one that had
+just finished.
+
+A non-orthorhombic box returns zeros. A whole-box translation is not the right
+correction for a triclinic cell, and section 0.3's rule is to leave the data
+alone rather than apply something that merely looks like a fix.
+
 ## 5. Production runs
 
 Tier 2 started at 17:04 on 10 October, in section 5.3's priority order: β2AR

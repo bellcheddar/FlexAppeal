@@ -403,6 +403,45 @@ def gpcr_setup(start_pdb: Path, protein: str = "adrb2_human",
 VIEWER_STRIDE_NS = 1.0
 
 
+def periodic_shifts(traj):
+    """Whole-box translations that keep a molecule in one periodic image.
+
+    A protein sitting on a periodic boundary is written into whichever image
+    the integrator last wrapped it to, and that can differ from frame to frame.
+    beta2AR does exactly this: its centre of mass alternates between y = 0.5 A
+    and y = 129 A in a 131.2 A box, a full box length apart, while the protein
+    itself stays whole in every frame.
+
+    Nothing measured within a frame cares, which is why the analysis is
+    unaffected and the numbers on the page are right. The viewer does care. It
+    fits its camera to the whole trajectory, so a receptor that occupies 54 A
+    of a 187 A bounding box is drawn small and off centre, and it teleports
+    across the box when the slider is dragged.
+
+    So each frame is shifted by the whole number of box vectors that puts its
+    centroid in the same image as the first frame's. Returned rather than
+    applied, because the bilayer has to be moved by the same amount: the lipid
+    bundle's own centroid does not jump, a bilayer spanning the box being
+    stable whatever image the protein is in, so a shift computed from the
+    lipids would be zero and the membrane would sit a box length from the
+    receptor it belongs to.
+
+    Returns an (n_frames, 3) array in nanometres, to be added to every atom of
+    the matching frame. Zeros when there is no unit cell to reason about, and
+    zeros for a non-orthorhombic box, where a whole-box translation is not the
+    right correction and guessing would be worse than leaving it alone.
+    """
+    import numpy as np
+
+    if traj.unitcell_lengths is None or traj.unitcell_angles is None:
+        return np.zeros((traj.n_frames, 3))
+    if not np.allclose(traj.unitcell_angles, 90.0, atol=1e-3):
+        return np.zeros((traj.n_frames, 3))
+    box = np.asarray(traj.unitcell_lengths)
+    centre = traj.xyz.mean(axis=1)
+    return -np.round((centre - centre[0]) / box) * box
+
+
 def write_viewer_bundle(loaded, name: str, out_dir: Path,
                         frame_ps: float = 100.0) -> dict:
     """A topology and a strided trajectory the 3D viewer can load.
@@ -414,21 +453,34 @@ def write_viewer_bundle(loaded, name: str, out_dir: Path,
     """
     stride = max(1, int(round(VIEWER_STRIDE_NS * 1000.0 / frame_ps)))
     sliced = loaded[::stride]
+    # A copy, because `loaded` is the trajectory every metric is measured on
+    # and this moves atoms. The shift is a whole number of box vectors and
+    # changes nothing measurable, but a function that reaches back into the
+    # analysis trajectory to tidy up a picture would be the wrong shape
+    # whatever it did.
+    sliced = sliced.slice(range(sliced.n_frames), copy=True)
+    shifts = periodic_shifts(sliced)
+    sliced.xyz = sliced.xyz + shifts[:, None, :]
     out_dir.mkdir(parents=True, exist_ok=True)
     topology = out_dir / f"{name}.pdb"
     trajectory = out_dir / f"{name}.xtc"
     sliced[0].save_pdb(str(topology))
     sliced.save_xtc(str(trajectory))
+    moved = int((abs(shifts) > 1e-6).any(axis=1).sum())
+    if moved:
+        log(f"viewer bundle: {moved} of {sliced.n_frames} frames were in a "
+            f"different periodic image and have been brought back to the first")
     return {
         "topology": topology.name, "trajectory": trajectory.name,
         "n_frames": int(sliced.n_frames), "stride": stride,
         "frame_ns": stride * frame_ps / 1000.0,
         "bytes": topology.stat().st_size + trajectory.stat().st_size,
+        "shifts": shifts,
     }
 
 
 def write_lipid_bundle(solvated: Path, trajectory: Path, name: str,
-                       out_dir: Path, stride: int) -> dict:
+                       out_dir: Path, stride: int, shifts=None) -> dict:
     """The bilayer phosphorus, for section 6.2's membrane toggle.
 
     The viewer bundle drops the solvent and the lipids on load, and says so, on
@@ -459,6 +511,17 @@ def write_lipid_bundle(solvated: Path, trajectory: Path, name: str,
 
     lipids = md.load(str(trajectory), top=str(solvated), stride=stride,
                      atom_indices=phosphorus)
+    # The protein's shifts, not the bilayer's own. A bilayer spans the box, so
+    # its centroid does not jump when the protein crosses a boundary and a
+    # shift computed from these atoms would be zero. Applying the protein's
+    # keeps the two structures in the same image, which is the only thing that
+    # matters when they are drawn one on top of the other.
+    if shifts is not None and len(shifts) == lipids.n_frames:
+        lipids.xyz = lipids.xyz + shifts[:, None, :]
+    elif shifts is not None:
+        log(f"lipid bundle: {len(shifts)} protein frames against "
+            f"{lipids.n_frames} lipid frames, so the periodic correction was "
+            f"not applied; the bilayer may sit a box length from the receptor")
     topology = out_dir / f"{name}.lipids.pdb"
     coords = out_dir / f"{name}.lipids.xtc"
     lipids[0].save_pdb(str(topology))
@@ -694,11 +757,14 @@ def main() -> int:
     out_dir = Path(args.out)
     out_dir.mkdir(parents=True, exist_ok=True)
     viewer = write_viewer_bundle(loaded, args.name, out_dir)
+    # Taken out of the payload rather than written to it: it is a numpy array
+    # for the lipid bundle's use and has no business in the analysis JSON.
+    viewer_shifts = viewer.pop("shifts", None)
     # The bilayer, if there is one, as its own structure beside the protein.
     viewer["lipids"] = write_lipid_bundle(
         solvated, trajectory, args.name, out_dir,
         stride=max(1, int(round(VIEWER_STRIDE_NS * 1000.0 / 100.0)))
-        * max(1, args.stride))
+        * max(1, args.stride), shifts=viewer_shifts)
     # The two structures are stepped by one slider, which drives the protein,
     # so a bilayer with a different number of frames would sit at the wrong
     # one. They agree whenever `--stride` is 1, which is every run here, but a
