@@ -907,3 +907,23 @@ check written against one form reported three real decisions as missing. All
 eleven normalised to the colon form.
 
 980 passed, 1 skipped.
+
+### 11 October, 08:50 to 09:15
+
+`tools/make_figures.py` runs only in the final pass, so nothing had executed it
+since the CSS edits, and it reads brand.css for its palette. Ran it: seven
+figures, exit 0, palette parsing intact.
+
+The first real per-motif production figure showed the fault. It shaded its
+active band from zero, captioned "above zero: active-like", while
+`state.DECISIVE_S` is 0.2 and the label rule and the explorer both cut there.
+A motif at +0.1 was drawn active in the document and called intermediate on the
+page. Now uses the constant, with both edges drawn as labelled dotted lines and
+the caption naming the intermediate region. The white band is where TM5 spends
+most of the second half of this run.
+
+Adding the import broke the tools-import check, which read the trailing
+`# noqa: E402` as part of the imported name. A fault in the check; fixed to
+drop anything after a `#`.
+
+FINDINGS 4ap. 980 passed, 1 skipped.

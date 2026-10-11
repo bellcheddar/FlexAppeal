@@ -34,6 +34,10 @@ import time
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT))
+
+from flexappeal.refstates.state import DECISIVE_S            # noqa: E402
+
 
 # The brand palette, read off flexappeal/static/brand.css rather than guessed,
 # so a figure in the document and a chart on the page are the same colours.
@@ -147,12 +151,23 @@ def motif_figure(connection, run_id: str, out: Path) -> bool:
               rows(connection, "SELECT motif_id, token FROM motifs")}
 
     figure, axis = plt.subplots(figsize=(8.0, 4.4), dpi=130)
-    # The bands first, so the lines sit on top of them. Above zero is
-    # active-like and below is inactive-like; the sign is the whole point of
-    # the score, so the figure says it rather than the caption having to.
-    axis.axhspan(0, 1, color=GREEN, alpha=0.05)
-    axis.axhspan(-1, 0, color=RED, alpha=0.05)
+    # The bands first, so the lines sit on top of them, and their edge is
+    # `state.DECISIVE_S` rather than zero.
+    #
+    # It was zero, which made this figure disagree with everything else about
+    # the same quantity. The label rule calls a motif active above +0.2 and
+    # intermediate below it, and the explorer shades from there, so a motif at
+    # +0.1 was drawn inside the green band here and labelled "intermediate" on
+    # the page it sits beside. Section 10 asks for threshold lines labelled on
+    # every plot, and this one had an unlabelled line in the wrong place.
+    axis.axhspan(DECISIVE_S, 1, color=GREEN, alpha=0.05)
+    axis.axhspan(-1, -DECISIVE_S, color=RED, alpha=0.05)
     axis.axhline(0, color=MUTED, linewidth=1.0)
+    for edge, colour in ((DECISIVE_S, GREEN), (-DECISIVE_S, RED)):
+        axis.axhline(edge, color=colour, linewidth=1.0, linestyle=":")
+        axis.text(0.995, edge, f"s = {edge:+.2f}", transform=axis.get_yaxis_transform(),
+                  fontsize=8, color=MUTED, ha="right",
+                  va="bottom" if edge > 0 else "top")
 
     for motif, points in sorted(series.items()):
         points.sort()
@@ -170,7 +185,10 @@ def motif_figure(connection, run_id: str, out: Path) -> bool:
     axis.legend(frameon=False, fontsize=9, labelcolor=INK,
                 loc="center left", bbox_to_anchor=(1.01, 0.5))
     _style(axis)
-    axis.text(1.01, -0.02, "above zero: active-like\nbelow zero: inactive-like",
+    axis.text(1.01, -0.02,
+              f"above {DECISIVE_S:+.2f}: active-like\n"
+              f"below {-DECISIVE_S:+.2f}: inactive-like\n"
+              f"between: intermediate",
               transform=axis.transAxes, fontsize=8, color=MUTED,
               va="top", ha="left")
     figure.tight_layout()

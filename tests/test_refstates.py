@@ -1433,8 +1433,14 @@ def test_every_name_the_tools_import_from_the_package_exists():
             except ModuleNotFoundError:
                 missing.append(f"{script.name}: module {target}")
                 continue
+            # A trailing comment is part of the line and not part of a name.
+            # `from ... import DECISIVE_S  # noqa: E402` is ordinary Python,
+            # and reading the comment as the name reported a real import as
+            # absent, which is a fault in this check rather than in the script
+            # it was checking.
+            names = names.split("#", 1)[0]
             for name in (n.strip() for n in names.split(",")):
-                if not name or name.startswith("#") or name == "as":
+                if not name or name == "as":
                     continue
                 name = name.split(" as ")[0].strip()
                 checked += 1
@@ -4257,14 +4263,24 @@ def test_the_state_threshold_has_one_definition():
     assert store.DECISIVE_S == state_module.DECISIVE_S
     assert web_module.DECISIVE_S == state_module.DECISIVE_S
 
-    root = Path(__file__).resolve().parents[1] / "flexappeal" / "refstates"
-    for name in ("store.py", "web.py"):
+    root = Path(__file__).resolve().parents[1]
+    for name in ("flexappeal/refstates/store.py", "flexappeal/refstates/web.py",
+                 "tools/make_figures.py"):
         body = (root / name).read_text()
         assert "DECISIVE_S" in body, f"{name} should use the constant"
         for line in body.splitlines():
             if ("0.2" in line and "final_s" in line) or (
                     "0.2" in line and "final >" in line):
                 raise AssertionError(f"{name} still writes the threshold out: {line}")
+
+    # The FINDINGS figure shaded from zero while the label rule cut at +0.2, so
+    # a motif at +0.1 was drawn inside the active band and called intermediate
+    # on the page beside it. Section 10 wants the line labelled as well.
+    figures = (root / "tools" / "make_figures.py").read_text()
+    assert "axis.axhspan(DECISIVE_S, 1" in figures
+    assert "axis.axhspan(-1, -DECISIVE_S" in figures
+    assert 'f"s = {edge:+.2f}"' in figures, (
+        "the threshold line should carry its value")
 
 
 def _payload_held_at(value: float) -> dict:

@@ -2904,6 +2904,53 @@ in thirty-two, visible in the generator the moment anyone read it beside the
 pattern that validates it. The re-run that went green was not evidence of
 anything.
 
+## 4ap. The figure drew a different threshold from the page beside it
+
+`tools/make_figures.py` runs only in the final pass, so nothing had executed it
+since the CSS was edited and it reads `brand.css` for its palette. It still
+runs: seven figures, exit 0. What the first real per-motif production figure
+showed was something else.
+
+β2AR over 27 ns, five motifs. NPxxY holds at about +0.75, TM6 and TM7 at +0.45,
+H8 oscillates, and TM5 drifts down and crosses zero repeatedly from about 12 ns
+on. And the figure shaded its active band from **zero**, with the caption
+"above zero: active-like, below zero: inactive-like".
+
+Zero is not the threshold. `state.DECISIVE_S` is 0.2, the label rule calls a
+motif active above it and intermediate below, and the explorer shades from
+there. So a motif sitting at +0.1 was drawn inside the green band in the
+document and labelled "intermediate" on the page the document is about. Two
+renderings of one number, disagreeing about where the number means something,
+in the two artefacts section 11 asks for side by side.
+
+This is the fourth copy of that threshold, after the three in section 4am, and
+it is the one that was not a copy at all: it was a different value that nobody
+had written down as a choice.
+
+Now `DECISIVE_S` here too, with the bands starting at ±0.2, both edges drawn as
+dotted lines labelled `s = +0.20` and `s = -0.20`, and the caption naming the
+intermediate region it had not previously admitted to having. Section 10 asks
+for threshold lines labelled on every plot and this plot had one line, in the
+wrong place, unlabelled.
+
+The white band between the two edges is not cosmetic. It is where TM5 spends
+most of the second half of this run, and where H8 spends much of the first, and
+the old figure drew both of them as decisively one state or the other.
+
+### The check that caught the import
+
+Adding the import broke `test_every_name_the_tools_import_from_the_package_exists`,
+which reads every `from flexappeal.refstates ... import ...` in the tools and
+asserts the names exist. It reported
+
+    make_figures.py: flexappeal.refstates.state.DECISIVE_S            # noqa: E402
+
+as absent. The name is there; the comment is not part of it. The import sits
+after a `sys.path` insertion, so it carries a `# noqa: E402`, which is ordinary
+Python, and the check was splitting on commas without first dropping anything
+after a `#`. A fault in the check rather than in the thing checked, and the
+first import to have a trailing comment was the one that found it.
+
 ## 5. Production runs
 
 Tier 2 started at 17:04 on 10 October, in section 5.3's priority order: β2AR
