@@ -10,7 +10,7 @@ complete = false
 [[runs]]
 name = "b2ar_apo"
 ns_per_day = 59.7
-produced_ns = 13.4
+produced_ns = 16.6
 complete = false
 
 [[runs]]

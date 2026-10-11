@@ -60,33 +60,39 @@ done
 echo "[$(date +%H:%M:%S)] production has stopped; one final pass with the bilayer QC"
 bash tools/analyse_all.sh
 
-# The figures last, because they are drawn from the database the pass above has
-# just finished filling. Section 11 wants FINDINGS "with figures" and a figure
-# drawn from a half-written run is worse than no figure, so this is the one
-# place they are regenerated rather than on every streaming pass.
 # Section 2.2 wants the measured ns/day recorded rather than assumed, and a
 # row's real rate is only known once it has finished, so this refreshes as the
 # queue drains rather than being a one-off at the start.
 echo "[$(date +%H:%M:%S)] refreshing config/benchmarks.toml"
 pixi run python tools/hwprobe.py || echo "hwprobe failed, see above"
 
+# The figures after the analysis, because they are drawn from the database the
+# pass above has just finished filling. Section 11 wants FINDINGS "with
+# figures", and a figure drawn from a half-written run is worse than no figure,
+# so this is the one place they are regenerated rather than on every pass.
 echo "[$(date +%H:%M:%S)] redrawing the figures"
 pixi run python tools/make_figures.py || echo "figures failed, see above"
+
+# Every stored number against the analysis file it came from. The rows land
+# unattended, and a fault in the ingest produces numbers that are wrong rather
+# than missing, which nothing downstream would notice. Reported rather than
+# fatal: a disagreement is worth finding in the morning, and stopping the rest
+# of the pass over it would lose the controls below as well.
+echo "[$(date +%H:%M:%S)] verifying the stored numbers against the analyses"
+VERIFY_LOG="data/md/verify.log"
+if pixi run python -m flexappeal.refstates.cli report --verify \
+      > "$VERIFY_LOG" 2>&1; then
+    grep -E "agrees with the analysis" "$VERIFY_LOG" || true
+else
+    echo "VERIFICATION FAILED; the first lines of $VERIFY_LOG:"
+    grep -E "disagree|^    [a-z0-9_]+ " "$VERIFY_LOG" | head -20
+fi
 
 # And the controls, which is what says whether P5 and P6 came out. They read
 # the same database and cost seconds, so there is no reason to make anyone
 # remember to run them.
-# Every stored number against the analysis file it came from. The four rows
-# land unattended, and a fault in the ingest produces numbers that are wrong
-# rather than missing, which nothing downstream would notice. Reported rather
-# than fatal: a disagreement is worth finding in the morning, and stopping the
-# rest of the pass over it would lose the figures and the controls too.
-echo "[$(date +%H:%M:%S)] verifying the stored numbers against the analyses"
-pixi run python -m flexappeal.refstates.cli report --verify \
-  | grep -E "agrees|disagree|^    [a-z0-9_]+ [a-zA-Z0-9_.]+:" \
-  || echo "verification reported a disagreement, see above"
-
 echo "[$(date +%H:%M:%S)] positive controls"
-pixi run python -m flexappeal.refstates.cli controls 2>&1   | sed -n '/^P[0-9]:/,$p' || true
+pixi run python -m flexappeal.refstates.cli controls 2>&1 \
+  | sed -n '/^P[0-9]:/,$p' || true
 
 echo "[$(date +%H:%M:%S)] final pass done"

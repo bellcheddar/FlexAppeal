@@ -2239,6 +2239,76 @@ and the test should be revisited.
 
 ---
 
+## 4af. Rehearsing the pass that nobody will be awake for
+
+Every piece of the streaming loop's final pass had been checked on its own.
+The sequence had not, and it is the part that runs unattended: when the queue
+writes `queue done`, the loop breaks and runs the bilayer analysis, the
+hardware probe, the figures, the verification and the controls, back to back,
+with nobody watching. So it was run, with the loop stopped so nothing competed.
+
+It completes, exit 0, and two things happened for the first time.
+
+**P6 passes on the live database.** It has read `pending: no membrane chunks
+ingested yet` for the whole build, because the streaming passes use
+`--skip-membrane` and only the final pass does the bilayer. Now:
+
+    P6: every membrane chunk inside section 5.8's windows
+        b2ar_apo     2 chunks, APL 67.7 A^2 (67.3 to 68.0), 38.6 A  PASS
+
+That is section 9's sixth control, green, on real production data rather than
+on the rehearsal database of section 4n. Five of six are now decided and only
+P5 is waiting, on a row that has not started.
+
+**And the bilayer figure drew for the first time**, which is worth more than
+the control line because it shows the direction. Area per lipid reads 68.0 then
+67.2 A^2 across the two chunks, with the receptor tilted 14.9 degrees. Section
+5.2 measured 68.4 on the Tier 1 run and said it was "still falling from where
+the builder left it, which is what an equilibrating bilayer should do". Ten
+nanoseconds later it is 67.2, inside the expected window rather than 0.4 above
+it. The prediction was right and now has three points behind it.
+
+### The verification step was announcing a failure on every success
+
+The rehearsal found one fault, in the step added an hour earlier:
+
+    [04:04:08] every stored number agrees with the analysis file it came from
+    verification reported a disagreement, see above
+
+Both lines, on the same run. The block was
+
+```bash
+pixi run python ... report --verify \
+  | grep -E "agrees|disagree|..." \
+  || echo "verification reported a disagreement, see above"
+```
+
+and `||` on a pipeline takes the **pipeline's** status, which is grep's. `log`
+writes to stderr, so the "agrees" line never reached the pipe at all; grep
+matched nothing in the report table, exited 1, and the alarm fired. Every time.
+
+The same construct fails the other way round too, which is the worse half. On a
+genuine disagreement `report --verify` exits 1, but grep would match the word
+"disagree" and exit 0, so the `||` would not fire and the failure would print
+nothing. An alarm that cries wolf on every success and stays silent on the one
+failure it exists for.
+
+It now tests the command's own status, with both streams captured to a file,
+and both branches were run rather than reasoned about: against the real
+database it prints the agreement line and nothing else, and with one score
+moved by hand in an analysis file it prints
+
+    VERIFICATION FAILED; the first lines of data/md/verify.log:
+        abl1_apo g.l.start_s: database -0.0204, analysis file 0.98765
+
+naming the run, the motif, the field and both values. The analysis file was put
+back afterwards.
+
+That fault would have survived to the morning. It is only visible by running
+the sequence, because every piece of it passes on its own.
+
+---
+
 ## 5. Production runs
 
 Tier 2 started at 17:04 on 10 October, in section 5.3's priority order: β2AR
@@ -2597,8 +2667,8 @@ different and answerable question.
 
 ## 6. The positive controls
 
-Section 9 names six. Four are decided, one is pending on data that is still
-being generated, and one is pending on the final analysis pass. Everything here
+Section 9 names six. **Five are decided** and one is pending on data that is
+still being generated. Everything here
 is `flexappeal refstates controls` output rather than a transcription, and the
 command is the thing to re-run rather than this table to trust.
 
@@ -2609,7 +2679,7 @@ command is the thing to re-run rather than this table to trust.
 | **P3** | The β2AR cleft threshold separates the catalogue's states, leave-one-out | **100 of 100**, needs 90% |
 | **P4** | Each start structure scores as the state it was built from at t = 0 | **4 of 4** |
 | **P5** | An inactive-start run stays inactive over its final 20 ns | **pending** |
-| **P6** | Every membrane chunk inside section 5.8's windows | **pending** |
+| **P6** | Every membrane chunk inside section 5.8's windows | **2 of 2 chunks**, APL 67.7 Å² |
 
 P4 in full, since it is the one that tests the whole scoring chain end to end
 on real structures rather than on references the chain was fitted to:
@@ -2632,11 +2702,14 @@ order, so neither has produced yet. The code path has tests against synthetic
 runs, and the start states in `tools/ingest.py` match the two the control looks
 for, so it will report rather than stay silent when they land.
 
-**P6 is pending on the final analysis pass.** The streaming passes run with
-`--skip-membrane`, so no membrane chunk has been written to the live database
-and P6 has had nothing to read all build. Rehearsed against a scratch database
-on 7.6 ns of `b2ar_apo`, the pass produces a chunk at 68.3 Å² per lipid and
-38.3 Å thickness with G6 closed, which is section 4n.
+**P6 is decided**, as of the final-pass rehearsal in section 4af. The streaming
+passes run with `--skip-membrane`, so no membrane chunk reached the live
+database for most of the build and P6 had nothing to read; running the pass
+puts them there. On `b2ar_apo` at 16 ns it reads two chunks, 67.3 and 68.0 Å²
+per lipid against an expected 60 to 68, and 38.6 Å of P-P thickness against an
+expected 36 to 41. The area per lipid is still falling from where the builder
+left it, 68.4 on Tier 1 and 67.2 by the second chunk, which is what section 5.2
+predicted an equilibrating bilayer would do.
 
 ---
 

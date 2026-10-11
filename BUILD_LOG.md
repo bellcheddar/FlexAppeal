@@ -635,3 +635,16 @@ Timestamped, one line per meaningful event, for the reference-state build
   disagreement does not cost the figures and the controls. There is a test that
   it can fail as well as pass, because a verifier that cannot fail is worth
   nothing. Live right now: every number agrees, 11 motifs, 2 rows.
+- `04:0x` Rehearsed the streaming loop's final pass end to end, with the loop
+  stopped so nothing competed. Every piece had been checked alone; the sequence
+  had not, and it is the part that runs with nobody watching. It completes, exit
+  0. Two firsts: P6 passes on the live database, 2 chunks at 67.7 A^2 and 38.6
+  A, so five of section 9's six controls are now decided; and the bilayer figure
+  drew, showing area per lipid falling 68.0 to 67.2 into the expected window,
+  which is what 5.2 predicted from the Tier 1 value of 68.4.
+- `04:0x` The rehearsal found the verification step announcing a failure on
+  every success. `||` on a pipeline takes grep's status, and `log` writes to
+  stderr so the "agrees" line never reached the pipe. The same construct would
+  have swallowed a real disagreement, because grep matching "disagree" exits 0.
+  Rewritten to test the command's own status; both branches run rather than
+  reasoned about.

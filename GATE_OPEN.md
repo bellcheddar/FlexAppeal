@@ -18,7 +18,7 @@ section deleted the whole table, which is a poor place to keep the results.
 | P2 alphaC label against KLIFS | 17 / 17 (>= 85 %) |
 | P3 TM3-TM6 separation, leave-one-out | 100 / 100 at 11.39 A (>= 90 %) |
 | P4 each start scores as its own state | 4 / 4: +0.305, -0.368, +0.593, -0.934 |
-| P6 membrane integrity | passes on a real bilayer: APL 68.3 A^2, thickness 38.3 A, tilt 13.5 deg; still pending in the live database until the final pass runs |
+| P6 membrane integrity | **PASS on the live database**: 2 chunks, APL 67.7 A^2 (67.3 to 68.0), thickness 38.6 A, tilt 14.9 deg |
 | P5 inactive start stays inactive | still waiting on real data; rehearsed on both qualifying rows and reports PASS, so the control fires rather than staying silent |
 | Manifests re-derived from source | ABL1 20/20, beta2AR 116/116, 0 changed |
 | All four rows buildable | yes; `abl1_imatinib` built after D019 fixed its ligand |
@@ -39,6 +39,7 @@ section deleted the whole table, which is a poor place to keep the results.
 | Section 12.1 `.claude/settings.json` | not written; its deny list blocks the push the user authorised (D024) |
 | Section 10's five pytest items | all five present; the membrane 5 ps smoke skips while production holds the GPU, body proved on CPU |
 | Stored numbers against their analyses | `report --verify`, run in the final pass; every number agrees across 11 motifs and 2 rows |
+| Final pass, end to end | rehearsed with the loop stopped: analyse, probe, figures, verify, controls; exit 0, and it found the verify step alarming on every success |
 | Section 6.2 badge strip | one badge per motif, server-rendered at frame 0, following the scrubber; shape, colour and label |
 | Section 7 `systems` columns | `uniprot`, `n_atoms`, `forcefield` now written; all three had been NULL since the schema was created |
 | Test suite | 896 pass, 0 fail (`pixi run test`) |
