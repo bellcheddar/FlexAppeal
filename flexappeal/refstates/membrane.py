@@ -97,6 +97,22 @@ class MembraneChunk:
         return row
 
 
+def row_verdicts(apl_a2: float | None,
+                 thickness_a: float | None) -> dict[str, str | None]:
+    """The per-chunk verdicts for a chunk read back out of the store.
+
+    Section 7 gives the `membrane` table six columns and no verdict, so the
+    windows a chunk was judged against are not saved with it. They do not need
+    to be: a verdict is a pure function of the number and the window. The
+    panel recomputes it here, through `MembraneChunk` itself, so that the
+    windows have one definition and the explorer cannot drift from what P6
+    checks.
+    """
+    chunk = MembraneChunk(start_ns=0.0, end_ns=0.0, apl_a2=apl_a2,
+                          thickness_a=thickness_a)
+    return {"apl": chunk.apl_verdict, "thickness": chunk.thickness_verdict}
+
+
 def phosphorus_indices(topology) -> list[int]:
     """Lipid phosphorus atoms, which mark the two headgroup planes.
 
@@ -161,13 +177,48 @@ def split_leaflets(z_values) -> tuple[list[int], list[int]]:
     return upper, lower
 
 
-def receptor_tilt(ca_coords) -> float | None:
-    """Angle between the receptor's principal axis and the bilayer normal.
+# A rod's principal axis is only its axis if the cloud is actually rod shaped.
+# Below this ratio of the first to the second singular value the direction is
+# set by noise rather than by the helix, and averaging such an axis into a
+# bundle makes the bundle worse rather than better.
+MIN_AXIS_ANISOTROPY = 2.0
+MIN_HELIX_CA = 8
+MIN_BUNDLE_HELICES = 3
 
-    The principal axis of the TM Calpha cloud is the helix-bundle axis for a
-    7TM receptor, and the normal is z by construction, so the tilt is the angle
-    between that axis and z. Folded to 0 to 90 degrees because the axis has no
-    direction: a bundle tilted 20 degrees and one tilted 160 are the same tilt.
+
+def helix_axis(ca_coords):
+    """The unit axis of one helix, pointing towards +z, or None.
+
+    One helix is a rod, so its Calpha cloud has a well-determined principal
+    axis. Returned pointing towards +z rather than as found, because
+    consecutive TM helices run in opposite directions and a mean taken over
+    raw axes would cancel instead of averaging.
+    """
+    import numpy as np
+
+    coords = np.asarray(ca_coords, dtype=float)
+    if coords.shape[0] < MIN_HELIX_CA:
+        return None
+    centred = coords - coords.mean(axis=0)
+    _, values, vectors = np.linalg.svd(centred, full_matrices=False)
+    # A second singular value of zero is a perfectly straight rod, which is the
+    # best axis there is rather than the worst. Only a non-zero one can be too
+    # close to the first, so the ratio is the test and zero is not a rejection.
+    if values[1] > 0 and values[0] / values[1] < MIN_AXIS_ANISOTROPY:
+        return None
+    axis = vectors[0] / np.linalg.norm(vectors[0])
+    return -axis if axis[2] < 0 else axis
+
+
+def axis_tilt_deg(ca_coords) -> float | None:
+    """Angle between one rod's principal axis and the bilayer normal.
+
+    The normal is z by construction, so this is the angle to z, folded to 0 to
+    90 degrees because an axis has no direction: a rod tilted 20 degrees and
+    one tilted 160 are the same tilt.
+
+    For a single helix this is the tilt. For a whole receptor it is not, which
+    is what `bundle_tilt` is for.
     """
     import numpy as np
 
@@ -179,6 +230,81 @@ def receptor_tilt(ca_coords) -> float | None:
     axis = vectors[0]
     cosine = abs(float(axis[2])) / float(np.linalg.norm(axis))
     return float(np.degrees(np.arccos(min(1.0, cosine))))
+
+
+def bundle_tilt(ca_coords, residue_indices,
+                *, min_helices: int = MIN_BUNDLE_HELICES) -> float | None:
+    """Receptor tilt, as the mean direction of the transmembrane helix axes.
+
+    Not the principal axis of the whole Calpha cloud, which is what this used
+    to be and which does not work. A 7TM bundle inside a 37 A bilayer is about
+    as wide as it is tall: measured on beta2AR the membrane-spanning Calpha
+    span 40 by 45 by 37 A with singular values 159, 139, 109, a first-to-second
+    ratio of 1.15. There is no principal direction in a cloud that round, so
+    the axis it returns is noise, and it reported 25 degrees of tilt for a
+    receptor sitting almost square in the membrane.
+
+    Section 4.3's fallback orientation already gives the right definition, the
+    mean direction of the seven TM helix axes, and each helix on its own is a
+    rod whose axis is well determined: the same structure gives ratios of 4.8
+    to 7.8 per helix and a bundle tilt of 6.7 degrees.
+
+    `residue_indices` runs parallel to `ca_coords` and is what separates the
+    helices: a helix crossing the bilayer is a contiguous run of residues, so
+    the runs are the helices and no segment table is needed.
+    """
+    import numpy as np
+
+    coords = np.asarray(ca_coords, dtype=float)
+    residues = [int(r) for r in residue_indices]
+    if coords.shape[0] != len(residues):
+        raise ValueError(
+            f"{coords.shape[0]} coordinates against {len(residues)} residue "
+            f"indices; they must run in parallel")
+
+    runs: list[list[int]] = []
+    for position, residue in enumerate(residues):
+        if runs and residue == residues[position - 1] + 1:
+            runs[-1].append(position)
+        else:
+            runs.append([position])
+
+    axes = [axis for axis in (helix_axis(coords[run]) for run in runs)
+            if axis is not None]
+    if len(axes) < min_helices:
+        return None
+    mean = np.mean(axes, axis=0)
+    norm = float(np.linalg.norm(mean))
+    if norm == 0.0:
+        return None
+    cosine = abs(float(mean[2])) / norm
+    return float(np.degrees(np.arccos(min(1.0, cosine))))
+
+
+def slab_ca_indices(topology, protein_z, midplane: float,
+                    half_thickness: float) -> list[int]:
+    """The protein Calpha that sit between the two phosphate planes.
+
+    `bundle_tilt` wants the transmembrane bundle and only that. Every protein
+    Calpha would do instead if a receptor were only its bundle, but it is not:
+    beta2AR's ICL3 and its termini stick well out of the bilayer, and a
+    principal axis fitted through them is the axis of the whole molecule rather
+    than of the seven helices.
+
+    The bilayer locates the bundle better than a residue table does. A Calpha
+    inside the headgroup planes is membrane-spanning by construction, so the
+    set follows the system that was built rather than a published segment range
+    that may not match the construct, and it needs no catalogue lookup in a
+    function that is already streaming a trajectory.
+
+    `protein_z` is expected in angstrom and in the same frame the bilayer was
+    centred into, which is why the midplane and the half thickness are passed
+    in rather than measured again here.
+    """
+    import numpy as np
+
+    offsets = np.abs(np.asarray(protein_z, dtype=float) - midplane)
+    return [int(i) for i, offset in enumerate(offsets) if offset <= half_thickness]
 
 
 def analyse_chunk(traj, *, start_ns: float, end_ns: float,
@@ -260,8 +386,26 @@ def analyse_chunk(traj, *, start_ns: float, end_ns: float,
         separation = np.minimum(separation, box[:, 2][:, None] - separation)
         chunk.core_waters = float((separation < CORE_HALF_WIDTH_A).sum(axis=1).mean())
 
+    if tm_ca_indices is None and chunk.thickness_a:
+        # Derived here rather than required from the caller. This argument was
+        # optional and nothing passed it, so every chunk ever written had no
+        # tilt at all and the panel's column was a dash on a bilayer that was
+        # otherwise healthy. A metric the caller has to remember to switch on
+        # is a metric that gets forgotten, so the default is to measure it.
+        ca = traj.topology.select("protein and name CA")
+        if len(ca):
+            first = np.mod(traj.xyz[0, ca, 2] * 10.0 + shifts[0],
+                           float(box[0, 2]))
+            tm_ca_indices = [int(ca[i]) for i in slab_ca_indices(
+                traj.topology, first, float(np.median(phos_z[0])),
+                0.5 * chunk.thickness_a)]
+            if len(tm_ca_indices) < 3:
+                chunk.notes.append(
+                    "fewer than three Calpha inside the bilayer, so no tilt")
+
     if tm_ca_indices:
-        tilts = [receptor_tilt(traj.xyz[frame, tm_ca_indices, :] * 10.0)
+        residues = [traj.topology.atom(i).residue.index for i in tm_ca_indices]
+        tilts = [bundle_tilt(traj.xyz[frame, tm_ca_indices, :] * 10.0, residues)
                  for frame in range(traj.n_frames)]
         measured = [t for t in tilts if t is not None]
         if measured:

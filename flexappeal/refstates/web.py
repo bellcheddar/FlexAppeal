@@ -199,6 +199,15 @@ def run(run_id: str):
                          if residues else "")
     membrane = _rows(
         "SELECT * FROM membrane WHERE run_id = ? ORDER BY time_ns", (run_id,))
+    # Section 5.8 asks for a panel a user can read the bilayer's health off,
+    # and five numbers against two windows held in the reader's head is not
+    # that. The verdict is not a stored column, so it is recomputed from the
+    # numbers by the module that owns the windows.
+    from .membrane import row_verdicts
+
+    for chunk in membrane:
+        chunk["verdicts"] = row_verdicts(chunk.get("apl"),
+                                         chunk.get("thickness"))
 
     from . import store
 

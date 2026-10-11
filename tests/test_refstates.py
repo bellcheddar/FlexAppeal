@@ -218,11 +218,11 @@ def test_gate_six_tolerates_one_bad_chunk_but_not_a_bad_run():
     assert membrane.gate_six([membrane.MembraneChunk(0, 10, apl_a2=40.0)])["open"] is True
 
 
-def test_receptor_tilt_is_folded_into_the_first_quadrant():
+def test_axis_tilt_is_folded_into_the_first_quadrant():
     along_z = np.array([[0.0, 0.0, float(i)] for i in range(10)])
-    assert membrane.receptor_tilt(along_z) == pytest.approx(0.0, abs=1e-6)
+    assert membrane.axis_tilt_deg(along_z) == pytest.approx(0.0, abs=1e-6)
     flipped = np.array([[0.0, 0.0, -float(i)] for i in range(10)])
-    assert membrane.receptor_tilt(flipped) == pytest.approx(0.0, abs=1e-6)
+    assert membrane.axis_tilt_deg(flipped) == pytest.approx(0.0, abs=1e-6)
 
 
 # ===========================================================================
@@ -624,8 +624,8 @@ def test_the_ionic_lock_threshold_is_applied_at_the_right_side():
 def test_a_helix_rotated_by_a_known_angle_reports_that_angle():
     """Section 10's rotated helix. The tilt is read back from the rotation.
 
-    `receptor_tilt` measures the principal axis against z, so a helix built
-    along z and tilted by a known angle in the xz plane must report it.
+    `axis_tilt_deg` measures one rod's principal axis against z, so a helix
+    built along z and tilted by a known angle in the xz plane must report it.
     """
     import numpy as np
 
@@ -636,7 +636,110 @@ def test_a_helix_rotated_by_a_known_angle_reports_that_angle():
                              [0.0, 1.0, 0.0],
                              [-np.sin(angle), 0.0, np.cos(angle)]])
         tilted = straight @ rotation.T
-        assert membrane.receptor_tilt(tilted) == pytest.approx(degrees, abs=1e-4)
+        assert membrane.axis_tilt_deg(tilted) == pytest.approx(degrees, abs=1e-4)
+
+
+def _seven_helix_bundle(tilt_deg: float, radius_a: float = 18.0,
+                        per_helix: int = 28, rise_a: float = 1.35):
+    """A synthetic 7TM bundle, tilted by a known angle in the xz plane.
+
+    Seven rods on a circle, each running the opposite way to its neighbour the
+    way consecutive TM helices do, then the whole assembly rotated about y. The
+    radius and the rise are chosen so the Calpha cloud comes out about as wide
+    as it is tall, which is the case the bundle axis has to survive.
+    """
+    import numpy as np
+
+    coords, residues = [], []
+    residue = 0
+    for helix in range(7):
+        angle = 2.0 * np.pi * helix / 7.0
+        x, y = radius_a * np.cos(angle), radius_a * np.sin(angle)
+        direction = 1.0 if helix % 2 == 0 else -1.0
+        for step in range(per_helix):
+            z = direction * rise_a * (step - 0.5 * (per_helix - 1))
+            coords.append([x, y, z])
+            residues.append(residue)
+            residue += 1
+        # A gap in the numbering between helices, which is what the loops are.
+        residue += 10
+    rotation_angle = np.radians(tilt_deg)
+    rotation = np.array([[np.cos(rotation_angle), 0.0, np.sin(rotation_angle)],
+                         [0.0, 1.0, 0.0],
+                         [-np.sin(rotation_angle), 0.0, np.cos(rotation_angle)]])
+    return np.array(coords) @ rotation.T, residues
+
+
+def test_the_bundle_tilt_is_the_mean_of_the_helix_axes_not_the_cloud_axis():
+    """The regression behind FINDINGS 4n: a round cloud has no principal axis.
+
+    The old measurement took the principal axis of all the membrane-spanning
+    Calpha at once. For a 7TM bundle that cloud is nearly isotropic, so the
+    direction it returns is noise. This builds a bundle with a tilt that is
+    known by construction and asserts the two measurements apart: the per-helix
+    mean recovers it, the whole-cloud axis does not.
+    """
+    import numpy as np
+
+    for tilt in (0.0, 5.0, 12.0):
+        coords, residues = _seven_helix_bundle(tilt)
+        assert membrane.bundle_tilt(coords, residues) == pytest.approx(
+            tilt, abs=0.5), f"bundle tilt wrong at {tilt} degrees"
+
+    # And the cloud really is round, so the old route really was noise.
+    coords, residues = _seven_helix_bundle(5.0)
+    centred = coords - coords.mean(axis=0)
+    values = np.linalg.svd(centred, full_matrices=False)[1]
+    assert values[0] / values[1] < 1.5, "the fixture is not a round cloud"
+    assert abs(membrane.axis_tilt_deg(coords) - 5.0) > 20.0, (
+        "the whole-cloud axis happened to be right, so this fixture no longer "
+        "demonstrates the fault it was built for")
+
+
+def test_helix_axes_running_opposite_ways_do_not_cancel():
+    """Consecutive TM helices alternate direction, so the signs must align.
+
+    Without folding each axis towards +z first, a mean over seven alternating
+    rods tends towards zero and the tilt it reports is whatever is left, which
+    for an untilted bundle is 90 degrees rather than nothing.
+    """
+    coords, residues = _seven_helix_bundle(0.0)
+    assert membrane.bundle_tilt(coords, residues) == pytest.approx(0.0, abs=0.5)
+
+
+def test_a_bundle_needs_more_than_two_helices_to_have_an_axis():
+    """Two rods are not a bundle, and saying nothing beats saying 48 degrees."""
+    coords, residues = _seven_helix_bundle(0.0)
+    two = [i for i, r in enumerate(residues) if r < 48]
+    assert membrane.bundle_tilt(coords[two], [residues[i] for i in two]) is None
+
+
+def test_an_axis_through_a_round_run_is_refused_rather_than_averaged_in():
+    """A run that is not rod shaped contributes no axis.
+
+    `helix_axis` is averaged into the bundle, so a run whose direction is
+    undetermined would drag the mean towards a direction nothing measured.
+    """
+    import numpy as np
+
+    rng = np.random.default_rng(0)
+    assert membrane.helix_axis(rng.normal(size=(30, 3))) is None
+    rod = np.array([[0.0, 0.0, 1.5 * i] for i in range(20)])
+    assert membrane.helix_axis(rod) is not None
+
+
+def test_the_bundle_tilt_rejects_mismatched_residue_indices():
+    coords, residues = _seven_helix_bundle(0.0)
+    with pytest.raises(ValueError, match="run in parallel"):
+        membrane.bundle_tilt(coords, residues[:-1])
+
+
+def test_the_slab_keeps_the_calpha_between_the_phosphate_planes():
+    """`slab_ca_indices` is what separates the bundle from the loops."""
+    protein_z = [0.0, 10.0, -10.0, 25.0, -25.0, 18.4, 18.6]
+    keep = membrane.slab_ca_indices(None, protein_z, midplane=0.0,
+                                    half_thickness=18.5)
+    assert keep == [0, 1, 2, 5]
 
 
 def test_the_state_score_is_symmetric_between_two_references():

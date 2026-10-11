@@ -318,6 +318,19 @@
 {% endif %}
 
 {% if membrane %}
+  {#- Three states, not two. "expected" is section 5.8's narrow window,
+      "outside expected" is a chunk that is still usable, and "G6" is one that
+      raises the science gate. The quiet badge on an expected chunk is what
+      lets a reader tell a healthy bilayer from one with nothing measured. -#}
+  {% macro verdict_badge(verdict) -%}
+    {%- if verdict == "expected" -%}
+      <span class="md-badge md-badge-ok">expected</span>
+    {%- elif verdict == "G6" -%}
+      <span class="md-badge md-badge-bad">G6</span>
+    {%- elif verdict -%}
+      <span class="md-badge md-badge-warn">{{ verdict }}</span>
+    {%- endif -%}
+  {%- endmacro %}
   <section class="md-card md-panel is-wide">
     <h3>Membrane health</h3>
     <table class="md-table">
@@ -334,8 +347,18 @@
         {% for chunk in membrane %}
           <tr>
             <th scope="row">{{ "%.0f"|format(chunk.time_ns) }} ns</th>
-            <td>{% if chunk.apl %}{{ "%.1f"|format(chunk.apl) }} &#8491;&sup2;{% else %}&mdash;{% endif %}</td>
-            <td>{% if chunk.thickness %}{{ "%.1f"|format(chunk.thickness) }} &#8491;{% else %}&mdash;{% endif %}</td>
+            <td>
+              {% if chunk.apl is not none %}
+                {{ "%.1f"|format(chunk.apl) }} &#8491;&sup2;
+                {{ verdict_badge(chunk.verdicts.apl) }}
+              {% else %}&mdash;{% endif %}
+            </td>
+            <td>
+              {% if chunk.thickness is not none %}
+                {{ "%.1f"|format(chunk.thickness) }} &#8491;
+                {{ verdict_badge(chunk.verdicts.thickness) }}
+              {% else %}&mdash;{% endif %}
+            </td>
             <td>{% if chunk.tilt %}{{ "%.1f"|format(chunk.tilt) }}&deg;{% else %}&mdash;{% endif %}</td>
             <td>{% if chunk.core_waters is not none %}{{ "%.0f"|format(chunk.core_waters) }}{% else %}&mdash;{% endif %}</td>
           </tr>
@@ -350,6 +373,23 @@
         the box cross-section divided by the lipids in one leaflet, with the
         leaflets split at their own midplane rather than at z = 0, because the
         bilayer drifts in z under a membrane barostat.
+      </p>
+      <p>
+        The badges mark each chunk against those windows.
+        <span class="md-badge md-badge-ok">expected</span> is inside them.
+        <span class="md-badge md-badge-warn">outside expected</span> is a chunk
+        that is still usable: area per lipid has a wider acceptable range of 55
+        to 75 &#8491;&sup2;, and the first chunk after equilibration is often
+        the one that sits outside the narrow window.
+        <span class="md-badge md-badge-bad">G6</span> is outside even that, and
+        raises the science gate on the run.
+      </p>
+      <p>
+        Tilt is the receptor's angle to the bilayer normal, taken as the mean
+        direction of the seven transmembrane helix axes rather than the
+        principal axis of the whole bundle. Inside a 37 &#8491; bilayer the
+        bundle is about as wide as it is tall, so it has no principal
+        direction to measure and fitting one returns noise.
       </p>
     </details>
   </section>

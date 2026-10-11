@@ -1293,6 +1293,86 @@ row per structure, so beta2AR's 72 active and 28 inactive are 72 and 28.
 
 `analyse_run.py` now logs both: `active: 12 catalogue rows over 5 structures`.
 
+## 4n. The membrane panel had never been rendered with a membrane in it
+
+Every streaming pass through the night printed `membrane 0 rows`, fourteen times
+in a row, on a run that is a POPC bilayer. That turned out not to be a fault:
+`tools/stream_analysis.sh` passes `--skip-membrane`, because the bilayer pass
+needs the full solvated trajectory while the state analysis needs protein and
+ligand only, and the one is cheap to run every half hour where the other is not.
+The final pass, after production stops, runs it.
+
+The fault was that the final pass had never been run on this trajectory, so
+nothing about the bilayer panel had ever been exercised against real data. Three
+things were wrong with it, and all three would have appeared for the first time
+on the finished row.
+
+**The tilt column was a dash, and always would have been.** `analyse_chunk`
+takes `tm_ca_indices` as an optional argument and measures the receptor tilt
+only if it is given. Nothing gave it. `tools/ingest.py` calls
+`membrane.analyse_chunk(piece, start_ns=..., end_ns=...)` and always had, so
+every chunk this build could ever have written had `tilt_deg = None`, and
+section 5.8 asks for receptor tilt by name. An optional metric that the caller
+has to remember to switch on is a metric that does not get measured, so it is
+now derived inside `analyse_chunk` when the caller names nothing, and the
+argument survives only as an override.
+
+Deriving it needs the transmembrane bundle rather than the whole receptor, and
+the bilayer locates that better than a residue table does: a Calpha between the
+two phosphate planes is membrane-spanning by construction, so the set follows
+the system that was built rather than a published segment range that may not
+match the construct. On `b2ar_apo` that selection finds 201 of the 322 protein
+Calpha, and they fall into exactly seven contiguous runs of 27 to 30 residues.
+That is the 7TM bundle, recovered from the geometry with no catalogue lookup.
+
+**Then the measurement itself was wrong.** With the indices finally passed in,
+the first number out was 25.1 degrees of tilt, which is far too much for a
+receptor that was built square in the membrane. `receptor_tilt` took the
+principal axis of all the membrane-spanning Calpha at once, and its docstring
+asserted that for a 7TM receptor this is the bundle axis. It is not. Measured on
+this system the slab Calpha span 40 by 45 by 37 angstrom with singular values
+159, 139 and 109: a first-to-second ratio of 1.15. A cloud that round has no
+principal direction, so the axis returned is set by noise, and the tilt it
+reports is noise dressed as a measurement.
+
+The spec had already written down the right definition. Section 4.3's fallback
+orientation uses "the mean direction of the seven TM helix axes", and each helix
+on its own is a rod whose axis is well determined: the same structure gives
+first-to-second ratios of 4.8 to 7.8 per helix. Averaging those seven axes, each
+folded towards +z first because consecutive TM helices run in opposite
+directions and would otherwise cancel, gives 6.7 degrees for the as-built system
+and 13.5 degrees averaged over the first 7.6 ns of production. A receptor that
+settles from 7 to 13 degrees during equilibration is what equilibration does.
+
+The broken function was correct for one helix, which is what both of its tests
+fed it, and that is why they passed. The error was in applying it to a bundle.
+So it is now two functions with different arguments rather than one: `helix_axis`
+and `axis_tilt_deg` for a single rod, `bundle_tilt` for a receptor. Nothing can
+reach for the wrong one by accident, because they do not take the same inputs.
+The regression test builds a seven-rod bundle with a tilt known by construction
+and asserts the two apart: the per-helix mean recovers the angle to within half
+a degree, and the test also asserts that the whole-cloud axis is more than 20
+degrees out, so if the fixture ever stops demonstrating the fault it was built
+for, it says so rather than passing quietly.
+
+**And the panel showed numbers with no verdict.** Section 5.8 asks for the panel
+"so a user can see the bilayer behaved", and five numbers against two windows
+held in the reader's head is not that. The verdicts exist: `MembraneChunk` has
+`apl_verdict` and `thickness_verdict`, and `as_row` emits both. `put_membrane`
+drops them, which is correct, because section 7 gives the `membrane` table six
+columns and no verdict. A verdict is a pure function of the number and the
+window, so the panel recomputes it through `MembraneChunk` itself rather than
+the schema growing a column the spec does not have, and the windows keep one
+definition instead of a second copy in the view.
+
+Three states, not two. An unbadged row cannot be told apart from one with
+nothing measured, so "expected" carries a quiet badge too, while a filled badge
+stays reserved for the exception. The first real chunk came out at 68.3
+angstrom squared per lipid, which is 0.3 above the narrow window and well inside
+the acceptable one, so the panel's first live reading is an amber "outside
+expected" next to an "expected" thickness of 38.3 angstrom. That is the panel
+doing its job on its first real data.
+
 ## 5. Production runs
 
 Tier 2 started at 17:04 on 10 October, in section 5.3's priority order: β2AR

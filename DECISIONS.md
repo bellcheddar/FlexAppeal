@@ -710,3 +710,42 @@ one-reference comparison is still the most informative thing available for that
 protein, and a refusal would throw away a usable answer rather than qualify it.
 The spec's own rule on this (0.1 rule 3) is to degrade gracefully and flag, not
 to stop.
+
+## D022: receptor tilt is the mean of the helix axes, not the bundle's principal axis
+
+Section 5.8 asks for "receptor tilt relative to the bilayer normal" and does not
+say how to measure it. The obvious reading, and what this build did first, is
+the principal axis of the transmembrane Calpha against z.
+
+That does not work, and the numbers say so rather than an argument. On
+`b2ar_apo` the membrane-spanning Calpha span 40 by 45 by 37 angstrom with
+singular values 159, 139 and 109. The first-to-second ratio is 1.15, so there is
+no principal direction in the cloud and the axis fitted to it is noise. It
+reported 25 degrees for a receptor built square in the membrane.
+
+Section 4.3 already defines the alternative for its fallback orientation: "the
+mean direction of the seven TM helix axes". Each helix is a rod, and the ratios
+per helix on the same structure are 4.8 to 7.8, so each axis is well determined.
+Each is folded towards +z before averaging, because consecutive TM helices run
+in opposite directions and a raw mean would cancel rather than average. The
+result is 6.7 degrees as built and 13.5 degrees over the first 7.6 ns of
+production.
+
+Two consequences recorded deliberately:
+
+- The helices are found from the bilayer, not from a segment table. A Calpha
+  between the two phosphate planes is membrane-spanning by construction, and a
+  helix crossing the bilayer is a contiguous run of residues, so the runs are
+  the helices. On `b2ar_apo` this gives exactly seven runs of 27 to 30 residues
+  out of 201 slab Calpha. The alternative, GPCRdb's `protein_segment` ranges,
+  would be a second source of truth that can disagree with the construct that
+  was actually built.
+- The old function was kept, not deleted, under the name `axis_tilt_deg`. It is
+  correct for a single rod, which is what both of its tests feed it, and section
+  10's rotated-helix control uses exactly that. The fault was in applying it to
+  a bundle, so `bundle_tilt` takes different arguments and the two cannot be
+  confused at a call site.
+
+The tilt is also now derived inside `analyse_chunk` rather than required from
+the caller. It was an optional argument that nothing passed, so every chunk this
+build could have written had no tilt at all.
