@@ -65,11 +65,23 @@ CREATE INDEX IF NOT EXISTS ix_runs_sys ON runs(system_id);
 # data rather than in a stylesheet: the explorer reads a motif's token from the
 # same row it reads the motif's residues from, and a motif cannot then be one
 # colour on the timeline and another on the viewer.
+# These were written against a planned motif list that the build then changed,
+# and nothing read them, so the mismatch never showed. Three motifs that are
+# measured had no colour at all: `c.l` for the kinase, `TM5` and `TM7` for the
+# receptor. Four names that are not motif rows had one: `r_spine`, the ionic
+# lock, `PIF` and `toggle`. All four are measured; what none of them is, is a
+# motif. They are pocket states, micro-switch metrics and corroborating rules,
+# with no row here and no reference ensemble of their own.
+#
+# The map is now exactly the motifs that become rows. A token for a motif that
+# does not exist is harmless and a motif with no token is not: it draws in
+# whatever colour the chart library picks next, which is the opposite of a
+# shared palette.
 MOTIF_TOKENS = {
     "kinase": {"alphaC": "--motif-1", "xDFG": "--motif-2", "A-loop": "--motif-3",
-               "g.l": "--motif-4", "hinge": "--motif-5", "r_spine": "--motif-6"},
-    "gpcr": {"TM6": "--motif-1", "ionic_lock": "--motif-2", "NPxxY": "--motif-3",
-             "PIF": "--motif-4", "toggle": "--motif-5", "H8": "--motif-6"},
+               "g.l": "--motif-4", "hinge": "--motif-5", "c.l": "--motif-6"},
+    "gpcr": {"TM6": "--motif-1", "TM5": "--motif-2", "NPxxY": "--motif-3",
+             "TM7": "--motif-4", "H8": "--motif-5"},
 }
 
 
@@ -295,6 +307,7 @@ def summarise(path: Path, run_id: str) -> dict[str, Any]:
                 (run_id, motif_id, cut)).fetchone()
             out["motifs"][motif_id] = {
                 "start_s": first["s_score"] if first else None,
+                "start_label": first["label"] if first else None,
                 "final_s": last["s_score"] if last else None,
                 "final_label": last["label"] if last else None,
                 "final_tenth_mean_s": tail["mean"] if tail else None,

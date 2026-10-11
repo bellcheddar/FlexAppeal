@@ -59,6 +59,24 @@
         </label>
       </div>
     {% endif %}
+    {% if motifs %}
+      {# Section 6.2's state badge strip: one badge per motif for the frame the
+         scrubber is on. Rendered server-side at frame 0, which is where the
+         slider starts, so it reads correctly with no JavaScript and does not
+         contradict the viewer before the first drag. #}
+      <div id="state-strip" class="md-statestrip"
+           data-frames="{{ url_for('refstates.frames', run_id=run.run_id) }}">
+        {% for motif in motifs %}
+          {% set key = motif.system_id ~ ":" ~ motif.name %}
+          {% set row = summary.motifs.get(key) if summary.motifs else none %}
+          <span class="md-state md-state-{{ row.start_label if row else 'unknown' }}"
+                data-motif="{{ key }}">
+            <b>{{ motif.name }}</b>
+            <em data-role="label">{{ row.start_label if row else "not scored" }}</em>
+          </span>
+        {% endfor %}
+      </div>
+    {% endif %}
     <p id="viewer-status" class="md-note"></p>
     <h4>Where the motifs are</h4>
     <table class="md-table">
@@ -142,8 +160,7 @@
               {%- else %}&mdash;{% endif -%}
             </td>
             <td>
-              <span class="md-state md-state-{{ row.final_label }}"
-                    data-shape="{{ shapes.get(row.final_label, 'circle') }}">
+              <span class="md-state md-state-{{ row.final_label }}">
                 {{ row.final_label }}
               </span>
             </td>
@@ -257,15 +274,27 @@
 </section>
 
 <section class="md-card md-panel is-wide">
+  {# The motifs' residue ranges and colour tokens, for the ribbon's bands and
+     the timeline's lines. Emitted as data rather than built into the script so
+     that one list feeds both charts and they cannot disagree about which
+     colour a motif is, which is the whole point of the tokens. #}
+  <script type="application/json" id="motif-meta">
+    [{% for motif in motifs %}{% if motif.first is not none %}
+      {"name": {{ motif.name | tojson }}, "token": {{ (motif.token or "") | tojson }},
+       "first": {{ motif.first }}, "last": {{ motif.last }}}{{ "," if not loop.last }}
+    {% endif %}{% endfor %}]
+  </script>
   <h3>Secondary structure over time</h3>
   <div id="dssp-ribbon" class="md-plot" style="min-height:420px"></div>
   <p class="md-note">
-    The two columns left of the rule are the reference ensembles rather than
-    frames: for each residue, the secondary structure most of the active
-    references have, and most of the inactive ones. They cover the motif
-    residues only, because the ensembles are built per motif and say nothing
-    about the rest of the chain. Hovering a cell gives the structure and how
-    many of the references agree on it.
+    Reading left to right: the coloured bars are the motifs, each covering the
+    residues it is measured on, in the colour it keeps on every chart here. The
+    two columns after them are the reference ensembles rather than frames: for
+    each residue, the secondary structure most of the active references have,
+    and most of the inactive ones. Those cover the motif residues only, because
+    the ensembles are built per motif and say nothing about the rest of the
+    chain. Everything right of the rule is this run. Hovering a reference cell
+    gives the structure and how many of the references agree on it.
   </p>
   {% if sse_rows %}
     <h4>How far each motif's secondary structure matches the references</h4>
@@ -479,11 +508,19 @@
     target.textContent = "Per-frame data is not available for this run.";
     return;
   }
-  const traces = Object.entries(payload.motifs).map(([id, series]) => ({
-    x: series.time_ns, y: series.s, mode: "lines",
-    name: id.split(":").pop(), opacity: 0.65, line: {width: 1.5},
-    hovertemplate: "%{y:+.3f} at %{x:.1f} ns<extra>%{fullData.name}</extra>",
-  }));
+  /* Coloured from the motif tokens, not from Plotly's default cycle. That is
+   * what the tokens are for: the same motif is the same colour on the ribbon's
+   * bands and on this chart, so a reader can carry one between the two. */
+  const motifColour = {};
+  MOTIF_META.forEach(function (m) { motifColour[m.name] = m.colour; });
+  const traces = Object.entries(payload.motifs).map(function ([id, series]) {
+    const name = id.split(":").pop();
+    return {
+      x: series.time_ns, y: series.s, mode: "lines", name: name, opacity: 0.8,
+      line: {width: 1.5, color: motifColour[name] || undefined},
+      hovertemplate: "%{y:+.3f} at %{x:.1f} ns<extra>%{fullData.name}</extra>",
+    };
+  });
   // The whole-protein score last, so it draws on top of the motifs it is the
   // weighted mean of. Section 5.6 wants the breakdown shown beside it rather
   // than replaced by it, so the motifs stay and are drawn back.
@@ -616,6 +653,77 @@
   });
 })();
 
+// The motifs' ranges and colours, read once and shared by both charts. The
+// token is a CSS custom property name, resolved here rather than hard-coded,
+// so the palette has one definition and it is the stylesheet's.
+const MOTIF_META = (function () {
+  const node = document.getElementById("motif-meta");
+  if (!node) return [];
+  let parsed;
+  try { parsed = JSON.parse(node.textContent); } catch (err) { return []; }
+  const root = getComputedStyle(document.documentElement);
+  return parsed.map(function (m) {
+    const colour = m.token ? root.getPropertyValue(m.token).trim() : "";
+    return Object.assign({}, m, {colour: colour || "#5a6b80"});
+  });
+})();
+
+// Section 6.2's state badge strip, kept in step with the scrubber.
+//
+// The slider indexes the viewer's strided frames and the labels are per
+// analysis frame, so the two are different counts and one has to be mapped
+// onto the other. The same mapping already exists in the state map's click
+// handler, in the other direction.
+(async function () {
+  const strip = document.getElementById("state-strip");
+  const slider = document.getElementById("scrub");
+  if (!strip || !slider) return;
+
+  let payload;
+  try {
+    const response = await fetch(strip.dataset.frames);
+    if (!response.ok) throw new Error(response.status);
+    payload = await response.json();
+  } catch (err) {
+    /* The strip keeps the server-rendered frame 0 and stops following the
+     * slider. Silent rather than an error message: a correct reading of the
+     * first frame is a worse thing to replace with an apology than it is to
+     * leave standing. */
+    return;
+  }
+
+  const badges = Array.from(strip.querySelectorAll("[data-motif]"));
+  const series = payload.motifs || {};
+  const lengths = badges
+    .map((b) => (series[b.dataset.motif] || {}).label)
+    .filter(Boolean).map((l) => l.length);
+  const nAnalysis = lengths.length ? Math.max.apply(null, lengths) : 0;
+  if (!nAnalysis) return;
+
+  const classes = ["active", "inactive", "intermediate", "conflict", "unknown"];
+  function show(viewerFrame) {
+    const viewerFrames = parseInt(slider.max, 10) + 1;
+    const index = viewerFrames > 1
+      ? Math.round((viewerFrame / (viewerFrames - 1)) * (nAnalysis - 1))
+      : 0;
+    badges.forEach(function (badge) {
+      const labels = (series[badge.dataset.motif] || {}).label;
+      if (!labels) return;
+      const label = labels[Math.max(0, Math.min(labels.length - 1, index))];
+      if (!label) return;
+      const readout = badge.querySelector('[data-role="label"]');
+      if (readout) readout.textContent = label;
+      classes.forEach((c) => badge.classList.remove("md-state-" + c));
+      badge.classList.add("md-state-" + label);
+    });
+  }
+
+  slider.addEventListener("input", function () {
+    show(parseInt(slider.value, 10) || 0);
+  });
+  show(parseInt(slider.value, 10) || 0);
+})();
+
 // The DSSP ribbon. Classes are mapped to a small integer scale so one heatmap
 // can draw them, with the legend naming the class rather than the number.
 (async function () {
@@ -689,6 +797,49 @@
       return s + " references: " + (names[cell.code] || cell.code) + pct;
     }));
 
+  /* Section 6.2's "motif bands marked". Bars to the left of the reference
+   * columns, in the same residue coordinates, so the chart reads left to
+   * right as motif, reference consensus, trajectory.
+   *
+   * Lanes, because the ranges overlap: NPxxY sits inside TM7 on this receptor,
+   * and a band drawn over another band hides it. Each motif takes the first
+   * lane whose previous band ended before this one starts, which is the usual
+   * interval-packing and needs two lanes here. */
+  const motifBands = (function () {
+    const ordered = MOTIF_META.slice().sort((a, b) => a.first - b.first);
+    const laneEnds = [];
+    const shapes = [];
+    const labels = [];
+    ordered.forEach(function (m) {
+      let lane = laneEnds.findIndex((end) => end < m.first);
+      if (lane < 0) { lane = laneEnds.length; }
+      laneEnds[lane] = m.last;
+      const x1 = -refWidth * (refStates.length + 1.5) - refWidth * 0.9 * lane;
+      const x0 = x1 - refWidth * 0.7;
+      shapes.push({
+        type: "rect", xref: "x", yref: "y",
+        x0: x0, x1: x1, y0: m.first - 0.5, y1: m.last + 0.5,
+        fillcolor: m.colour, line: {width: 0}, layer: "above",
+      });
+      /* A short motif has no room for a label turned on its side: NPxxY is
+       * five residues and the word is longer than the bar is tall. Those are
+       * written horizontally beside the stack, in the motif's own colour, so
+       * the band is still named rather than being a colour with no key. */
+      const tall = (m.last - m.first) >= 12;
+      labels.push(tall ? {
+        xref: "x", yref: "y", x: (x0 + x1) / 2, y: (m.first + m.last) / 2,
+        text: m.name, showarrow: false, textangle: -90,
+        font: {size: 10, color: "#ffffff"},
+      } : {
+        xref: "x", yref: "y", x: x0 - refWidth * 0.2,
+        y: (m.first + m.last) / 2,
+        text: m.name, showarrow: false, xanchor: "right",
+        font: {size: 10, color: m.colour},
+      });
+    });
+    return {shapes: shapes, labels: labels, lanes: laneEnds.length};
+  })();
+
   const zAll = z.map((row, r) => refColumns[r].concat([null], row));
   const xAll = refX.concat([spacerX], frameNs);
   // The trajectory cells keep their own hover. One `text` array feeds both,
@@ -716,6 +867,14 @@
     margin: {l: 64, r: 16, t: 8, b: 56},
     xaxis: {
       title: "time (ns)",
+      /* Set explicitly, because Plotly's autorange looks at traces and not at
+       * shapes: the motif bands sit left of every data column, so left to
+       * itself the axis would start at the first reference column and clip
+       * them entirely. */
+      range: [
+        -refWidth * (refStates.length + 2.2) - refWidth * 0.9 * motifBands.lanes,
+        span + (frameNs.length > 1 ? step : 1) / 2,
+      ],
       /* The reference columns are not frames, so they are labelled rather
        * than left reading as negative time, and a rule marks where the
        * trajectory starts. */
@@ -728,11 +887,12 @@
           Math.abs(t - Math.round(t)) < 1e-9 && Math.round(t) % 10 === 0)
           .map((t) => String(Math.round(t)))),
     },
-    shapes: refStates.length ? [{
+    shapes: (refStates.length ? [{
       type: "line", yref: "paper", y0: 0, y1: 1,
       x0: spacerX, x1: spacerX,
       line: {color: "#1a1a2e", width: 1.5},
-    }] : [],
+    }] : []).concat(motifBands.shapes),
+    annotations: motifBands.labels,
     yaxis: {title: "residue", autorange: "reversed"},
   }, {displayModeBar: false, responsive: true});
 })();

@@ -30,7 +30,9 @@ section deleted the whole table, which is a poor place to keep the results.
 | Section 6.2 viewer | scrubber and bilayer toggle built; cartoon colouring and reference overlay declared missing on the page and in D023 |
 | Section 6.2 Examples card | thumbnail, atom count, simulated time and a generated finding, all from the database |
 | Section 6.2 motif table | all six columns, after the nearest reference was added; the timelines are a different chart from the one specified, recorded in 4u |
-| Section 6.2 DSSP ribbon | heatmap, motif bands and the active/inactive reference consensus columns |
+| Section 6.2 DSSP ribbon | heatmap, motif bands in lanes, and the active/inactive reference consensus columns |
+| Section 6.1 motif palette | `--motif-1` to `--motif-6` defined in Okabe-Ito; every measured motif has one and no token points at a motif that is not measured |
+| Section 6.2 badge strip | one badge per motif, server-rendered at frame 0, following the scrubber; shape, colour and label |
 | Section 7 `systems` columns | `uniprot`, `n_atoms`, `forcefield` now written; all three had been NULL since the schema was created |
 | Test suite | 896 pass, 0 fail (`pixi run test`) |
 | axe-core, 8 pages | zero serious or critical |

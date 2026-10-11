@@ -33,9 +33,6 @@ refstates_bp = Blueprint("refstates", __name__, url_prefix="/refstates")
 # way: an undecimated per-frame heatmap made one page 24 MB.
 MAX_RIBBON_COLUMNS = 400
 
-STATE_SHAPES = {"active": "circle", "inactive": "square",
-                "intermediate": "diamond", "conflict": "triangle"}
-
 SYSTEM_TITLES = {
     "abl1": ("ABL1 kinase in water", "Tyrosine kinase, DFG and activation loop"),
     "b2ar": ("β2AR in a POPC bilayer", "Class A GPCR, TM6 and NPxxY"),
@@ -205,6 +202,11 @@ def run(run_id: str):
         # full is a wall of numbers, and the endpoints are what locate it.
         motif["span"] = (f"{min(residues)} to {max(residues)}"
                          if residues else "")
+        # The endpoints as numbers too, for the ribbon's motif bands. The
+        # string above is for a reader; a chart needs the ends to draw
+        # between, and parsing them back out of the sentence would be absurd.
+        motif["first"] = min(residues) if residues else None
+        motif["last"] = max(residues) if residues else None
     membrane = _rows(
         "SELECT * FROM membrane WHERE run_id = ? ORDER BY time_ns", (run_id,))
     # Section 5.8 asks for a panel a user can read the bilayer's health off,
@@ -287,7 +289,7 @@ def run(run_id: str):
         measurements=frame_measurements(run_id),
         sse_rows=sse_agreement(run_id),
         membrane=membrane, summary=summary, finding=finding(run_id),
-        shapes=STATE_SHAPES, active="refstates",
+        active="refstates",
         core=json.loads(system.get("notes") or "{}").get("core", {}))
 
 

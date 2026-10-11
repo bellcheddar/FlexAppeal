@@ -47,7 +47,20 @@ AMBER = "#fcb900"
 RED = "#d63638"
 BLUE = "#2b6cb0"
 
-MOTIF_COLOURS = [ORANGE, PURPLE, GREEN, BLUE, AMBER, RED]
+def motif_palette() -> dict[str, str]:
+    """Section 6.1's motif tokens, read out of the stylesheet that defines them.
+
+    Not a copy. A figure in the document and a line on the page have to be the
+    same colour for the same motif or the token system is pointless, and this
+    file assigning its own colours by index was a fourth place for one fact to
+    live. `brand.css` defines the variables; the `motifs` table says which one
+    each motif has; this joins them.
+    """
+    import re
+
+    css = (ROOT / "flexappeal" / "static" / "brand.css").read_text()
+    return {name: value for name, value in
+            re.findall(r"(--motif-\d+):\s*(#[0-9a-fA-F]{3,8})\s*;", css)}
 
 # Section 5.8's windows, imported rather than restated so a figure cannot show
 # a window the checks do not use.
@@ -108,6 +121,10 @@ def motif_figure(connection, run_id: str, out: Path) -> bool:
         series.setdefault(row["motif_id"], []).append(
             (row["time_ns"], row["s_score"]))
 
+    palette = motif_palette()
+    tokens = {row["motif_id"]: row["token"] for row in
+              rows(connection, "SELECT motif_id, token FROM motifs")}
+
     figure, axis = plt.subplots(figsize=(8.0, 4.4), dpi=130)
     # The bands first, so the lines sit on top of them. Above zero is
     # active-like and below is inactive-like; the sign is the whole point of
@@ -116,11 +133,11 @@ def motif_figure(connection, run_id: str, out: Path) -> bool:
     axis.axhspan(-1, 0, color=RED, alpha=0.05)
     axis.axhline(0, color=MUTED, linewidth=1.0)
 
-    for index, (motif, points) in enumerate(sorted(series.items())):
+    for motif, points in sorted(series.items()):
         points.sort()
+        colour = palette.get(tokens.get(motif) or "", MUTED)
         axis.plot([p[0] for p in points], [p[1] for p in points],
-                  color=MOTIF_COLOURS[index % len(MOTIF_COLOURS)],
-                  linewidth=1.6, label=motif.split(":", 1)[-1])
+                  color=colour, linewidth=1.6, label=motif.split(":", 1)[-1])
 
     axis.set_xlabel("time (ns)")
     axis.set_ylabel("state score  s")

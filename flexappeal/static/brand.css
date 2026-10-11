@@ -29,6 +29,23 @@
   --md-accent-amber:   #fcb900;
   --md-accent-red:     #d63638;
 
+  /* Section 6.1's motif tokens. `store.MOTIF_TOKENS` has assigned every motif
+     one of these since the schema was written, and every `motifs` row carries
+     it, but the variables themselves did not exist and nothing read them: a
+     shared palette that resolved to nothing. The comment on MOTIF_TOKENS says
+     they are there so "a motif cannot be one colour on the timeline and
+     another on the viewer", which only holds once they are real.
+
+     Okabe-Ito, which is the usual colour-blind-safe set, so the six motifs
+     stay distinguishable under the common forms of colour vision deficiency.
+     Section 6.1 asks for exactly that. */
+  --motif-1:           #0072b2;
+  --motif-2:           #d55e00;
+  --motif-3:           #009e73;
+  --motif-4:           #cc79a7;
+  --motif-5:           #e69f00;
+  --motif-6:           #56b4e9;
+
   --md-shadow-sm:      6px 6px 9px rgba(0,0,0,0.12);
   --md-shadow-md:      12px 12px 50px rgba(0,0,0,0.18);
   --md-radius:         8px;
@@ -282,6 +299,45 @@ a { color: var(--md-primary); }
   border-color: var(--md-primary); background: rgba(30,115,190,0.07); font-weight: 600;
 }
 .md-check input:focus-visible + span { outline: 2px solid var(--md-primary); outline-offset: 2px; }
+
+/* --------------------------------------------------------- state labels */
+
+/* Section 6.1: "every state is also distinguishable by shape or label, never
+   by colour alone". The label carried that on its own, which is why nothing
+   broke, but there was no `.md-state` rule anywhere in this stylesheet, and a
+   `data-shape` attribute was being written into the DOM and read by nobody.
+   The shape is implied by the state, so it is drawn from the state class and
+   the separate map that produced the attribute has gone: one fact, one place.
+   The requirement is now met twice over, and a strip of these can be read at
+   a glance rather than word by word. */
+.md-state {
+  display: inline-flex; align-items: center; gap: 6px;
+  font-size: 13px; white-space: nowrap;
+}
+.md-state::before {
+  content: ""; width: 9px; height: 9px; flex: 0 0 auto;
+  background: var(--md-text-muted);
+}
+.md-state-active::before { background: #2f6f4e; border-radius: 50%; }
+.md-state-inactive::before { background: #a33; border-radius: 1px; }
+.md-state-intermediate::before {
+  background: #b8860b; border-radius: 1px; transform: rotate(45deg);
+}
+.md-state-conflict::before {
+  background: transparent; width: 0; height: 0;
+  border-left: 5px solid transparent; border-right: 5px solid transparent;
+  border-bottom: 9px solid #9b51e0;
+}
+/* The strip above the viewer. Fixed-width cells so the badges do not jump
+   sideways as the labels change length while the slider is dragged, which is
+   what makes a row of them unreadable while it is moving. */
+.md-statestrip { display: flex; flex-wrap: wrap; gap: 10px; margin: 8px 0 0; }
+.md-statestrip .md-state {
+  min-width: 132px; padding: 4px 8px;
+  border: 1px solid var(--md-border); border-radius: 6px;
+}
+.md-statestrip .md-state b { font-weight: 600; }
+.md-statestrip .md-state em { font-style: normal; color: var(--md-text-muted); }
 
 /* ------------------------------------------------------- structure panel */
 

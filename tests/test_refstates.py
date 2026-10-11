@@ -1859,6 +1859,134 @@ def test_the_dssp_endpoint_serves_the_consensus_beside_the_frames(tmp_path: Path
         assert any(cell for cell in row), f"{state} consensus is entirely empty"
 
 
+def test_the_state_strip_starts_on_the_frame_the_slider_starts_on(tmp_path: Path):
+    """Section 6.2's badge strip, rendered server-side and then kept in step.
+
+    It is drawn at frame 0 because that is where the scrubber starts. It used
+    to be drawn with the run's final label, which disagrees with the viewer
+    beside it from the moment the page loads and in a way a reader has no way
+    to spot. That needed `start_label` in the summary, which was not there.
+    """
+    database = tmp_path / "t.db"
+    payload = _analysis_payload()
+    store.ingest_analysis(database, payload, system_id="b2ar",
+                          run_id="b2ar_apo", family="gpcr", environment="POPC")
+    summary = store.summarise(database, "b2ar_apo")
+    for key, row in summary["motifs"].items():
+        assert "start_label" in row, key
+        assert row["start_label"] is not None, key
+
+
+def test_every_state_the_strip_can_show_has_a_shape(tmp_path: Path):
+    """Section 6.1: never by colour alone.
+
+    The label always carried that, which is why nothing ever broke, but there
+    was no `.md-state` rule in the stylesheet at all: the `data-shape`
+    attribute the template wrote was read by nothing. The shape follows from
+    the state, so it is drawn from the state class and the separate map that
+    produced the attribute is gone.
+    """
+    root = Path(__file__).resolve().parents[1]
+    css = (root / "flexappeal" / "static" / "brand.css").read_text()
+    for state in ("active", "inactive", "intermediate", "conflict"):
+        assert f".md-state-{state}::before" in css, state
+    assert ".md-state::before" in css
+
+    # And the fact lives in one place now.
+    web_py = (root / "flexappeal" / "refstates" / "web.py").read_text()
+    assert "STATE_SHAPES" not in web_py, (
+        "the shapes map is back, and nothing reads the attribute it produces")
+    run_html = (root / "flexappeal" / "templates"
+                / "refstates_run.html").read_text()
+    assert "data-shape" not in run_html
+
+
+def test_every_motif_that_becomes_a_row_has_a_colour_token(tmp_path: Path):
+    """The token map was written against a motif list the build then changed.
+
+    Nothing read the tokens, so the mismatch never showed: `c.l` for the
+    kinase and `TM5` and `TM7` for the receptor had no colour at all, while
+    `r_spine`, `ionic_lock`, `PIF` and `toggle` had one and are not motif rows.
+    A motif with no token draws in whatever colour the chart library picks
+    next, which is the opposite of a shared palette.
+    """
+    for family, names in (
+            ("kinase", {"A-loop", "alphaC", "c.l", "g.l", "hinge", "xDFG"}),
+            ("gpcr", {"H8", "NPxxY", "TM5", "TM6", "TM7"})):
+        mapped = set(store.MOTIF_TOKENS[family])
+        assert names - mapped == set(), (
+            f"{family} motifs with no token: {sorted(names - mapped)}")
+        assert mapped - names == set(), (
+            f"{family} tokens for things that are not motifs: "
+            f"{sorted(mapped - names)}")
+        # And no two motifs share a colour, which would make the palette
+        # useless for exactly the job it has.
+        tokens = list(store.MOTIF_TOKENS[family].values())
+        assert len(set(tokens)) == len(tokens), family
+
+
+def test_the_motif_tokens_resolve_to_real_colours():
+    """A token is a CSS custom property name, so the property has to exist.
+
+    These were stored on every motif row from the start and the variables were
+    never defined: `var(--motif-1)` resolved to nothing. The charts read them
+    through `getComputedStyle`, which returns an empty string for a property
+    that is not there and silently falls back.
+    """
+    root = Path(__file__).resolve().parents[1]
+    css = (root / "flexappeal" / "static" / "brand.css").read_text()
+    used = {token for family in store.MOTIF_TOKENS.values()
+            for token in family.values()}
+    for token in sorted(used):
+        assert f"{token}:" in css, f"{token} is stored on a motif and undefined"
+
+
+def test_the_figures_use_the_same_palette_as_the_pages():
+    """A motif has to be one colour in the document and on the site.
+
+    `tools/make_figures.py` used to assign colours by index from a list of its
+    own, so a motif's colour in a FINDINGS figure had nothing to do with its
+    colour on the page. That is a fourth place for one fact to live, and it is
+    the fact the token system exists to keep in one place.
+    """
+    import importlib.util
+
+    root = Path(__file__).resolve().parents[1]
+    spec = importlib.util.spec_from_file_location(
+        "make_figures", root / "tools" / "make_figures.py")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+
+    palette = module.motif_palette()
+    used = {token for family in store.MOTIF_TOKENS.values()
+            for token in family.values()}
+    assert used <= set(palette), (
+        f"tokens with no colour in the stylesheet: {sorted(used - set(palette))}")
+    # Read from the stylesheet, not restated here.
+    css = (root / "flexappeal" / "static" / "brand.css").read_text()
+    for token, colour in palette.items():
+        assert f"{token}:           {colour};" in css or f"{token}:" in css
+
+
+def test_the_run_view_gives_each_motif_its_residue_endpoints(tmp_path: Path):
+    """The ribbon's motif bands need numbers, not the span sentence."""
+    from flexappeal.webapp import create_app
+
+    database = tmp_path / "t.db"
+    store.ingest_analysis(database, _analysis_payload(), system_id="abl1",
+                          run_id="abl1_apo", family="kinase",
+                          environment="water")
+    app = create_app()
+    app.config["REFSTATES_DB"] = str(database)
+    page = app.test_client().get("/refstates/run/abl1_apo").get_data(as_text=True)
+    assert 'id="motif-meta"' in page
+    found = json.loads(page.split('id="motif-meta">')[1].split("</script>")[0])
+    assert found, "the motif metadata is empty, so no band can be drawn"
+    for entry in found:
+        assert entry["first"] <= entry["last"]
+        assert entry["token"], f"{entry['name']} has no colour token"
+
+
 # ===========================================================================
 #  Resuming without duplicating frames
 # ===========================================================================

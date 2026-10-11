@@ -1936,6 +1936,120 @@ discarded as indecisive: a reference set that disagrees with itself about a
 residue is a result about that residue.
 
 
+## 4w. The state badge strip, and a shape nobody could see
+
+Section 6.2's explorer list ends with "State badge strip: one badge per motif
+for the current frame". There was no strip. The motif table gives every motif's
+label at the end of the run, which is a different thing: the strip is supposed
+to answer "what is this frame" while the scrubber moves.
+
+It is built now, and it is rendered server-side at frame 0 rather than drawn by
+JavaScript on arrival, so it reads correctly with no JavaScript and does not
+pop in. That needed `start_label` in the summary, which was not there: the
+summary carried `start_s` and `final_label` but no label for the first frame.
+Rendering the final label instead would have put the strip in disagreement with
+the viewer next to it from the moment the page loaded, and in a way a reader
+has no way to notice.
+
+The slider indexes the viewer's strided frames and the labels are per analysis
+frame, so one has to be mapped onto the other. That mapping already existed in
+the state map's click handler, in the other direction.
+
+### The shape was computed, written down, and never drawn
+
+`web.py` had `STATE_SHAPES = {"active": "circle", "inactive": "square",
+"intermediate": "diamond", "conflict": "triangle"}`, passed into every run page
+render, and used once to write `data-shape="diamond"` onto a span. Nothing read
+it. There was no `.md-state` rule anywhere in `brand.css`, which is the only
+stylesheet: the state labels were unstyled text and the attribute was decoration
+on decoration.
+
+Section 6.1 asks that "every state is also distinguishable by shape or label,
+never by colour alone". That was satisfied, by the label, which is why nothing
+ever failed and why this survived a page QC pass and an axe-core run. The
+requirement was being met by the half of it that happened to work.
+
+The marker is now drawn, and from the state class rather than from the
+attribute. The shape follows from the state, so a separate map is a second
+place for one fact to live, which is the thing this build keeps removing: the
+map and the attribute are gone, and a test asserts they stay gone. The badges
+now carry a shape, a colour and the word, which is more than the spec asks for
+and is what makes a row of five of them readable at a glance while the slider
+is moving.
+
+
+## 4x. A shared colour palette that resolved to nothing
+
+The DSSP ribbon's last clause is "with motif bands marked". There were none:
+the endpoint sent a `motifs` object, the chart fetched it, and nothing drew it,
+so the ribbon's y axis ran from residue 23 to 345 with no way to tell which
+rows are TM6.
+
+Drawing the bands needed colours, which is how this turned into something
+larger. Section 7's `motifs` table has a `token` column, `store.MOTIF_TOKENS`
+has been filling it since the schema was written, and the comment above it
+explains the point:
+
+> Section 6.1's motif colour tokens. Shared by every view, so they live with
+> the data rather than in a stylesheet: the explorer reads a motif's token from
+> the same row it reads the motif's residues from, and a motif cannot then be
+> one colour on the timeline and another on the viewer.
+
+None of that was true. `--motif-1` to `--motif-6` were stored on every motif
+row and **were not defined anywhere in `brand.css`**, which is the only
+stylesheet this app has. Nothing read them either. A `var(--motif-1)` would
+have resolved to nothing, and `getComputedStyle` returns an empty string for a
+property that does not exist, which is the quiet kind of wrong.
+
+**And the map did not match the motifs.** It had been written against a planned
+list that the build then changed, and because nothing read it the mismatch
+never surfaced:
+
+| family | measured, with no token | token, but not a motif |
+|---|---|---|
+| kinase | `c.l` | `r_spine` |
+| receptor | `TM5`, `TM7` | `ionic_lock`, `PIF`, `toggle` |
+
+Three of the eleven motifs this build actually scores had no colour. The four
+names that had one are not unimplemented, which is worth being accurate about:
+`r_spine` is measured as a pocket state, the ionic lock is section 1.2's
+TM3-TM6 distance and is measured on every reference, and the PIF connector has
+its own number in section 4e at 3.29 Å. What none of them is, is a motif row.
+They are pocket states, micro-switch metrics and corroborating rules, so they
+have no entry in the `motifs` table, no reference ensemble of their own, and no
+need of a motif colour. The palette had been assigned to the wrong kind of
+thing.
+
+All three are fixed together, because they are one thing. The variables are
+defined, in Okabe-Ito, which is the usual colour-blind-safe set and is what
+section 6.1 asks for. The map is now exactly the motifs that become rows, with
+a test that asserts it both ways: no measured motif without a colour, and no
+colour for something that is not measured. And both charts read the token
+rather than taking what the plotting library offers next, so TM6 is the same
+blue on the ribbon's band and on the state timeline, which is the thing the
+comment promised and nothing delivered.
+
+The bands themselves are laid out in lanes, because the ranges overlap: NPxxY
+is residues 322 to 326 and sits inside TM7's 304 to 328, so a band drawn over
+another band hides it. Each motif takes the first lane that is free at its
+start residue. A motif shorter than twelve residues gets its name written
+beside the bar rather than turned on its side inside it, because "NPxxY" is
+longer than a five-residue bar is tall.
+
+One thing worth stating plainly: Plotly's autorange looks at traces and not at
+shapes, so the first version drew all five bands outside the axis and clipped
+every one of them. The range is set explicitly now. A chart that silently
+declines to draw what it was given is the same failure mode as the rest of this
+section.
+
+`tools/make_figures.py` had the same problem in a fourth place: it coloured
+each motif by its index in a list of its own, so a motif's colour in a FINDINGS
+figure had nothing to do with its colour on the page. It reads the tokens now,
+resolving them against `brand.css` itself rather than against a copy of the
+values, so the stylesheet is the one definition and a figure cannot drift from
+the site it illustrates.
+
+
 ---
 
 ## 6. The positive controls

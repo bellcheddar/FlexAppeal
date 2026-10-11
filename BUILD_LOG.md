@@ -499,3 +499,22 @@ Timestamped, one line per meaningful event, for the reference-state build
   goes to be readable: at one frame step the columns were 0.1 ns slivers, and
   the tick labels printed over each other. Width is now a fraction of the run,
   which is constant in pixels at any run length.
+- `02:4x` Built section 6.2's state badge strip, server-rendered at frame 0 and
+  then following the scrubber. Needed `start_label` in the summary, which was
+  not there; rendering the final label instead would have disagreed with the
+  viewer from first paint. Then found `STATE_SHAPES` was computed, passed to
+  every run render and written into the DOM as `data-shape`, and read by
+  nothing: there was no `.md-state` rule in the only stylesheet. Section 6.1's
+  "shape or label" was being met by the label alone. The marker is drawn now,
+  from the state class, and the redundant map is gone.
+- `02:5x` The ribbon's "motif bands marked" clause was unbuilt, and building it
+  turned up the colour system behind it. `--motif-1` to `--motif-6` are stored
+  on every motif row and were defined nowhere in the only stylesheet, and the
+  map assigning them did not match the motifs the build measures: `c.l`, `TM5`
+  and `TM7` had no colour, while `r_spine`, `ionic_lock`, `PIF` and `toggle`
+  had one and are not motif rows: those four are measured, as pocket states,
+  micro-switch metrics and corroborating rules, which is a different kind of
+  thing from a motif and needs no motif colour. Palette defined in Okabe-Ito, map aligned
+  both ways with a test, and the ribbon bands and the state timeline now read
+  the token so a motif is one colour in both. Plotly's autorange ignores
+  shapes, so the first version clipped every band it drew.
