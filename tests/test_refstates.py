@@ -4725,3 +4725,76 @@ def test_a_verdict_cell_shows_the_digit_that_decided_it():
         tilt_deg=13.6, core_waters=54.43)
     assert chunk.apl_verdict != "expected", chunk.apl_verdict
     assert round(68.05, 1) == 68.0, "which is what made it read as inside"
+
+
+def test_the_motif_figure_draws_each_half_mean():
+    """The figure without them misled its own author.
+
+    beta2AR's TM5 oscillates about zero with a scatter of 0.12, and reading the
+    trace I called it a drift towards inactive, twice, when its halves are
+    -0.034 and +0.016. A trace that crosses a line the eye is drawn to looks
+    like it is moving across it. The halves are the check that says otherwise,
+    they were already in the summary, and the figure is where anyone who is
+    going to be misled is looking.
+    """
+    source = (Path(__file__).resolve().parents[1]
+              / "tools" / "make_figures.py").read_text()
+    body = source[source.index("for motif, points in sorted(series.items())"):]
+    body = body[:body.index("axis.set_xlabel")]
+    assert "midpoint = len(points) // 2" in body, (
+        "the halves should split where `summarise` splits them")
+    assert "mean = sum(p[1] for p in half) / len(half)" in body
+    assert "thick segments" in source, "the caption should say what they are"
+
+
+def test_the_motif_figure_counts_frames_and_not_rows():
+    """`motif_frames` holds one row per metric, and a motif has two.
+
+    Without DISTINCT the figure plots every frame twice and averages over the
+    duplicates. The means survive that, since both rows of a frame carry the
+    same score, which is exactly what makes it the kind of fault that waits:
+    it would start biasing the halves the day the two metrics carried different
+    scores. Section 4m is the same error in the reference ensembles.
+    """
+    source = (Path(__file__).resolve().parents[1]
+              / "tools" / "make_figures.py").read_text()
+    assert "SELECT DISTINCT motif_id, time_ns, s_score" in source
+
+
+def test_the_half_means_agree_with_the_stored_summary(tmp_path: Path):
+    """Two paths to the same two numbers, so the figure cannot drift from the table.
+
+    The figure computes its halves from the frames it plots; `summarise`
+    computes them in SQL. A reader who checks one against the other should find
+    them equal, and on the live run they agree to three decimals.
+    """
+    payload = _payload_with_frames(20)
+    database = tmp_path / "t.db"
+    store.ingest_analysis(database, payload, system_id="abl1",
+                          run_id="abl1_apo", family="kinase",
+                          environment="water")
+    summary = store.summarise(database, "abl1_apo")
+
+    with store.connect(database, read_only=True) as connection:
+        rows = list(connection.execute(
+            "SELECT DISTINCT motif_id, time_ns, s_score FROM motif_frames "
+            "WHERE run_id = ? AND s_score IS NOT NULL ORDER BY time_ns",
+            ("abl1_apo",)))
+    series: dict[str, list[tuple[float, float]]] = {}
+    for row in rows:
+        series.setdefault(row["motif_id"], []).append(
+            (row["time_ns"], row["s_score"]))
+
+    checked = 0
+    for motif, points in series.items():
+        points.sort()
+        midpoint = len(points) // 2
+        if midpoint < 2:
+            continue
+        first = sum(p[1] for p in points[:midpoint]) / midpoint
+        second = sum(p[1] for p in points[midpoint:]) / len(points[midpoint:])
+        stored = summary["motifs"][motif]
+        assert abs(first - stored["first_half_mean_s"]) < 1e-9, motif
+        assert abs(second - stored["second_half_mean_s"]) < 1e-9, motif
+        checked += 1
+    assert checked >= 2, "both motifs should have been compared"

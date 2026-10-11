@@ -957,3 +957,20 @@ and +0.016, so it is flat: it crosses zero because it sits on zero. The halves
 were already in the summary and I looked at the picture instead.
 
 FINDINGS 5.0c. 982 passed, 1 skipped.
+
+### 11 October, 10:28 to 10:50
+
+Drew each motif's half-means on the per-motif figure, as a thick flat segment
+over each half in the motif's colour. The figure without them misled its own
+author last tick: TM5's trace wanders through +/-0.3 about zero and reads as a
+drift, and its two segments sit level. Two segments rather than a fitted slope,
+because a slope invites being read as a rate.
+
+Verified against the stored summary rather than by eye: the figure's halves and
+`summarise`'s agree to three decimals on the live run, and a test asserts the
+two paths agree on a fixture. The figure's query already used SELECT DISTINCT,
+so it counts frames and not rows; that now has a test, because without it the
+means would start to drift the day the two metrics of a motif carried different
+scores.
+
+985 passed, 1 skipped.

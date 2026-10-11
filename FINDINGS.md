@@ -3231,6 +3231,18 @@ looks like it is moving across it, and the halves are the cheap check that says
 otherwise. They were already in the summary, from section 5.0b, and I looked at
 the picture instead.
 
+**So the halves are now drawn on the figure**, as a thick flat segment over
+each half in the motif's own colour. The check existed and was in the table;
+what it was not was in the picture, which is where anyone who is going to be
+misled is looking. Two segments rather than a fitted slope, because a slope
+invites being read as a rate and two means are a comparison. On this run TM5's
+pair sit level while its trace wanders through ±0.3, and TM6's step down by
+0.08, which is the difference the table reports and the eye could not find.
+
+The figure computes them from the frames it plots and `summarise` computes them
+in SQL, so a reader checking one against the other is checking two paths: on
+the live run they agree to three decimals.
+
 **What is moving, as far as anything is.** TM6 falls from +0.534 to +0.377, and
 between halves from +0.459 to +0.379. H8 falls from +0.474 to about +0.21 in
 the first few nanoseconds and then holds, its halves +0.216 and +0.203. Both

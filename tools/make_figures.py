@@ -174,6 +174,25 @@ def motif_figure(connection, run_id: str, out: Path) -> bool:
         colour = palette.get(tokens.get(motif) or "", MUTED)
         axis.plot([p[0] for p in points], [p[1] for p in points],
                   color=colour, linewidth=1.6, label=motif.split(":", 1)[-1])
+        # Each half's mean, drawn over the half it belongs to.
+        #
+        # This is here because the figure without it misled its own author.
+        # beta2AR's TM5 oscillates about zero with a scatter of 0.12, and
+        # reading the trace I called it a drift towards inactive, twice, when
+        # its halves are -0.034 and +0.016. A trace that crosses a line the eye
+        # is drawn to looks like it is moving across it. The halves are the
+        # cheap check that says otherwise, they were already in the summary,
+        # and the figure is where anyone who is going to be misled is looking.
+        #
+        # Drawn as two flat segments rather than a fitted slope, because a
+        # slope invites being read as a rate and two means are a comparison.
+        midpoint = len(points) // 2
+        if midpoint >= 2:
+            for half in (points[:midpoint], points[midpoint:]):
+                mean = sum(p[1] for p in half) / len(half)
+                axis.plot([half[0][0], half[-1][0]], [mean, mean],
+                          color=colour, linewidth=2.6, alpha=0.55,
+                          solid_capstyle="butt", zorder=3)
 
     axis.set_xlabel("time (ns)")
     axis.set_ylabel("state score  s")
@@ -188,7 +207,8 @@ def motif_figure(connection, run_id: str, out: Path) -> bool:
     axis.text(1.01, -0.02,
               f"above {DECISIVE_S:+.2f}: active-like\n"
               f"below {-DECISIVE_S:+.2f}: inactive-like\n"
-              f"between: intermediate",
+              f"between: intermediate\n\n"
+              f"thick segments: each\nhalf's mean",
               transform=axis.transAxes, fontsize=8, color=MUTED,
               va="top", ha="left")
     figure.tight_layout()
