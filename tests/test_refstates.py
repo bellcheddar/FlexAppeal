@@ -5688,3 +5688,89 @@ def test_the_ligand_panel_says_whether_the_pose_was_symmetry_corrected():
     assert "overstate the drift" in panel
     assert "superposing the frame on the same" in panel, (
         "the page should say what the pose is measured against")
+
+
+def test_the_analysis_trajectory_still_has_no_ions_in_it():
+    """The ions are loaded beside it, not put into it.
+
+    `traj.load` drops the solvent, the ions and the bilayer, and every
+    selection downstream runs against the topology it returns. Section 5.5's
+    sodium question is answered by loading those positions separately, so this
+    asserts the drop is still a drop: the alternative fix, keeping 114
+    counter-ions in the analysis topology, would put non-protein atoms in front
+    of every other measurement.
+    """
+    from flexappeal.refstates.traj import NOT_THE_SYSTEM, SODIUM_NAMES
+
+    for name in SODIUM_NAMES:
+        if name in ("NA",):
+            assert name in NOT_THE_SYSTEM, (
+                "sodium must still be dropped from the analysis trajectory")
+
+
+def test_the_ion_loader_finds_sodium_and_nothing_else(tmp_path: Path):
+    """Loaded beside the analysis trajectory, not kept in it.
+
+    Keeping 114 counter-ions in the topology so one measurement can see them
+    would put non-protein atoms in front of every other selection. The bilayer
+    is handled the same way, as its own structure beside the protein.
+    """
+    import mdtraj as md
+    import numpy as np
+
+    from flexappeal.refstates import traj as traj_mod
+
+    topology = md.Topology()
+    chain = topology.add_chain()
+    residue = topology.add_residue("ALA", chain, resSeq=1)
+    topology.add_atom("CA", md.element.carbon, residue)
+    for index, name in enumerate(("NA", "CL", "NA"), start=2):
+        ion = topology.add_residue(name, chain, resSeq=index)
+        topology.add_atom(name, md.element.sodium if name == "NA"
+                          else md.element.chlorine, ion)
+    xyz = np.zeros((3, 4, 3), dtype=np.float32)
+    xyz[:, 1, 0] = 1.0
+    xyz[:, 3, 0] = 2.0
+    traj = md.Trajectory(xyz, topology)
+    pdb = tmp_path / "s.pdb"
+    dcd = tmp_path / "t.dcd"
+    traj[0].save_pdb(str(pdb))
+    traj.save_dcd(str(dcd))
+
+    found = traj_mod.ion_positions(pdb, dcd)
+    assert found is not None
+    assert found.shape == (3, 2, 3), "two sodiums, three frames, no chloride"
+    assert np.allclose(found[0, 0], [10.0, 0.0, 0.0]), "angstrom, not nanometre"
+
+
+def test_a_system_with_no_sodium_loads_nothing(tmp_path: Path):
+    """And the measurement then omits the ion, exactly as it did before."""
+    import mdtraj as md
+    import numpy as np
+
+    from flexappeal.refstates import traj as traj_mod
+
+    topology = md.Topology()
+    chain = topology.add_chain()
+    residue = topology.add_residue("ALA", chain, resSeq=1)
+    topology.add_atom("CA", md.element.carbon, residue)
+    traj = md.Trajectory(np.zeros((2, 1, 3), dtype=np.float32), topology)
+    pdb = tmp_path / "s.pdb"
+    dcd = tmp_path / "t.dcd"
+    traj[0].save_pdb(str(pdb))
+    traj.save_dcd(str(dcd))
+    assert traj_mod.ion_positions(pdb, dcd) is None
+
+
+def test_the_page_offers_the_sodium_rows():
+    """Including the nearest approach, which is the honest form of a negative.
+
+    No sodium reached beta2AR's pocket in 45 ns, nearest approach 25.5 A, which
+    is the expected answer: the ion has to diffuse in from bulk. Reporting the
+    distance says that; omitting the row would not.
+    """
+    from flexappeal.refstates import web
+
+    labels = [row[0] for row in web.MEASUREMENT_ROWS]
+    assert "Nearest sodium to D2.50" in labels
+    assert "D2.50 to S3.39" in labels and "D2.50 to N7.49" in labels

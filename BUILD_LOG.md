@@ -1280,3 +1280,23 @@ The page panel was nested inside `{% if membrane %}`, so it would never have
 drawn for abl1_imatinib, a water run with a ligand. Moved out, with a test.
 
 1020 passed, 1 skipped. FINDINGS 4ay, 8 tests added.
+
+### 11 October, 15:50 to 16:10
+
+Item 2 of 3: section 5.5's sodium pocket now has ions to look at.
+`gpcr.sodium_pocket` could always answer the question and `traj.load` drops the
+ions, so it reported the two distances and omitted the ion for the whole build,
+which is correct behaviour on no data and indistinguishable from there being no
+sodium.
+
+`traj.ion_positions` makes a second light pass for sodium only, loaded beside
+the analysis trajectory rather than kept in it: 114 counter-ions in the
+analysis topology would sit in front of every other selection. A test asserts
+sodium is still dropped from the analysis trajectory.
+
+The answer across beta2AR's 457 frames: nearest sodium to D2.50 is 25.5 A at
+closest, median 36.0, and 0 frames have one within 3.5 A. Expected, the ion
+having to diffuse in from bulk over far longer than 45 ns, and worth stating as
+a distance rather than as a missing field. All three readings are on the page.
+
+1024 passed, 1 skipped. FINDINGS 4az, 4 tests added.

@@ -3468,6 +3468,46 @@ water run with a ligand, which is one of the two rows the panel exists for. It
 was caught by rendering the page rather than by reading the diff, and there is
 now a test that the ligand block comes before the membrane block.
 
+## 4az. The sodium question nothing was ever asked
+
+Section 5.5 asks the receptor to "record whether a Na⁺ ion sits within 3.5 Å of
+D2.50". `gpcr.sodium_pocket` has been able to answer that since it was written.
+It was never given anything to look at.
+
+`traj.load` drops the solvent, the ions and the bilayer, correctly: a
+190,000-atom membrane system is mostly water and no measurement reads it. So
+the function received `ions=None`, reported the two pocket distances, and
+omitted the ion, which is exactly what its docstring says it does and exactly
+the right behaviour on no data. The result is a measurement that was
+implemented, tested, correct, and silent for the whole build, and the thing
+that made it invisible is that the omission is also what you would see if there
+genuinely were no sodium.
+
+**Loaded beside the trajectory rather than kept in it.** `traj.ion_positions`
+makes a second, light pass for the sodium atoms only. Putting 114 counter-ions
+into the analysis topology so that one measurement could see them would have
+put non-protein atoms in front of every other selection, which is the same
+reason the bilayer is written as its own structure beside the protein rather
+than merged into the viewer bundle. A test asserts sodium is still in
+`NOT_THE_SYSTEM`, so the drop stays a drop.
+
+### What it says, now that it is asked
+
+Across β2AR's 457 analysed frames, every one now carries the reading, and the
+answer is a clean negative:
+
+    nearest sodium to D2.50:  min 25.5 Å, median 36.0 Å, max 51.1 Å
+    frames with a sodium within 3.5 Å:  0 of 457
+
+Which is the expected result and worth having in that form. The ion has to
+diffuse in from bulk, and 45 ns is nowhere near long enough; the docstring
+anticipated exactly this when it said "in a simulation it has to diffuse in".
+The useful part is the distance. "No sodium came within 25 Å of the pocket in
+45 ns" is a statement; an omitted field is not.
+
+The page carries all three readings now, the two pocket distances and the
+nearest approach, so the negative is visible rather than inferred from a gap.
+
 ## 5. Production runs
 
 Tier 2 started at 17:04 on 10 October, in section 5.3's priority order: β2AR

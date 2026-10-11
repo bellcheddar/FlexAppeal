@@ -340,6 +340,42 @@ def kept_atoms(topology) -> list[int]:
     return keep
 
 
+# The ion `load` drops but section 5.5 still wants. Sodium only: the question
+# is whether one sits in the D2.50 pocket, and no other counter-ion in these
+# systems has a published meaning for the receptor's state.
+SODIUM_NAMES = ("NA", "SOD", "NA+")
+
+
+def ion_positions(topology: Path, trajectory: Path, *, stride: int = 1,
+                  names: tuple[str, ...] = SODIUM_NAMES):
+    """Sodium coordinates per frame, in angstrom, or None if there are none.
+
+    Loaded separately rather than kept in the analysis trajectory, and that is
+    deliberate. `load` drops the solvent, the ions and the bilayer, and every
+    selection downstream runs against the topology it returns; adding 114
+    sodiums to it so that one measurement can look at them would put
+    non-protein atoms in front of every other measurement. The bilayer is
+    handled the same way, as its own structure beside the protein.
+
+    Section 5.5 asks to "record whether a Na+ ion sits within 3.5 A of D2.50".
+    `gpcr.sodium_pocket` has always been able to answer it and has never been
+    given anything to look at, so it reported the two pocket distances and
+    omitted the ion, which is correct and silent. This is what it was waiting
+    for.
+    """
+    import mdtraj as md
+
+    first = md.load(str(topology))
+    wanted = {name.upper() for name in names}
+    atoms = [atom.index for atom in first.topology.atoms
+             if atom.residue.name.upper() in wanted]
+    if not atoms:
+        return None
+    ions = md.load(str(trajectory), top=str(topology), stride=stride,
+                   atom_indices=atoms)
+    return ions.xyz * 10.0
+
+
 def load(topology: Path, trajectory: Path, *, stride: int = 1):
     """One trajectory, with the solvent, ions and bilayer dropped.
 

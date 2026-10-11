@@ -600,6 +600,16 @@ MEASUREMENT_ROWS = [
     ("PIF connector RMSD", ("connector", "rmsd_a"), "\u00c5", None),
     ("Helix 8 to the membrane plane", ("helix8", "angle_to_membrane_plane_deg"),
      "\u00b0", None),
+    # Section 5.5's sodium. The two pocket distances were always here; the ion
+    # itself could not be reported until the analysis was given ion positions
+    # to look at, and a row that is absent for a system with no sodium is
+    # dropped by `frame_measurements` rather than shown empty.
+    ("D2.50 to S3.39", ("micro_switches", "sodium_pocket", "d_s3x39_a"),
+     "\u00c5", None),
+    ("D2.50 to N7.49", ("micro_switches", "sodium_pocket", "d_n7x49_a"),
+     "\u00c5", None),
+    ("Nearest sodium to D2.50",
+     ("micro_switches", "sodium_pocket", "nearest_sodium_a"), "\u00c5", None),
 ]
 
 

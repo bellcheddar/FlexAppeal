@@ -1072,6 +1072,13 @@ def main() -> int:
 
     log(f"loading {trajectory.name} (stride {args.stride})")
     loaded = traj.load(solvated, trajectory, stride=args.stride)
+    # Section 5.5's sodium, loaded beside the analysis trajectory rather than
+    # kept in it, so the topology every other measurement runs against does not
+    # gain 114 counter-ions. None for a system with none, and the measurement
+    # then omits the ion as it always has.
+    sodium = traj.ion_positions(solvated, trajectory, stride=args.stride)
+    if sodium is not None:
+        log(f"{sodium.shape[1]} sodium ions loaded for the D2.50 pocket")
     mapping = traj.deposited_numbering(args.start, loaded.topology)
     changed = traj.renumber(loaded.topology, mapping)
     log(f"{loaded.n_frames} frames, {changed} residues restored to deposited "
@@ -1146,11 +1153,20 @@ def main() -> int:
             Fitted onto the start model on the core, for the reason in the
             kinase branch above.
             """
+            import gemmi as _gemmi
+
             from flexappeal.refstates import kinase as _K
 
             fit = _K.core_fit(chain, reference_chain, core.residues)
+            # This frame's sodiums, if the system has any. `sodium_pocket`
+            # reports the ion only when given positions to look at and omits it
+            # otherwise, so an apo-of-ions system is unchanged.
+            ions = None
+            if sodium is not None and index < len(sodium):
+                ions = [_gemmi.Position(float(x), float(y), float(z))
+                        for x, y, z in sodium[index]]
             return {
-                "micro_switches": _G.micro_switches(chain, own),
+                "micro_switches": _G.micro_switches(chain, own, ions),
                 "tm6_rotation": _G.tm6_rotation(chain, reference_chain, own,
                                                 fit),
                 "connector": _G.connector_rmsd(chain, reference_chain, own,
