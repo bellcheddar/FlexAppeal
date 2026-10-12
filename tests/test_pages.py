@@ -139,7 +139,8 @@ def _write_bundle(directory, stem: str, n_residues: int, n_frames: int,
     xyz = np.stack([base + 0.01 * frame for frame in range(n_frames)])
     traj = md.Trajectory(xyz.astype(np.float32), topology)
     traj[0].save_pdb(str(directory / f"{stem}.pdb"))
-    traj.save_xtc(str(directory / f"{stem}.xtc"))
+    if n_frames > 1:
+        traj.save_xtc(str(directory / f"{stem}.xtc"))
 
 
 @pytest.fixture(scope="module")
@@ -245,7 +246,14 @@ def site(tmp_path_factory):
                  "frames": ["HHHEE"] * 12, "motifs": {}},
         "viewer": {"topology": "abl1_apo.pdb", "trajectory": "abl1_apo.xtc",
                    "n_frames": 6, "stride": 10, "frame_ns": 1.0,
-                   "bytes": 1024},
+                   "bytes": 1024,
+                   "overlay": {
+                       "active": {"pdb": "abl1_apo.ref_active.pdb",
+                                  "code": "2HZ4", "mean_motif_rmsd_a": 4.06,
+                                  "motifs_checked": 1, "bytes": 1024},
+                       "inactive": {"pdb": "abl1_apo.ref_inactive.pdb",
+                                    "code": "2HZ0", "mean_motif_rmsd_a": 6.05,
+                                    "motifs_checked": 1, "bytes": 1024}}},
         "frames": [
             {"time_ns": t / 2.0, "measurements": {"dfg_plane": {
                 "status": "ok", "d_alphac_a": 6.5 + t * 0.05,
@@ -257,6 +265,14 @@ def site(tmp_path_factory):
     # Spanning both of this fixture's motifs, 316 to 318 and 380 to 383.
     _write_bundle(analysis, "abl1_apo", n_residues=80, n_frames=6,
                   first_residue=310)
+    # Section 6.2's reference overlay, which no fixture had: both bound and
+    # apo runs carry one in production, but the page QC never did, so the two
+    # ghost toggles and the script that wires them had never been loaded in a
+    # browser. One frame each, because a ghost is a single superposed
+    # structure rather than a trajectory.
+    for state in ("active", "inactive"):
+        _write_bundle(analysis, f"abl1_apo.ref_{state}", n_residues=80,
+                      n_frames=1, first_residue=310)
 
     # The receptor's own bundle. `viewer.lipids` is what draws the bilayer
     # toggle, and the page only offers it when both lipid files are present,

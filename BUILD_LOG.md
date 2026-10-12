@@ -1854,3 +1854,40 @@ panel for ever. The rehearsal produced 3.97 and 3.98 because it ran on a real
 pocket.
 
 1043 passed, 2 skipped.
+
+### 12 October, 01:10. Enumerating the gates rather than noticing them
+
+Two gated panels had never been drawn in a browser, found one at a time. The
+third time, asked it of the whole template: every `{% if %}` that gates a
+section of the run page, and which ones the fixture triggers. Nine gates, six
+drawn, three not, two of those already fixed.
+
+The third is the reference overlay, which every production run carries and no
+fixture had, so the ghost toggles and the script wiring them had never been
+loaded in a browser or seen by axe. That is the feature built at the user's
+request under D030.
+
+Asking properly also found a fault rather than only a gap. The viewer is
+withheld unless its files are on disk and the bilayer toggle unless its lipid
+files are, with a comment saying the point is that a toggle cannot produce a
+failed request. The overlay, built after that comment, read the same payload
+without the guard. A run whose `ref_active.pdb` had not been copied would have
+drawn the toggle and 404'd on it, and a ghost that fails to load is
+indistinguishable on the page from the overlay being off.
+
+Now withheld per state, dropped entirely when neither ghost is there, with
+three tests checked by deleting the guard.
+
+The pattern is worth more than the three fixes. Each panel is conditional on
+data only some rows produce, and those rows were last in the queue, so the
+fixture was written when no row had that data and nothing re-asked when the
+shape of a run changed. Enumerating the gates takes a minute and answers it
+for all nine at once.
+
+One false alarm worth recording: the first overlay fixture omitted
+`mean_motif_rmsd_a` and the template raised. Checked before calling it a
+latent bug, and it is not: `analyse_run` builds that dict in one literal, so
+an overlay entry that exists always carries its score. The fixture was wrong
+about the payload.
+
+1046 passed, 2 skipped.

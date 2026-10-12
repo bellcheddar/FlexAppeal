@@ -309,12 +309,27 @@ def run(run_id: str):
     if not all((directory / f"{run_id}.{kind}").is_file()
                for kind in ("pdb", "xtc")):
         viewer = {}
-    # Same rule for the bilayer: offered only when both of its files are
-    # actually there, so the toggle cannot produce a failed request. A water
-    # run has none, and the template simply does not draw the control.
-    elif not all((directory / f"{run_id}.lipids.{kind}").is_file()
-                 for kind in ("pdb", "xtc")):
-        viewer.pop("lipids", None)
+    else:
+        # Same rule for the bilayer: offered only when both of its files are
+        # actually there, so the toggle cannot produce a failed request. A
+        # water run has none, and the template simply does not draw the
+        # control.
+        if not all((directory / f"{run_id}.lipids.{kind}").is_file()
+                   for kind in ("pdb", "xtc")):
+            viewer.pop("lipids", None)
+        # And the same rule again for each reference ghost, which did not have
+        # it. The overlay was built after the bilayer toggle and inherited the
+        # analysis payload without the guard, so a run whose `ref_active.pdb`
+        # had not been copied would still have drawn the toggle and 404'd when
+        # somebody ticked it. Withheld per state rather than together: losing
+        # one ghost is not a reason to hide the other.
+        overlay = viewer.get("overlay") or {}
+        for state in list(overlay):
+            name = (overlay.get(state) or {}).get("pdb")
+            if not name or not (directory / name).is_file():
+                overlay.pop(state)
+        if not overlay:
+            viewer.pop("overlay", None)
     return render_template(
         "refstates_run.html", run=detail, system=system, motifs=motifs,
         viewer=viewer, has_map=has_map,

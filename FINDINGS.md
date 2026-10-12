@@ -3953,6 +3953,49 @@ produce one: `0.84` and `2.54` would have passed this panel for ever. 4be's
 rehearsal produced 3.97 and 3.98 because it ran on a real pocket, and those two
 numbers are what made this visible.
 
+## 4bg. Enumerating the gated panels instead of finding them one at a time
+
+4bb found the membrane panel had never been drawn in a browser, 4bf found the
+ligand panel had not either. Both were found by noticing. The third time, the
+question was asked of the whole template: list every `{% if %}` that gates a
+section of the run page, and check which ones the fixture actually triggers.
+
+Nine gates. Six were drawn. Three were not, and two of those were the ones
+already fixed. The third is **the reference overlay**, `{% if viewer.overlay %}`,
+which every production run carries and no fixture had, so the two ghost toggles
+and the script that wires them had never been loaded in a browser or measured
+by axe. That is the feature built two days ago at the user's request, under
+D030, with the 0.005 Å self-check that 4aw is about.
+
+**And asking the question properly found a fault rather than only a gap.** The
+viewer is withheld unless its topology and trajectory are both on disk, and the
+bilayer toggle is withheld unless both lipid files are, with a comment saying
+why in as many words:
+
+> Same rule for the bilayer: offered only when both of its files are actually
+> there, so the toggle cannot produce a failed request.
+
+The overlay has no such check. It was built after that comment was written,
+read the same analysis payload, and inherited the metadata without the guard.
+A run whose `ref_active.pdb` had not been copied, which is one `rsync --exclude`
+or one interrupted deploy, would still have drawn the toggle, and ticking it
+would have asked for a file that is not there. Nothing on the page tells a
+reader that a ghost failed to load; it simply does not appear, which is
+indistinguishable from the overlay being off.
+
+Now withheld per state, because losing one ghost is not a reason to hide the
+other, and dropped entirely when neither is there. Three tests: both drawn when
+both files exist, one withheld when its file does not, no control at all when
+neither does. Checked by deleting the guard, which fails two of the three.
+
+**The pattern is worth more than the three fixes.** Each of these panels is
+conditional on data that only some rows produce, and the rows that produce it
+were last in the queue. So the gap was not that anyone forgot to test them: it
+was that the fixture was written when no row had that data, and nothing
+re-asked the question when the shape of a run changed. Enumerating the gates
+takes a minute and answers it for all nine at once, which is the move that
+should have come before the first two.
+
 ## 5. Production runs
 
 Tier 2 started at 17:04 on 10 October, in section 5.3's priority order: β2AR

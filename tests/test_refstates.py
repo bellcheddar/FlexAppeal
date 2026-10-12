@@ -6312,3 +6312,99 @@ def test_a_contact_at_the_cutoff_does_not_print_as_the_cutoff():
     assert "3.97" in out and "3.98" in out, out
     assert "4.0 " not in out.replace("4.00", ""), (
         "a contact inside the 4.0 A cutoff is printing as 4.0 A", out)
+
+
+def _overlay_page(tmp_path: Path, *, write_ghosts: tuple[str, ...]) -> str:
+    """A run page whose analysis offers both ghosts, writing only some files."""
+    import json as _json
+
+    import mdtraj as md
+    import numpy as np
+
+    from flexappeal.refstates import store
+    from flexappeal.webapp import create_app
+
+    database = tmp_path / "refstates.db"
+    store.ingest_analysis(
+        database,
+        {"name": "f", "kind": "kinase",
+         "core": {"n_residues": 10, "source": "fixture"},
+         "motif_residues": {"xDFG": [380]},
+         "ensembles": {"active": {"codes": ["2F4J"]},
+                       "inactive": {"codes": ["3PYY"]}},
+         "frames": [{"time_ns": 0.0, "n_conflicts": 0, "motifs": [
+             {"motif": "xDFG", "d_act_a": 1.0, "d_inact_a": 4.0,
+              "s": 0.6, "label": "active"}]}],
+         "notes": []},
+        system_id="abl1", run_id="abl1_apo", family="kinase",
+        environment="water",
+        run_fields={"start_state": "DFG-in", "status": "complete"})
+
+    analysis = tmp_path / "analysis"
+    analysis.mkdir()
+    topology = md.Topology()
+    chain = topology.add_chain()
+    for index in range(6):
+        residue = topology.add_residue("ALA", chain, resSeq=380 + index)
+        topology.add_atom("CA", md.element.carbon, residue)
+    xyz = np.zeros((2, 6, 3), dtype=np.float32)
+    xyz[:, :, 2] = np.arange(6) * 0.15
+    traj = md.Trajectory(xyz, topology)
+    traj[0].save_pdb(str(analysis / "abl1_apo.pdb"))
+    traj.save_xtc(str(analysis / "abl1_apo.xtc"))
+    for state in write_ghosts:
+        traj[0].save_pdb(str(analysis / f"abl1_apo.ref_{state}.pdb"))
+
+    (analysis / "abl1_apo.json").write_text(_json.dumps({
+        "dssp": {"n_frames": 1, "residues": [380], "frames": ["H"],
+                 "motifs": {}},
+        "viewer": {"topology": "abl1_apo.pdb", "trajectory": "abl1_apo.xtc",
+                   "n_frames": 2, "stride": 1, "frame_ns": 1.0, "bytes": 10,
+                   # All four keys, as `analyse_run` writes them: the dict is
+                   # built in one literal, so an overlay entry that exists
+                   # always carries its score. A fixture missing it was wrong
+                   # about the payload rather than finding a template fault.
+                   "overlay": {
+                       "active": {"pdb": "abl1_apo.ref_active.pdb",
+                                  "code": "2HZ4", "mean_motif_rmsd_a": 4.06,
+                                  "motifs_checked": 1, "bytes": 1024},
+                       "inactive": {"pdb": "abl1_apo.ref_inactive.pdb",
+                                    "code": "2HZ0", "mean_motif_rmsd_a": 6.05,
+                                    "motifs_checked": 1, "bytes": 1024}}},
+        "frames": [{"time_ns": 0.0, "measurements": {}}]}))
+
+    application = create_app()
+    application.config.update(TESTING=True)
+    application.config["REFSTATES_DB"] = str(database)
+    application.config["REFSTATES_ANALYSIS_DIR"] = str(analysis)
+    return application.test_client().get(
+        "/refstates/run/abl1_apo").data.decode()
+
+
+def test_both_reference_ghosts_draw_when_their_files_are_there(tmp_path: Path):
+    page = _overlay_page(tmp_path, write_ghosts=("active", "inactive"))
+    assert page.count('id="overlay-toggle-') == 2, "both ghosts should be offered"
+    assert "2HZ4" in page and "2HZ0" in page
+
+
+def test_a_ghost_without_its_file_is_not_offered(tmp_path: Path):
+    """The guard the bilayer toggle had and the overlay did not.
+
+    `viewer.lipids` is dropped unless both its files are on disk, with a
+    comment saying the point is that the toggle cannot produce a failed
+    request. The overlay was built later, read the same analysis payload, and
+    had no such check: a run whose `ref_active.pdb` had not been copied would
+    still have drawn the toggle and 404'd when somebody ticked it.
+
+    Withheld per state, because losing one ghost is not a reason to hide the
+    other.
+    """
+    page = _overlay_page(tmp_path, write_ghosts=("inactive",))
+    assert "2HZ0" in page, "the ghost that is on disk should still be offered"
+    assert "2HZ4" not in page, "the missing ghost should not be offered"
+    assert page.count('id="overlay-toggle-') == 1, page
+
+
+def test_no_ghosts_at_all_draws_no_overlay_control(tmp_path: Path):
+    page = _overlay_page(tmp_path, write_ghosts=())
+    assert 'id="overlay-toggle-' not in page
