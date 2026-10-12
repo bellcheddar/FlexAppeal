@@ -1626,3 +1626,36 @@ each remaining row from, and a cosmetic string is not worth an edit to the
 production path with two rows to go. Noted here so it is not lost.
 
 1039 passed, 2 skipped.
+
+### 11 October, 21:10. GATE_OPEN.md had nine stale rows, one of them material
+
+GATE_OPEN.md is the document that decides gates, so it is the worst one to let
+drift. Nine rows were out of date:
+
+The header said `b2ar_apo` was producing with three rows behind it; it finished
+at 17:36. P6 said "2 chunks, APL 67.7 Å², thickness 38.6 Å" from a producing
+row; the finished run is 5 chunks, 67.1 and 38.9. P4's numbers had moved in the
+third decimal. The test count said 896 against 1039. The page counts said 8
+against 9. Four rows wrote the unit as `A` or `A^2`.
+
+The material one: **"cartoon colouring and reference overlay declared missing
+on the page and in D023"**. Both were built this session, the user having asked
+for both, and D029 and D030 supersede D023. A reader deciding a gate would have
+been told two features were absent that are on the page, with the overlay
+checking every ghost against the analysis to 0.005 Å.
+
+The G4 paragraph is left as the record of what was authorised. A note beside it
+gives the current count, 230 commits, and the result of re-running its privacy
+check against everything added since: no GLP1R or GIPR reference, no compound
+name, no chemistry field root outside `fxa2.CHEMISTRY_ROOTS`, which is the
+guard that forbids them, and no `.sdf`, `.mol`, `.mol2`, `.pdbqt` or trajectory
+member tracked. That check is worth repeating rather than remembering, because
+the repository is public and the build has added 148 commits since it was last
+run.
+
+That table ends with "Every figure here is measured rather than remembered. The
+test count was wrong twice, at 833 and 837, both times written from memory or
+arithmetic." It was wrong a third time, at 896. The sentence was right and the
+habit it warns about is the one that put nine stale rows in the document.
+
+1039 passed, 2 skipped.
