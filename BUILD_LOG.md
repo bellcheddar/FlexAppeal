@@ -1682,3 +1682,42 @@ nothing re-derived it until tonight. The test skips without the KLIFS cache,
 since a checkout without it has nothing to measure.
 
 1040 passed, 2 skipped.
+
+### 11 October, 22:35. abl1_apo finished, and the excursion reversed
+
+50 ns in 4.93 h at 223.9 ns/day, 46,721 atoms, `produced_ns` 50.0 so the short
+row check passes on the figure from the context rather than the target. The
+queue handed over to `b2ar_carazolol` at 22:32, which is the row P5 turns on.
+Analysed at 500 frames, ingested complete, figures redrawn, every stored
+number verified against its analysis, P4 still 4 of 4.
+
+**The deferred judgement was the right one.** At 22.8 ns the DFG-Phe to
+catalytic-Lys distance had a final-tenth mean of 15.16 Å against a reference
+range topping out at 14.04, and I corrected section 1.1 to say the path had
+left the DFG-in range. I stopped short of the mechanism because 5.0c had read
+a trend at 30.8 ns that was not there. Over the full run the final tenth is
+**14.01**, back inside. It is a broad reversible excursion: above the reference
+maximum in 342 of 500 frames, a plateau near 15.0 Å from 15 to 35 ns, peaking
+at 17.92 Å at 29.6 ns, and relaxed by 50.
+
+So section 1.1 has now been wrong in both directions, first "stays inside
+throughout" from 43 frames, then "has left" from 229. It is rewritten on all
+500, and the lesson is in it: the fix is not more caution in the prose, it is
+to date the reading.
+
+The physics is unchanged and still supports what that section argues. The salt
+bridge holds at 2.79 Å in 482 of 500 and correlates with the excursion at
+r = +0.119, αC settles rather than shifts, the spine is assembled in 499, and
+the rule calls `in` on every frame. A motif travelled four angstroms and came
+back with the label unchanged, which is what reading a state from a difference
+costs.
+
+5.7 written. The row itself is undramatic and that is its result: DFG active in
+499 of 500, everything else intermediate, the whole-protein score flat after
+the first 10 ns. No flip, which D009 already said 50 ns was forty times too
+short to see.
+
+GATE_OPEN's status line updated again; it went stale within 90 minutes of being
+corrected, which is what a status line in a hand-written document does.
+
+1040 passed, 2 skipped.

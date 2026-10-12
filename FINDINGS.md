@@ -49,45 +49,47 @@ axis it cuts straight through the DFG-out cluster: six red points sit between
 11.1 and 11.35 Å, just above the line, and those are exactly the six structures
 the rule calls `other`. The shaded path is `abl1_apo`.
 
-**That path has since left the DFG-in cluster on one axis, and the sentence
-here used to say it did not.** It read "stays inside the DFG-in cluster
-throughout", which was true of the 43 frames that existed when it was written
-and is not true of the 229 frames that exist now. The correction matters more
-than the slip, because what the path does is the clearest statement of what the
-recalibrated rule costs.
+**The path leaves the DFG-in reference range on one axis and comes back, and
+this paragraph has now been wrong in both directions.** It first read "stays
+inside the DFG-in cluster throughout", written against the 43 frames that
+existed at the time. It was then corrected at 22.8 ns to say the path had left
+and not returned, which read a 20 ns excursion as a trend. The finished run is
+the third reading and the only one taken on all 500 frames:
 
-At 22.8 ns, with the run still going:
-
-| | DFG-in references | `abl1_apo` so far |
+| | DFG-in references | `abl1_apo`, 50 ns |
 |---|---|---|
-| αC anchor | 5.61 to 6.83 Å | 5.16 to 8.34 Å, final tenth 6.96 |
-| Lys anchor | 12.91 to 14.04 Å | 12.78 to **16.80** Å, final tenth 15.16 |
-| difference | −6.1 to −7.9 Å | −5.44 to −9.74 Å, final tenth −8.21 |
+| αC anchor | 5.61 to 6.83 Å | 4.84 to 8.34 Å, final tenth 6.11 |
+| Lys anchor | 12.91 to 14.04 Å | 12.25 to **17.92** Å, final tenth 14.01 |
+| difference | −6.1 to −7.9 Å | −5.44 to −10.04 Å, final tenth −7.90 |
 
-The Lys anchor has left the reference range entirely and is 2.8 Å past its
-maximum at the extreme, while the difference has moved **further** into DFG-in
-territory and the rule calls `in` on all 229 frames. Three independent things
-say nothing is breaking: the αC-Glu to catalytic-Lys salt bridge is intact at
-2.83 Å for 225 of 229 frames, the αC helix has not moved (centroid shift
-0.68 Å, axis rotation 5.4°, both flat), and the regulatory spine is assembled
-in 228. The salt bridge is uncorrelated with the drift, r = −0.013, so this is
-not the lysine letting go.
+The Lys anchor is above the reference maximum in **342 of 500 frames**, rising
+from about 14.0 Å over the first 10 ns to a plateau near 15.0 through the
+middle of the run, peaking at 17.92 Å at 29.6 ns, and relaxing back to 14.01
+over the last 5 ns. So it is neither "inside throughout" nor "left": it is a
+broad, reversible excursion that the kinase spends most of the run inside and
+exits by the end.
+
+Nothing else moves with it. The αC-Glu to catalytic-Lys salt bridge holds at
+2.79 Å with 482 of 500 frames `in`, and its correlation with the excursion is
+r = +0.119, which is no relationship. The αC helix settles rather than shifts:
+centroid 0.95 to 0.68 Å, axis rotation 8.1° to 3.2°. The regulatory spine is
+assembled in 499 of 500. The rule calls `in` on **every** frame.
 
 **The cost of reading the state from a difference is that neither distance is
-bounded.** The published rule put an absolute line on each axis, and this
-trajectory would have crossed it: the Lys anchor is above 11.0 Å throughout and
-would have read `other` by the published criterion from the first frame, which
-is the same fault that made it call six DFG-out references `other`. The
-recalibration fixes that and pays for it here, by being insensitive to a motif
-moving a long way as long as both anchors move together. The label is right and
-it is not the whole story, which is why the state map is on the page beside it
-rather than only the label.
+bounded.** The published rule put an absolute line on each axis and this
+trajectory would have crossed it: the Lys anchor is above 11.0 Å in every
+frame, so the published criterion would have read `other` for the whole run,
+which is the same fault that made it call six DFG-out references `other`. The
+recalibration is right and it is not the whole story, because a motif can make
+a 4 Å round trip with the label unchanged and confident. That is why the state
+map is on the page beside the label rather than the label alone.
 
-What is actually moving is left for the finished run: the catalytic Lys Cα is
-receding from the DFG-Phe ring while its own side chain stays bonded to αC-Glu
-and αC stays put, which points at the N-lobe rather than at the motif, but 23
-of 50 ns is where 5.0c read a trend that was not there and this build has
-already made that mistake once.
+**What this cost three times is a lesson about reading a running trajectory.**
+Each wrong version was written from the frames that happened to exist. 5.0c did
+the same thing to TM5 at 30.8 ns, calling flat a motif that had moved by 50 ns.
+The fix is not more caution in the prose; it is to date the reading. Every
+quantitative claim about a run in this document now carries the length it was
+taken at, and the finished-run number replaces it rather than sitting beside it.
 
 Logged as D010. The same threshold is in BoltzMaker's own `compare-sse` and will
 mislabel the same structures there, so this is a candidate upstream change.
@@ -4316,6 +4318,81 @@ reason the per-motif timelines exist.
 the microsecond relaxation β2AR's active-to-inactive transition was observed on,
 so TM5's drift is a beginning and not a transition, and one replica cannot
 separate it from an excursion. Section 7 holds the rest.
+
+### 5.7 The second finished row, and a motif that went out and came back
+
+`abl1_apo` completed its 50 ns at 22:32 on 11 October, 4.93 hours of wall clock
+at 223.9 ns/day on OpenCL single precision, 46,721 atoms. Two of the four
+production rows are now final. The queue handed straight over to
+`b2ar_carazolol`, which is the row P5 has been waiting for.
+
+**The state result, over all 500 scored frames:**
+
+| motif | start | final tenth | sd | first half | second half |
+|---|---|---|---|---|---|
+| A-loop | +0.153 | +0.203 | 0.021 | +0.204 | +0.205 |
+| alphaC | −0.065 | +0.113 | 0.095 | +0.219 | +0.157 |
+| c.l | −0.093 | +0.069 | 0.102 | −0.067 | +0.018 |
+| g.l | −0.020 | −0.050 | 0.086 | +0.014 | −0.087 |
+| hinge | +0.028 | +0.044 | 0.095 | +0.019 | +0.039 |
+| xDFG | +0.732 | +0.715 | 0.076 | +0.715 | +0.740 |
+
+Whole protein, residue weighted: **+0.093 at the start, +0.168 over the final
+tenth**, labelled intermediate in 423 of 500 frames and active in 77. One
+conflict in 3,000 motif-frames.
+
+**The kinase does not go anywhere, and that is the result.** The DFG motif is
+labelled active in 499 of 500 frames and is the only motif with a decisive
+score. Everything else sits in the intermediate band: αC is split almost evenly
+between intermediate and active, and the catalytic loop, the G-rich loop and
+the hinge are intermediate in more than 94 per cent of frames each. The
+whole-protein score rises slightly over the first 10 ns and then does nothing
+for 40.
+
+This is the expected answer and it is worth saying why. The run starts from
+2GQG, which is DFG-in, and section 4.2's point in choosing it was that the
+motif is free to flip. It does not: the DFG flip is a microsecond event, which
+D009 records, and 50 ns is forty times short of it. What this row demonstrates
+is that the annotation holds a stable state stably, without drifting or
+flickering, across a trajectory long enough for a side chain to find every
+rotamer it wants.
+
+**The dephosphorylation caveat applies to this row above all others.** The
+start structure carries phosphotyrosine at 393 and the force field has no
+parameters for it, so it is built as plain tyrosine (D018). Phosphorylation at
+that position is one of the main things that holds ABL1 active, so a run that
+had drifted inactive would have had a physical explanation ready. It did not
+drift, which makes the caveat less load-bearing here than it would have been.
+
+**One motif made a four-angstrom round trip without changing its label.** The
+DFG-Phe to catalytic-Lys distance, the second of the two anchors the Dunbrack
+criterion uses, leaves the DFG-in reference range and returns:
+
+| window | mean | max | frames above the reference max |
+|---|---|---|---|
+| 0 to 10 ns | 14.03 Å | 15.68 Å | 46 of 100 |
+| 15 to 35 ns | 15.02 Å | 17.92 Å | 182 of 200 |
+| 45 to 50 ns | 14.01 Å | 15.14 Å | 24 of 50 |
+
+It is above the DFG-in references' maximum of 14.04 Å in **342 of 500 frames**,
+peaks at 17.92 Å at 29.6 ns, and comes back. Nothing else moves with it: the
+αC-Glu to catalytic-Lys salt bridge holds at 2.79 Å in 482 of 500 frames and
+correlates with the excursion at r = +0.119, the αC helix settles rather than
+shifts, and the spine is assembled in 499. The state call is `in` on every
+frame.
+
+Section 1.1 now carries this, because it is the clearest statement of what that
+section's recalibration costs: reading the state from the difference between
+two distances leaves neither distance bounded. The published absolute rule
+would have called this run `other` from the first frame to the last, which is
+worse, so the recalibration stands. But a motif can travel four angstroms and
+return with the label unchanged and confident, and only the state map shows it.
+
+**What this row cannot say.** One replica, 50 ns, dephosphorylated, and no flip
+observed. A row that holds its state is weak evidence that the method would
+catch a change, which is why the comparison the matrix is built on needs
+`abl1_imatinib`, the row expected to hold for a different reason, and
+`b2ar_carazolol`, the row P5 turns on. Section 7 holds the rest.
 
 ## 6. The positive controls
 

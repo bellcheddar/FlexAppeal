@@ -1,10 +1,11 @@
 # Gates waiting on Marc
 
 Written per section 0.2's gate protocol. G4 is now open and pushed. G3 is the
-only gate still waiting and it blocks nothing: Tier 2 is running. As of 21:10
-on 11 October, `b2ar_apo` is **complete** at 50 ns and fully analysed with its
-bilayer QC, `abl1_apo` is producing at 37 ns of 50, and `b2ar_carazolol` and
-`abl1_imatinib` are queued behind it.
+only gate still waiting and it blocks nothing: Tier 2 is running. As of 22:35
+on 11 October, **two of the four rows are complete and final**: `b2ar_apo` at
+50 ns with its bilayer QC, and `abl1_apo` at 50 ns in 4.93 h at 223.9 ns/day.
+`b2ar_carazolol` started at 22:32 and is the row P5 turns on; `abl1_imatinib`
+is queued behind it.
 
 ---
 
