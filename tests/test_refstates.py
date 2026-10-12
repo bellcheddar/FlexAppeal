@@ -6499,3 +6499,57 @@ def test_a_trajectory_with_no_box_says_so_rather_than_imaging():
     traj.unitcell_angles = None
     out = ligand_mod.pose_and_contacts(traj, list(range(6)))
     assert "no box" in (out.get("note") or ""), out.get("note")
+
+
+def test_a_wrapped_sodium_is_imaged_onto_the_receptor(tmp_path: Path):
+    """Section 5.5 asks whether a Na+ sits within 3.5 A of D2.50.
+
+    The ions were loaded as raw coordinates. An ion is free to wrap through
+    the edge of the box, and a wrapped sodium reads as tens of angstrom from a
+    pocket it is sitting in, so the question could only ever be answered one
+    way. On `b2ar_apo` the raw coordinates put the nearest sodium to one
+    aspartate at 42.78 A and the minimum image puts it at 2.18.
+
+    Per atom, unlike the ligand: an ion is a single atom with no geometry to
+    preserve, so each belongs in whichever copy sits nearest the receptor. A
+    molecule imaged that way would come apart, which is why
+    `pose_and_contacts` shifts the ligand as a whole.
+    """
+    import mdtraj as md
+    import numpy as np
+
+    from flexappeal.refstates import traj as traj_mod
+
+    topology = md.Topology()
+    chain = topology.add_chain()
+    for index in range(4):
+        residue = topology.add_residue("ALA", chain, resSeq=index + 1)
+        topology.add_atom("CA", md.element.carbon, residue)
+    ion_chain = topology.add_chain()
+    ion_residue = topology.add_residue("NA", ion_chain, resSeq=500)
+    topology.add_atom("NA", md.element.sodium, ion_residue)
+
+    box = np.array([4.0, 4.0, 4.0], dtype=np.float32)
+    protein = np.zeros((4, 3), dtype=np.float32)
+    protein[:, 0] = np.arange(4) * 0.15
+    protein[:, 1] = 2.0
+    protein[:, 2] = 2.0
+    # 2 A from the first residue in reality, then wrapped through the edge.
+    ion = np.array([[0.0, 2.0 - box[1] + 0.20, 2.0]], dtype=np.float32)
+
+    xyz = np.stack([np.vstack([protein, ion])] * 2)
+    built = md.Trajectory(xyz.astype(np.float32), topology)
+    built.unitcell_lengths = np.tile(box, (2, 1))
+    built.unitcell_angles = np.full((2, 3), 90.0, dtype=np.float32)
+
+    structure = tmp_path / "system.pdb"
+    trajectory = tmp_path / "run.dcd"
+    built[0].save_pdb(str(structure))
+    built.save_dcd(str(trajectory))
+
+    positions = traj_mod.ion_positions(structure, trajectory)
+    assert positions is not None, "the sodium should have been found"
+    # In angstrom, and beside the protein rather than a box away from it.
+    nearest = float(np.linalg.norm(positions[0][0] - protein[0] * 10.0))
+    assert nearest < 5.0, (
+        f"a wrapped sodium 2 A from the protein read as {nearest:.1f} A away")

@@ -4083,6 +4083,65 @@ pocket immediately and held nothing. Section 5.7's two headline numbers would
 both have been wrong, in the direction of a dramatic result, on the two rows
 the whole optional phase exists for.
 
+## 4bi. The same question asked of the ions, and the same answer
+
+4bh fixed the ligand. The obvious next question is what else this build
+measures a distance to that is free to wrap, and there is one: section 5.5
+asks whether a sodium sits within 3.5 Å of D2.50, and `ion_positions` returned
+raw coordinates.
+
+Ions wrap more readily than anything else in the box. They are single atoms in
+bulk solvent with no bonds to hold them on one side, and β2AR sits on a box
+boundary, which is already recorded: the viewer bundle found 17 of 50 frames
+in a different periodic image for the same reason.
+
+Measured on `b2ar_apo`'s finished trajectory, every aspartate in the receptor,
+raw against minimum image:
+
+| residue | raw nearest sodium | imaged | difference |
+|---|---|---|---|
+| Asp1 | 42.78 Å | **2.18 Å** | 40.60 |
+| Asp170 | 44.48 Å | **5.19 Å** | 39.28 |
+| Asp278 | 37.59 Å | **2.20 Å** | 35.39 |
+| Asp91 | 36.87 Å | 11.60 Å | 25.28 |
+| Asp212 | 6.77 Å | 2.46 Å | 4.32 |
+
+Three aspartates have a sodium sitting on them, at 2.2 Å, which is a
+coordinated ion, and the raw coordinates put all three between 37 and 45 Å
+away. The measurement could only ever have answered one way.
+
+**For D2.50 on this run the verdict does not change, and that is worth being
+exact about.** Its nearest sodium goes from 35.69 Å to 26.57 Å at frame 0, and
+over the run the imaged minimum is 17.07 Å. No sodium comes near the pocket in
+50 ns, so `sodium_present` was `false` before the fix and is `false` after it.
+The reported answer was right. It was right by luck: had an ion diffused into
+the pocket while wrapped, the measurement would have missed it and said so
+confidently, and the one thing section 5.5 asks of the sodium site is exactly
+that question.
+
+The two protein-only distances in the same panel, D2.50 to S3.39 and to N7.49,
+are unchanged at 2.73 and 2.71 Å, which is the check that the fix touched what
+it should and nothing else.
+
+**Per atom, not per molecule, and the difference is the point.** An ion is a
+single atom with no geometry to preserve, so each one belongs in whichever
+periodic copy sits nearest the receptor. The ligand in 4bh is shifted as a
+whole, from its centroid, for the opposite reason: a molecule imaged atom by
+atom comes apart at the boundary, and the result would look like a plausible
+conformational change rather than an error. Two corrections, the same
+convention, applied at different granularity because the objects differ.
+
+**The pattern across three findings.** Periodic wrapping has now cost this
+build four separate measurements: the viewer bundle, the lipid bundle, the
+ligand pose and contacts, and the sodium pocket. Each was written by someone
+who knew about periodic boundaries, and each was written without thinking
+about them, because the object in front of them was a coordinate array and the
+box was somewhere else. The useful rule is not "remember the box". It is that
+**any distance between two things that can move independently through a
+periodic boundary needs the minimum image**, and the way to find the next one
+is to list the measurements that cross between molecules rather than to wait
+for a number that looks wrong.
+
 ## 5. Production runs
 
 Tier 2 started at 17:04 on 10 October, in section 5.3's priority order: β2AR

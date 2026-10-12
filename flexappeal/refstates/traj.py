@@ -371,9 +371,40 @@ def ion_positions(topology: Path, trajectory: Path, *, stride: int = 1,
              if atom.residue.name.upper() in wanted]
     if not atoms:
         return None
-    ions = md.load(str(trajectory), top=str(topology), stride=stride,
-                   atom_indices=atoms)
-    return ions.xyz * 10.0
+    # The protein is loaded alongside, only to anchor the imaging below.
+    protein = [atom.index for atom in first.topology.atoms
+               if atom.residue.is_protein and atom.element is not None
+               and atom.element.symbol != "H"]
+    wanted_atoms = sorted(set(atoms) | set(protein))
+    loaded = md.load(str(trajectory), top=str(topology), stride=stride,
+                     atom_indices=wanted_atoms)
+    order = {index: slot for slot, index in enumerate(wanted_atoms)}
+    ion_slots = [order[index] for index in atoms]
+
+    # Imaged about the protein, for the reason `ligand.pose_and_contacts`
+    # images the ligand. An ion is free to wrap through the edge of the box
+    # between one frame and the next, and a wrapped sodium is reported as tens
+    # of angstrom from a pocket it is sitting in. Measured on `b2ar_apo`, the
+    # raw coordinates put the nearest sodium to one aspartate at 42.78 A and
+    # the minimum image puts it at 2.18. Section 5.5 asks whether an ion is
+    # within 3.5 A of D2.50, so the whole measurement turns on this.
+    #
+    # Per atom here, not per molecule. An ion is a single atom with no
+    # geometry to preserve, so each one belongs in whichever periodic copy
+    # sits nearest the receptor. The ligand is imaged as a whole for the
+    # opposite reason: a molecule imaged atom by atom comes apart.
+    import numpy as np
+
+    xyz = loaded.xyz[:, ion_slots, :]
+    if loaded.unitcell_lengths is not None and len(protein) >= 3:
+        box = np.asarray(loaded.unitcell_lengths)
+        if np.all(box > 0):
+            protein_slots = [order[index] for index in protein]
+            anchor = loaded.xyz[:, protein_slots, :].mean(axis=1)
+            offset = xyz - anchor[:, None, :]
+            xyz = anchor[:, None, :] + offset - box[:, None, :] * np.round(
+                offset / box[:, None, :])
+    return xyz * 10.0
 
 
 def load(topology: Path, trajectory: Path, *, stride: int = 1):

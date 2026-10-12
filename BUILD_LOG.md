@@ -1979,3 +1979,42 @@ on the two rows the optional phase exists for.
 Two tests, checked by removing the imaging: a wrapped ligand must read the same
 as the same ligand unwrapped, and a trajectory with no box says so instead of
 imaging. 1052 passed, 2 skipped.
+
+### 12 October, 03:50. The ions had it too
+
+Having fixed the ligand, asked what else measures a distance to something free
+to wrap. Section 5.5's sodium pocket: `ion_positions` returned raw
+coordinates, and ions wrap more readily than anything in the box, being single
+atoms in bulk solvent with nothing holding them to one side. β2AR sits on a
+boundary, which the viewer bundle already recorded.
+
+On b2ar_apo's finished trajectory, three aspartates have a sodium at 2.2 Å,
+which is a coordinated ion, and the raw coordinates put all three between 37
+and 45 Å away. Asp1 reads 42.78 raw against 2.18 imaged.
+
+For D2.50 the verdict does not change, and the log should be exact about that.
+Its nearest sodium goes from 35.69 to 26.57 Å at frame 0, with an imaged
+minimum of 17.07 over the run, so `sodium_present` was false before and is
+false after. The answer was right by luck: had an ion diffused into the pocket
+while wrapped, the measurement would have missed it confidently, and that is
+the only question section 5.5 asks of the site. The two protein-only
+distances, 2.73 and 2.71 Å, are unchanged, which is the check that the fix
+touched what it should.
+
+Per atom here, not per molecule. An ion has no geometry to preserve, so each
+goes to whichever copy is nearest the receptor; the ligand is shifted as a
+whole because a molecule imaged atom by atom comes apart at the boundary and
+the result would read as a conformational change.
+
+Four measurements have now been cost by periodic wrapping: the viewer bundle,
+the lipid bundle, the ligand pose and contacts, and the sodium pocket. The
+rule worth keeping is not "remember the box" but that any distance between two
+things that can move independently through a boundary needs the minimum image,
+and the way to find the next one is to list the measurements that cross
+between molecules.
+
+b2ar_apo re-analysed and re-ingested with the corrected numbers. P4 re-run and
+unchanged at 4 of 4, which the staleness guard asked for by skipping when
+traj.py was edited.
+
+1052 passed, 2 skipped.
