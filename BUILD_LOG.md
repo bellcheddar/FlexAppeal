@@ -1792,3 +1792,37 @@ values stay and a line now says they are the values as they stood for that
 comparison.
 
 1040 passed, 3 skipped, all three GPU contention.
+
+### 11 October, 23:55. The ligand panel, rehearsed before its rows arrive
+
+Section 5.7's ligand analysis had only ever run on synthetic fixtures, and both
+bound rows are last in the queue, so the first real carazolol and imatinib
+would have arrived Monday and Tuesday unchecked. Rehearsed on both, one frame
+each.
+
+The contacts are right, which is the part to check first: carazolol holds
+Asp113 at 2.54 Å, the aspartate every aminergic receptor uses for a protonated
+amine, with Thr110, Val114, Val117, Phe193, Tyr199 and Ser203; imatinib holds
+Lys271 and Glu286, the catalytic lysine and the αC glutamate, with Leu248,
+Tyr253, Val256, Ala269 and Val270. Both are the published pockets.
+
+The symmetry correction read `False` on both at first. The start models carry
+heavy atoms only, 22 for carazolol and 37 for imatinib, so the graph inference
+has nothing to work with. Against the **solvated** systems, which is what the
+production path analyses, it is `True` on both: the ligand is split across two
+residues of the same name, imatinib 37 heavy and 31 hydrogens, carazolol 22 and
+22, and grouping by name rejoins them. That grouping was written for imatinib;
+this is the first evidence carazolol splits the same way.
+
+Pinned by a test rather than by the note, because an uncorrected pose RMSD does
+not fail. It overstates drift on a symmetric ligand and keeps running, and both
+of these are symmetric, so the row would have been finished and written up
+before anyone read a flag.
+
+The test's first version asserted the contacts included residues 271 and 286
+and failed with 16, 21, 24. That is not a fault: loading the solvated topology
+directly gets OpenMM's renumbering from 1, and restoring the deposited numbers
+is what `--start` does in the real pipeline. The assertion is on names and
+distances now.
+
+1042 passed, 2 skipped.

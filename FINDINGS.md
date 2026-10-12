@@ -3862,6 +3862,56 @@ There is now a test for it, and the test was checked by putting the ASCII label
 back and watching it fail. A unit is exactly the kind of thing that drifts back
 the next time a label is edited, and nothing else would have noticed.
 
+## 4be. Rehearsing the ligand panel, on the two ligands it has never seen
+
+Section 5.7's ligand analysis is the one part of the pipeline that had only
+ever run on synthetic fixtures. Both bound rows are last in the queue, so the
+first real carazolol and the first real imatinib would have arrived on Monday
+and Tuesday with nobody having checked the path on either. 4af rehearsed the
+final pass for the same reason; this is the same move on a different gap.
+
+Run on both bound systems, a single frame each, which makes the pose RMSD
+trivially zero. That is not what is being tested. What is tested is finding the
+ligand in a real system, rejoining it if the builder split it, inferring its
+graph for the symmetry correction, and counting contacts in a real pocket.
+
+**The contacts are right, which is the part worth trusting least and checking
+first.** Carazolol's persistent contacts include Asp113 at 2.54 Å, which is the
+aspartate every aminergic receptor uses to hold a protonated amine, with
+Thr110, Val114, Val117, Phe193, Tyr199 and Ser203 around it. Imatinib's include
+Lys271 and Glu286, the catalytic lysine and the αC glutamate, with Leu248,
+Tyr253, Val256, Ala269 and Val270. Those are the published pockets of both
+complexes. A contact list that had found the ligand somewhere else would have
+looked just as plausible as a count.
+
+**The symmetry correction came back unavailable, and then available.** On the
+start models `symmetry_corrected` is `False` on both ligands, with the honest
+note that the pose RMSD matches atoms by index. The reason is that the start
+models carry heavy atoms only: carazolol is 22 atoms and imatinib 37, with no
+hydrogens, and the graph inference has nothing to work with.
+
+The solvated systems are different, and they are what the production path
+analyses. There the correction is `True` on both. The ligand is split across
+two residues of the same name, heavy atoms in one and hydrogens in the other:
+imatinib 37 and 31, carazolol **22 and 22**. `pose_and_contacts` groups by name
+rather than taking the largest residue, which is what rejoins them, and that
+grouping was written for imatinib after the largest-residue rule happened to
+return the right atoms for the wrong reason. This is the first evidence that
+carazolol splits the same way.
+
+So the panel will work when the rows land, and the distinction is now pinned by
+a test rather than by this paragraph. The reason it needed pinning is that an
+uncorrected pose RMSD does not fail. It overstates drift on a symmetric ligand
+and keeps running, and both of these ligands are symmetric: imatinib has a
+para-substituted phenyl that reads as one to two angstroms of movement when it
+flips and is the same molecule in the same place. The row would have been
+finished, analysed and written up before anyone looked at a flag.
+
+**What this does not establish.** A single frame cannot exercise the drift
+calculation itself, only the machinery around it, and the real test is
+`b2ar_carazolol`'s 500 frames on Monday. The test skips on a clean checkout,
+because the built systems are gigabytes and are not committed.
+
 ## 5. Production runs
 
 Tier 2 started at 17:04 on 10 October, in section 5.3's priority order: β2AR

@@ -6214,3 +6214,65 @@ def test_the_documents_quoting_p4_agree_with_it():
             f"{sorted(allowed)}. Re-derive the numbers in that document.")
     if not checked:
         pytest.skip("neither document prints P4's scores in a known shape")
+
+
+def test_a_real_ligand_gets_its_symmetry_mapping():
+    """Section 5.7's symmetry correction, on a real ligand rather than a fixture.
+
+    `pose_and_contacts` had only ever run on synthetic fixtures: both bound
+    rows are last in the queue. Rehearsed on the built systems before they
+    produce, because an uncorrected pose RMSD does not fail, it just overstates
+    drift, and the row would have been finished and written up before anyone
+    looked at the `symmetry_corrected` flag.
+
+    It also pins the distinction the rehearsal turned up. The **start models**
+    carry heavy atoms only, so the graph inference has nothing to work with and
+    the mapping comes back empty with a note. The **solvated** systems carry
+    hydrogens, in a second residue of the same name, and that is what the
+    production path analyses. Grouping by name rather than taking the largest
+    residue is what makes the second case work, and carazolol splits the same
+    way imatinib does: 22 heavy atoms and 22 hydrogens.
+
+    Skips without a built system, which a clean checkout has: the systems are
+    gigabytes and are not committed.
+    """
+    import tempfile
+
+    root = Path(__file__).resolve().parents[1]
+    solvated = root / "data" / "md" / "abl1_imatinib" / "solvated.pdb"
+    if not solvated.is_file():
+        pytest.skip("no built abl1_imatinib system in this checkout")
+
+    import mdtraj as md
+
+    from flexappeal.refstates import ligand as ligand_mod, traj
+
+    with tempfile.TemporaryDirectory() as work:
+        frame = Path(work) / "one.dcd"
+        md.load(str(solvated)).save_dcd(str(frame))
+        loaded = traj.load(solvated, frame)
+
+    found = ligand_mod.ligand_residues(loaded.topology)
+    names = {loaded.topology.residue(i).name for i in found}
+    assert names == {"STI"}, f"expected imatinib alone, got {names}"
+    assert len(found) == 2, ("the solvated system splits the ligand into a "
+                             "heavy residue and a hydrogen residue; grouping "
+                             "by name is what rejoins them")
+
+    protein = [r.index for r in loaded.topology.residues if r.is_protein]
+    out = ligand_mod.pose_and_contacts(loaded, protein[:200])
+    assert out, "a bound row produced no ligand panel"
+    assert out["resname"] == "STI"
+    assert out["n_heavy_atoms"] == 37, out["n_heavy_atoms"]
+    assert out["symmetry_corrected"] is True, out.get("note")
+    # The pocket, not just a count. Asserted on residue names and distances
+    # rather than numbers: this loads the solvated topology directly, and
+    # OpenMM renumbers from 1 on solvation, so the catalytic lysine that is
+    # Lys271 in the deposit is Lys16 here. Restoring the deposited numbering is
+    # what `--start` does in the real pipeline, and it is not this test's
+    # subject.
+    contacts = out["persistent_contacts"]
+    assert len(contacts) == 22, len(contacts)
+    names = {row["name"] for row in contacts}
+    assert {"LYS", "GLU"} <= names, sorted(names)
+    assert min(row["closest_a"] for row in contacts) < 3.5
