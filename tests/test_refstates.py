@@ -6703,3 +6703,62 @@ def test_p5_judges_a_finished_run(tmp_path: Path):
     assert rows[0]["passed"] is True, rows[0]
     # The window is the final 20 ns of 50, not the whole run.
     assert rows[0]["frames_in_window"] < 500, rows[0]["frames_in_window"]
+
+
+def _run_page(tmp_path: Path, status: str) -> str:
+    """The run page for a one-motif row with the given status."""
+    import json as _json
+
+    from flexappeal.refstates import store
+    from flexappeal.webapp import create_app
+
+    database = tmp_path / "refstates.db"
+    store.ingest_analysis(
+        database,
+        {"name": "f", "kind": "kinase",
+         "core": {"n_residues": 10, "source": "fixture"},
+         "motif_residues": {"xDFG": [380, 381]},
+         "ensembles": {"active": {"codes": ["2F4J"]},
+                       "inactive": {"codes": ["3PYY"]}},
+         "frames": [{"time_ns": t / 10.0, "n_conflicts": 0, "motifs": [
+             {"motif": "xDFG", "d_act_a": 1.0, "d_inact_a": 4.0, "s": 0.6,
+              "label": "active"}]} for t in range(20)],
+         "notes": []},
+        system_id="abl1", run_id="abl1_apo", family="kinase",
+        environment="water",
+        run_fields={"start_state": "DFG-in", "status": status,
+                    "length_ns": 2.0})
+    analysis = tmp_path / "analysis"
+    analysis.mkdir(exist_ok=True)
+    (analysis / "abl1_apo.json").write_text(_json.dumps({
+        "dssp": {"n_frames": 1, "residues": [380], "frames": ["H"],
+                 "motifs": {}},
+        "viewer": {}, "frames": [{"time_ns": 0.0, "measurements": {}}]}))
+    application = create_app()
+    application.config.update(TESTING=True)
+    application.config["REFSTATES_DB"] = str(database)
+    application.config["REFSTATES_ANALYSIS_DIR"] = str(analysis)
+    return application.test_client().get(
+        "/refstates/run/abl1_apo").data.decode()
+
+
+def test_a_running_row_does_not_call_its_latest_frame_final(tmp_path: Path):
+    """The same slip P5 made, in the column a reader looks at.
+
+    On a producing row the motif table's numbers are the latest frame and the
+    latest tenth of what exists. Calling them final is what let P5 pass a run
+    eight nanoseconds into fifty. The page states the status and the analysed
+    length above the table, so it was not misleading, but a column header
+    should not depend on those being read first.
+    """
+    page = _run_page(tmp_path, "running")
+    assert "Latest s" in page and "Latest tenth mean" in page, page[:0]
+    assert "Final s" not in page
+    assert "Motifs so far" in page
+
+
+def test_a_finished_row_does_call_it_final(tmp_path: Path):
+    page = _run_page(tmp_path, "complete")
+    assert "Final s" in page and "Final tenth mean" in page
+    assert "Latest s" not in page
+    assert "Motifs at the end of the run" in page

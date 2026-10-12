@@ -2143,3 +2143,25 @@ differently by the same code at two different moments. A control with a
 timebase needs to know whether its timebase is complete.
 
 1059 passed, 2 skipped.
+
+### 12 October, 07:05. The same word, on the page
+
+Asked where else the build says "final" about something still happening. One
+more, in the motif table: "Motifs at the end of the run", "Final s", "Final
+tenth mean", "Nearest at end", on a row eleven nanoseconds into fifty.
+
+Not misleading, unlike P5, and the difference matters. The page states Status
+running and Analysed 11.0 ns directly above the table and the finding beside
+it opens "Over 11 ns", so a reader has everything. P5 emitted a bare PASS with
+nothing qualifying it, into a number that gets copied into three documents.
+
+Changed anyway, because a column header should not depend on another line
+being read first. A running row now reads "Motifs so far", "Latest s" and
+"Latest tenth mean"; a finished one is unchanged. Two tests.
+
+The pair is the record worth keeping: the same loose word in a control and in
+a template, written months apart, harmless in one place and a false PASS in
+the other. Finding the harmless one took asking the question the serious one
+had just raised.
+
+1061 passed, 2 skipped.

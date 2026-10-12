@@ -152,16 +152,23 @@
 {% endif %}
 
 <section class="md-card md-panel is-wide">
-  <h3>Motifs at the end of the run</h3>
+  {#- "Final" only when the run has finished. On a producing row these are
+      the latest frame and the latest tenth of what exists, and calling them
+      final is the same slip P5 made when it passed a row eight nanoseconds
+      into fifty. The status and the analysed length are stated above, so the
+      page was not misleading, but a column header should not need them to be
+      read correctly. -#}
+  {% set ended = run.status == "complete" %}
+  <h3>Motifs {{ "at the end of the run" if ended else "so far" }}</h3>
   <table class="md-table">
     <thead>
       <tr>
         <th scope="col">Motif</th>
         <th scope="col">Residues</th>
         <th scope="col">Start <abbr title="state score: +1 active-like, -1 inactive-like">s</abbr></th>
-        <th scope="col">Final s</th>
-        <th scope="col">Final tenth mean</th>
-        <th scope="col">Nearest at end</th>
+        <th scope="col">{{ "Final" if ended else "Latest" }} s</th>
+        <th scope="col">{{ "Final" if ended else "Latest" }} tenth mean</th>
+        <th scope="col">Nearest {{ "at end" if ended else "so far" }}</th>
         <th scope="col">Label</th>
       </tr>
     </thead>
