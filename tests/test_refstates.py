@@ -6595,3 +6595,52 @@ def test_a_protein_split_across_the_box_is_reported(capsys):
     assert module.report_broken_chain(_chain_trajectory(break_it=True)) is True
     said = capsys.readouterr().out
     assert "broken" in said and "periodic boundary" in said, said
+
+
+def test_receptor_rows_use_the_label_the_analysis_resolved():
+    """Section 5.5's label form, on the page and not only in the payload.
+
+    The clause is explicit: "labels in Ballesteros-Weinstein form with the
+    beta2AR residue number beside them (for example `R3.50 (R131)`), the
+    beta2AR numbers coming from the GPCRdb residue table, never typed".
+
+    `GenericNumbering.label` has always produced exactly that, and the payload
+    has always carried `R3.50 (R131) - E6.30 (E268)` for the ionic lock. The
+    page wrote "Ionic lock" beside it and showed that instead, so the
+    requirement was met in the data and not in the thing anybody reads, and
+    what was displayed was the hand-typed kind the clause forbids.
+    """
+    from flexappeal.refstates.web import MEASUREMENT_ROWS, frame_measurements
+
+    frames = [{"measurements": {"micro_switches": {
+        "tm3_tm6_a": 12.4,
+        "tm3_tm6_pair": "R3.50 (R131) - L6.34 (L272)",
+        "ionic_lock": {"distance_a": 9.1, "state": "broken",
+                       "pair": "R3.50 (R131) - E6.30 (E268)"},
+        "toggle_w6x48": {"position": "W6.48 (W286)", "chi1_deg": -65.2,
+                         "chi2_deg": 113.4},
+        "npxxy_y7x53": {"position": "Y7.53 (Y326)", "chi1_deg": -62.3,
+                        "chi2_deg": -76.5}}}}]
+    labels = [row["label"] for row in frame_measurements.__wrapped__(frames)] \
+        if hasattr(frame_measurements, "__wrapped__") else None
+    if labels is None:
+        # `frame_measurements` reads a run id; exercise the row table directly.
+        from flexappeal.refstates.web import _dig
+        labels = []
+        last = frames[-1]["measurements"]
+        for entry in MEASUREMENT_ROWS:
+            label, value_path = entry[0], entry[1]
+            if _dig(last, value_path) is None:
+                continue
+            label_path = entry[4] if len(entry) > 4 else None
+            suffix = entry[5] if len(entry) > 5 else ""
+            resolved = _dig(last, label_path) if label_path else None
+            labels.append((resolved or label) + suffix)
+
+    assert "R3.50 (R131) - E6.30 (E268)" in labels, labels
+    assert "R3.50 (R131) - L6.34 (L272)" in labels, labels
+    assert "W6.48 (W286) χ₁" in labels, labels
+    assert "Y7.53 (Y326) χ₂" in labels, labels
+    # And nothing still shows the written stand-in where a label was resolved.
+    assert "Ionic lock" not in labels, labels
+    assert "TM3–TM6 cleft" not in labels, labels

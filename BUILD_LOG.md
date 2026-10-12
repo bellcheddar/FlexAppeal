@@ -2080,3 +2080,35 @@ displays will omit whatever that panel has not displayed yet.
 Live b2ar_carazolol draws 57 frames of it now and will draw 500.
 
 1055 passed, 3 skipped, all three GPU contention.
+
+### 12 October, 05:45. A spec clause met in the data and not on the page
+
+Asked which database columns no page or figure reads, the same question as
+4bj one level down. Five. Four are uninteresting: a primary key used for
+upsert, and the arm, replica and model-rung columns that D008 and D009 left
+with one value each. The fifth, `motifs.generic_labels_json`, led somewhere.
+
+Section 5.5 opens with a requirement rather than a metric: labels in
+Ballesteros-Weinstein form with the receptor residue number beside them, for
+example `R3.50 (R131)`, taken from GPCRdb and never typed. The analysis does
+this and always has. `GenericNumbering.label` returns exactly that form and is
+called in five places, and every frame's payload carries
+`R3.50 (R131) - E6.30 (E268)` for the ionic lock and `W6.48 (W286)` for the
+toggle.
+
+None of it reached the page. The measurement table carried its own labels,
+written into web.py as "Ionic lock" and "TM3-TM6 cleft", and showed those.
+Checked rather than assumed: `R3.50`, `W6.48`, `E6.30` and `(R131)` appear
+nowhere in the rendered receptor page. So the clause was satisfied in the
+artefact nobody reads and unsatisfied in the one everybody does, and what was
+shown was the hand-typed kind the clause forbids.
+
+Rows may now name where their label was resolved and use it, with the written
+one as fallback for a row whose analysis could not name its residues.
+
+Two of the section's metrics also had no row at all: the toggle switch's W6.48
+chi1 and chi2 and NPxxY's Y7.53 chi1 and chi2, computed every frame, each
+carrying its own label, displayed nowhere. Four numbers in every receptor
+payload and on no page. They have rows now.
+
+1057 passed, 2 skipped.

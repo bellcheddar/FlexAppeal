@@ -621,6 +621,21 @@ def about():
 # How the per-frame measurements are presented: a label, where to find the
 # value, and its unit. A table rather than code per measurement, so adding one
 # to the analysis does not mean editing the page.
+# Each row is (label, value path, unit, state path) and optionally a fifth
+# element: the path to a label the analysis resolved for itself.
+#
+# Section 5.5 asks for "labels in Ballesteros-Weinstein form with the beta2AR
+# residue number beside them (for example `R3.50 (R131)`), the beta2AR numbers
+# coming from the GPCRdb residue table, never typed". The analysis does
+# exactly that and has all along: `GenericNumbering.label` returns
+# `R3.50 (R131)`, and the payload carries `R3.50 (R131) - E6.30 (E268)` for
+# the ionic lock and `R3.50 (R131) - L6.34 (L272)` for the cleft.
+#
+# None of it reached the page, which wrote its own labels beside the resolved
+# ones and showed those instead. So the requirement was met in the data and
+# not in the thing a reader looks at, and the labels on the page were the
+# hand-typed kind the clause exists to forbid. Where the analysis resolved a
+# label, it is now the one displayed.
 MEASUREMENT_ROWS = [
     ("alphaC salt bridge", ("alphac_salt_bridge", "distance_a"), "\u00c5",
      ("alphac_salt_bridge", "state")),
@@ -628,9 +643,11 @@ MEASUREMENT_ROWS = [
     ("alphaC centroid shift", ("alphac_displacement", "centroid_shift_a"), "\u00c5", None),
     ("P-loop tip to hinge", ("p_loop", "tip_to_hinge_a"), "\u00c5", None),
     ("R-spine", ("r_spine", "state"), "", None),
-    ("TM3\u2013TM6 cleft", ("micro_switches", "tm3_tm6_a"), "\u00c5", None),
+    ("TM3\u2013TM6 cleft", ("micro_switches", "tm3_tm6_a"), "\u00c5", None,
+     ("micro_switches", "tm3_tm6_pair")),
     ("Ionic lock", ("micro_switches", "ionic_lock", "distance_a"), "\u00c5",
-     ("micro_switches", "ionic_lock", "state")),
+     ("micro_switches", "ionic_lock", "state"),
+     ("micro_switches", "ionic_lock", "pair")),
     ("Y5.58\u2013Y7.53", ("micro_switches", "y5x58_y7x53_oh_a"), "\u00c5", None),
     ("TM6 axis rotation", ("tm6_rotation", "axis_rotation_deg"), "\u00b0", None),
     ("TM6 centroid shift", ("tm6_rotation", "centroid_shift_a"), "\u00c5", None),
@@ -647,6 +664,23 @@ MEASUREMENT_ROWS = [
      "\u00c5", None),
     ("Nearest sodium to D2.50",
      ("micro_switches", "sodium_pocket", "nearest_sodium_a"), "\u00c5", None),
+    # Section 5.5 lists the toggle switch as "W6.48 chi1 and chi2" and NPxxY
+    # as "Y7.53 chi1/chi2 ...". Both were computed, both carried their own
+    # resolved label, and neither had a row, so four of the section's angles
+    # existed in the payload and on no page. A sixth element suffixes the
+    # label, because one measurement gives two of them.
+    ("Toggle switch", ("micro_switches", "toggle_w6x48", "chi1_deg"),
+     "\u00b0", None, ("micro_switches", "toggle_w6x48", "position"),
+     " \u03c7\u2081"),
+    ("Toggle switch", ("micro_switches", "toggle_w6x48", "chi2_deg"),
+     "\u00b0", None, ("micro_switches", "toggle_w6x48", "position"),
+     " \u03c7\u2082"),
+    ("NPxxY tyrosine", ("micro_switches", "npxxy_y7x53", "chi1_deg"),
+     "\u00b0", None, ("micro_switches", "npxxy_y7x53", "position"),
+     " \u03c7\u2081"),
+    ("NPxxY tyrosine", ("micro_switches", "npxxy_y7x53", "chi2_deg"),
+     "\u00b0", None, ("micro_switches", "npxxy_y7x53", "position"),
+     " \u03c7\u2082"),
 ]
 
 
@@ -714,11 +748,19 @@ def frame_measurements(run_id: str) -> list[dict[str, Any]]:
 
     first, last = usable[0]["measurements"], usable[-1]["measurements"]
     rows = []
-    for label, value_path, unit, state_path in MEASUREMENT_ROWS:
+    for entry in MEASUREMENT_ROWS:
+        label, value_path, unit, state_path = entry[:4]
+        label_path = entry[4] if len(entry) > 4 else None
+        suffix = entry[5] if len(entry) > 5 else ""
         start, end = _dig(first, value_path), _dig(last, value_path)
         if start is None and end is None:
             continue
-        row = {"label": label, "unit": unit, "start": start, "end": end,
+        # The resolved label where there is one, falling back to the written
+        # one: a row whose analysis could not name its residues still has to
+        # say what it measured.
+        resolved = _dig(last, label_path) if label_path else None
+        row = {"label": (resolved or label) + suffix, "unit": unit,
+               "start": start, "end": end,
                "numeric": isinstance(end if end is not None else start,
                                      (int, float))}
         if state_path:

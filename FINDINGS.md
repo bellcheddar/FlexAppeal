@@ -4222,6 +4222,59 @@ panel displays will omit whatever the panel has not displayed yet.
 On the live `b2ar_carazolol` row the chart now draws 57 frames of it, and will
 draw 500 when the run finishes.
 
+## 4bk. Section 5.5's label form was met in the data and not on the page
+
+Asking which outputs nothing consumes, one level down from 4bj: which columns
+of the database does no page or figure read. Five. Four are uninteresting, a
+primary key used for upsert and three columns for the arm, replica and model
+rung that D008 and D009 left with one value each. The fifth is
+`motifs.generic_labels_json`, and chasing it found something better than a
+dead column.
+
+Section 5.5 opens with a requirement, not a metric:
+
+> All residues resolved through GPCRdb generic numbers; labels in
+> Ballesteros-Weinstein form with the β2AR residue number beside them (for
+> example `R3.50 (R131)`), the β2AR numbers coming from the GPCRdb residue
+> table, never typed.
+
+**The analysis does this and always has.** `GenericNumbering.label` returns
+exactly that form, with a docstring saying so, and it is called in five
+places. The payload carries, per frame:
+
+```
+tm3_tm6_pair     R3.50 (R131) - L6.34 (L272)
+ionic_lock.pair  R3.50 (R131) - E6.30 (E268)
+toggle position  W6.48 (W286)
+npxxy position   Y7.53 (Y326)
+```
+
+**None of it reached the page.** The measurement table carried its own labels,
+written into `web.py` as `"Ionic lock"` and `"TM3–TM6 cleft"`, and showed
+those instead. So the clause was satisfied in the artefact nobody reads and
+unsatisfied in the one everybody does, and what a reader saw was the
+hand-typed kind the clause exists to forbid. Checked rather than assumed:
+`R3.50` appeared nowhere in the rendered receptor page, nor did `W6.48`,
+`E6.30` or `(R131)`.
+
+Each row may now name where its label was resolved, and uses it when there is
+one. The written label stays as the fallback, because a row whose analysis
+could not name its residues still has to say what it measured.
+
+**And two of section 5.5's metrics had no row at all.** The table lists
+"Toggle switch | W6.48 χ1 and χ2" and "NPxxY | Y7.53 χ1/χ2". Both angles of
+both residues were computed, each carrying its resolved label, and neither
+measurement had a row, so four of the section's numbers existed in every
+receptor payload and on no page. They have rows now, labelled
+`W6.48 (W286) χ₁` through `Y7.53 (Y326) χ₂`.
+
+The pattern across 4bj and this one is worth stating once. Both were found by
+asking what the build produces that nothing consumes, first of the analysis
+payload and then of the database. That question is cheap, it is answerable by
+grep, and it found a spec requirement that was quietly unmet for the whole
+build. Asking what a page shows tells you about the page. Asking what it fails
+to show tells you about the spec.
+
 ## 5. Production runs
 
 Tier 2 started at 17:04 on 10 October, in section 5.3's priority order: β2AR
