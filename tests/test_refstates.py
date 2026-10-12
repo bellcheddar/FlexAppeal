@@ -6644,3 +6644,62 @@ def test_receptor_rows_use_the_label_the_analysis_resolved():
     # And nothing still shows the written stand-in where a label was resolved.
     assert "Ionic lock" not in labels, labels
     assert "TM3–TM6 cleft" not in labels, labels
+
+
+def _p5_database(tmp_path: Path, *, status: str, length_ns: float,
+                 scores: list[tuple[float, float]]):
+    """A one-motif inactive-start run with the given per-frame scores."""
+    from flexappeal.refstates import store
+
+    database = tmp_path / "refstates.db"
+    store.ingest_analysis(
+        database,
+        {"name": "f", "kind": "gpcr",
+         "core": {"n_residues": 10, "source": "fixture"},
+         "motif_residues": {"TM6": list(range(260, 291))},
+         "ensembles": {"active": {"codes": ["3P0G"]},
+                       "inactive": {"codes": ["2RH1"]}},
+         "frames": [{"time_ns": t, "n_conflicts": 0, "motifs": [
+             {"motif": "TM6", "d_act_a": 3.0, "d_inact_a": 1.0, "s": s,
+              "label": "inactive"}]} for t, s in scores],
+         "notes": []},
+        system_id="b2ar", run_id="b2ar_carazolol", family="gpcr",
+        environment="membrane",
+        run_fields={"start_state": "inactive", "status": status,
+                    "length_ns": length_ns})
+    return database
+
+
+def test_p5_does_not_pass_a_run_that_is_still_going(tmp_path: Path):
+    """The final 20 ns of a running row is not final.
+
+    P5 reported PASS on `b2ar_carazolol` 8.4 ns into a 50 ns run. At that
+    length the window is the whole trajectory and every frame of it is still
+    near the structure the run started from, so the control was measuring the
+    start state, which is what P4 measures. Section 9 puts the window at the
+    end precisely to make the answer independent of the start.
+    """
+    from flexappeal.refstates.cli import control_p5
+
+    database = _p5_database(
+        tmp_path, status="running", length_ns=8.4,
+        scores=[(t / 10.0, -0.34) for t in range(84)])
+    rows = control_p5(database)
+    assert len(rows) == 1, rows
+    assert rows[0]["status"] == "pending", rows[0]
+    assert "passed" not in rows[0], rows[0]
+    assert "not final until it stops" in rows[0]["reason"], rows[0]
+
+
+def test_p5_judges_a_finished_run(tmp_path: Path):
+    """And still answers once the run has stopped."""
+    from flexappeal.refstates.cli import control_p5
+
+    database = _p5_database(
+        tmp_path, status="complete", length_ns=50.0,
+        scores=[(t / 10.0, -0.34) for t in range(500)])
+    rows = control_p5(database)
+    assert rows[0]["status"] == "ok", rows[0]
+    assert rows[0]["passed"] is True, rows[0]
+    # The window is the final 20 ns of 50, not the whole run.
+    assert rows[0]["frames_in_window"] < 500, rows[0]["frames_in_window"]

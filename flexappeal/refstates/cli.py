@@ -390,7 +390,11 @@ def controls(args: argparse.Namespace) -> int:
         print("    pending: no inactive-start run analysed yet")
     for row in p5:
         if row.get("status") != "ok":
-            print(f"    {row['run_id']:16s} {row.get('status')}")
+            # The reason as well as the word. "pending" on its own invites
+            # somebody to guess which of several reasons it was.
+            reason = row.get("reason")
+            print(f"    {row['run_id']:16s} {row.get('status')}"
+                  + (f": {reason}" if reason else ""))
             continue
         print(f"    {row['run_id']:16s} {row['frames_in_window']:3d} frames, "
               f"mean s {row['mean_whole_s']:+.3f}, "
@@ -740,8 +744,8 @@ def control_p5(database: Path) -> list[dict[str, Any]]:
 
     with store.connect(database, read_only=True) as connection:
         runs = [dict(r) for r in connection.execute(
-            "SELECT run_id, system_id, start_state, length_ns FROM runs "
-            "ORDER BY run_id")]
+            "SELECT run_id, system_id, start_state, length_ns, status "
+            "FROM runs ORDER BY run_id")]
         weights = {}
         for row in connection.execute("SELECT motif_id, residues_json FROM motifs"):
             try:
@@ -773,6 +777,24 @@ def control_p5(database: Path) -> list[dict[str, Any]]:
             out.append({**run, "status": "no scored frames"})
             continue
 
+        # A running row has no final 20 ns. Without this, P5 reported PASS on
+        # `b2ar_carazolol` 8.4 ns into a 50 ns run, where the window is the
+        # whole trajectory and every frame of it is still near the structure
+        # the run started from. That is not the control: it is P4 measured
+        # again, and the reason section 9 puts the window at the end is to
+        # make the answer independent of the start.
+        #
+        # Reported as pending rather than withheld, so the row is visible and
+        # nobody records a verdict that was never reached.
+        if run.get("status") != "complete":
+            produced = run.get("length_ns")
+            out.append({**run, "status": "pending",
+                        "reason": (f"the run has produced "
+                                   f"{produced:.1f} ns" if produced else
+                                   "the run has no frames yet")
+                                  + f" and the final {P5_WINDOW_NS:.0f} ns is "
+                                    f"not final until it stops"})
+            continue
         window = _final_window(frames, P5_WINDOW_NS)
         below = [f for f in window if f["whole_s"] < 0.0]
         out.append({

@@ -638,7 +638,7 @@ def about():
 # label, it is now the one displayed.
 MEASUREMENT_ROWS = [
     ("alphaC salt bridge", ("alphac_salt_bridge", "distance_a"), "\u00c5",
-     ("alphac_salt_bridge", "state")),
+     ("alphac_salt_bridge", "state"), ("alphac_salt_bridge", "pair")),
     ("alphaC axis rotation", ("alphac_displacement", "axis_rotation_deg"), "\u00b0", None),
     ("alphaC centroid shift", ("alphac_displacement", "centroid_shift_a"), "\u00c5", None),
     ("P-loop tip to hinge", ("p_loop", "tip_to_hinge_a"), "\u00c5", None),

@@ -177,7 +177,13 @@ def alphac_salt_bridge(chain, pocket) -> dict:
 
     nz = _atoms(lys, ("NZ",))
     carboxylate = _atoms(glu, ("OE1", "OE2"))
+    # Named as well as numbered, the way the receptor's measurements are. The
+    # numbers were already here and resolved from KLIFS positions 17 and 24,
+    # never typed, and the page had nothing to show but "alphaC salt bridge".
+    # A reader could not tell which two residues it was between.
     row: dict = {"lys": pocket.at(17), "glu": pocket.at(24)}
+    if row["lys"] is not None and row["glu"] is not None:
+        row["pair"] = f"Lys{row['lys']} to Glu{row['glu']}"
     if not nz or not carboxylate:
         row["state"] = "unresolved"
         return row

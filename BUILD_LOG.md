@@ -2112,3 +2112,34 @@ carrying its own label, displayed nowhere. Four numbers in every receptor
 payload and on no page. They have rows now.
 
 1057 passed, 2 skipped.
+
+### 12 October, 06:30. P5 passed a run eight nanoseconds old
+
+b2ar_carazolol is the row P5 has waited for since the build began. Eight hours
+into the run, with 84 frames ingested, the control changed from pending to
+"84 frames, mean s -0.340, 100% below zero PASS".
+
+That is not P5 passing, it is P4 measured again. Section 9 asks whether an
+inactive-start run stays inactive over its final 20 ns, and `_final_window`
+takes every frame within 20 ns of the last. At 8.4 ns produced, the window is
+the whole trajectory and every frame of it is near the structure the run
+started in. The window sits at the end so the answer does not depend on the
+start; a window containing the start cannot do that. The control had no notion
+of whether the row had finished.
+
+A PASS on the screen is a PASS somebody writes down. Six controls are quoted
+in GATE_OPEN, the README and FINDINGS 1.4, and the one still reading pending
+is the one a reader looks for. Two of those three documents had exactly that
+fault tonight with P4's numbers.
+
+P5 now reports pending with its reason until the run's status is complete,
+pending rather than withheld because a row that vanishes is a row nobody asks
+about. Mutation-checked by removing the guard.
+
+Worth naming rather than only fixing: P5 is the only control in section 9
+whose definition contains a window. P1 to P4 compare depositions or score a
+start model and have no notion of time, so nothing else could be answered
+differently by the same code at two different moments. A control with a
+timebase needs to know whether its timebase is complete.
+
+1059 passed, 2 skipped.

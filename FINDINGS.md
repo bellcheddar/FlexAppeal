@@ -4275,6 +4275,58 @@ grep, and it found a spec requirement that was quietly unmet for the whole
 build. Asking what a page shows tells you about the page. Asking what it fails
 to show tells you about the spec.
 
+## 4bl. P5 passed a run that was eight nanoseconds old
+
+`b2ar_carazolol` is the row P5 has been waiting for since the build began, and
+the control has read `pending: no inactive-start run analysed yet` for three
+weeks. Eight hours into the run, with 84 frames ingested, it changed to:
+
+```
+b2ar_carazolol    84 frames, mean s -0.340, 100% below zero  PASS
+```
+
+**That is not P5 passing. It is P4 measured a second time.** Section 9 asks
+whether an inactive-start run *stays* inactive over its final 20 ns, and
+`_final_window` takes every frame within 20 ns of the last one. On a run that
+has produced 8.4 ns, the final 20 ns is the whole trajectory, and every frame
+of it is a few nanoseconds from the structure the run started in. A run that
+begins inactive is inactive at 8 ns in the same way it is inactive at frame 0,
+which is exactly the statement P4 already makes. The window sits at the end of
+the run precisely so that the answer does not depend on the start, and a
+window that contains the start cannot do that.
+
+The control had no notion of whether the row had finished. It took the frames
+that existed and judged them.
+
+**What it would have cost is the shape of the whole night.** A `PASS` on the
+screen is a `PASS` somebody writes down. Six controls are quoted in
+`GATE_OPEN.md`, in the README's table and in section 1.4 here, and the one
+still reading `pending` is the one a reader looks for. It would have been
+copied within the day, from an artefact that recomputes itself, and the number
+behind it would have become true later in the run and nobody would have gone
+back to check whether it had been true when it was written. Two of those three
+documents had exactly that fault tonight with P4's numbers.
+
+P5 now reports `pending` with its reason until the run's status is `complete`:
+
+```
+b2ar_carazolol   pending: the run has produced 9.6 ns and the final 20 ns is
+                 not final until it stops
+```
+
+Pending with a reason rather than withheld, because a row that vanishes from
+the table is a row nobody asks about, and the reason prevents the next reader
+guessing which of several pendings it was.
+
+**The general case this belongs to.** Every other control in this build is a
+statement about structures: P1 to P4 compare reference depositions or score a
+start model, and none of them has a notion of time. P5 is the only one whose
+definition contains a window, and it was the only one that could be answered
+differently by the same code at two different moments. A control with a
+timebase needs to know whether its timebase is complete, and nothing else in
+section 9 did, which is why the omission was easy to make and is worth naming
+rather than just fixing.
+
 ## 5. Production runs
 
 Tier 2 started at 17:04 on 10 October, in section 5.3's priority order: β2AR
