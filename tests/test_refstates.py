@@ -6064,3 +6064,58 @@ def test_the_g6_reason_names_its_unit_in_angstrom():
     assert raised["open"] is True, "90 A^2 should raise G6"
     assert "Å²" in raised["reason"], raised["reason"]
     assert "A^2" not in raised["reason"], raised["reason"]
+
+
+def test_2g1t_deciding_pair_is_what_the_about_page_prints():
+    """The one number on a public page that nothing re-derived.
+
+    The About page tells a reader that the published 6.0 Å spine threshold
+    calls 2G1T's spine broken when it is intact, and prints 6.14 Å. That number
+    was measured once and then written into DECISIONS, FINDINGS and the page,
+    and until now nothing checked it again. It is the single reference that
+    turns the recalibration in D015 from a preference into a demonstration, so
+    it is the one most worth being able to re-derive.
+
+    Skips rather than fails without the KLIFS cache, because it needs the
+    deposited structure and the pocket alignment, and a checkout without the
+    cache has nothing to measure.
+    """
+    from pathlib import Path as _Path
+
+    root = _Path(__file__).resolve().parents[1]
+    cache = root / "data" / "cache" / "klifs"
+    if not (cache / "2g1t.cif.gz").is_file():
+        pytest.skip("no cached 2G1T in this checkout")
+
+    import gemmi
+
+    from flexappeal.refstates import (Catalogue, kinase_id, kinase_references,
+                                      pocket, refs)
+    from flexappeal.refstates.pocket import (R_SPINE_CONTACT_A,
+                                             R_SPINE_CONTACT_CRYSTAL_A,
+                                             r_spine, r_spine_state)
+
+    catalogue = Catalogue(cache)
+    ensembles = kinase_references(catalogue, kinase_id(catalogue))
+    entry = next((e for which in ("active", "inactive", "src_like")
+                  if ensembles.get(which) is not None
+                  for e in ensembles[which].entries
+                  if str(e["pdb"]).upper() == "2G1T"), None)
+    if entry is None:
+        pytest.skip("2G1T is not in this checkout's ensembles")
+
+    structure = gemmi.read_structure(str(refs.fetch_mmcif("2G1T", cache)))
+    structure.setup_entities()
+    structure.remove_alternative_conformations()
+    chain = next(c for c in structure[0]
+                 if c.name == str(entry.get("chain") or "A"))
+    state = r_spine_state(chain, r_spine(pocket.pocket_map(
+        catalogue, entry.get("structure_ID")), chain))
+
+    widest = max(p["distance_a"] for p in state["pairs"] if "distance_a" in p)
+    assert widest == pytest.approx(6.14, abs=0.01), state["pairs"]
+    # The point of the number: the two thresholds disagree about this one
+    # structure, and that disagreement is the argument for having moved it.
+    assert widest < R_SPINE_CONTACT_A, "should be assembled at the build's 7.7"
+    assert widest > R_SPINE_CONTACT_CRYSTAL_A, "should be broken at 6.0"
+    assert state["state"] == "assembled"

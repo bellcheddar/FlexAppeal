@@ -1659,3 +1659,26 @@ arithmetic." It was wrong a third time, at 896. The sentence was right and the
 habit it warns about is the one that put nine stale rows in the document.
 
 1039 passed, 2 skipped.
+
+### 11 October, 21:50. Every hardcoded number on the public About page, checked
+
+The stale claims found this evening were all numbers written into prose. The
+About page is the public one, so its hardcoded numbers were re-derived rather
+than re-read. All four hold:
+
+* "called **six** of ABL1's own DFG-out references neither state": six.
+* "the two classes separate by **8.5 Å** on the difference": 8.49, DFG-in
+  topping out at -6.12 and DFG-out starting at +2.36.
+* "agreement with KLIFS goes from **11 of 17** to **17 of 17**": both exact.
+* "2G1T has its deciding pair at **6.14 Å**": 6.14, the DFG-Phe to HRD-His
+  pair, assembled at this build's 7.7 and broken at the published 6.0.
+
+The last one needed a script, because the R-spine pair distances are not in
+the database or the manifest: it needs the deposited structure and the pocket
+alignment. That is exactly why it is now a test. 2G1T is the single reference
+that turns D015's recalibration from a preference into a demonstration, it was
+measured once and then copied into DECISIONS, FINDINGS and a public page, and
+nothing re-derived it until tonight. The test skips without the KLIFS cache,
+since a checkout without it has nothing to measure.
+
+1040 passed, 2 skipped.
