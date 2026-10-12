@@ -1563,3 +1563,41 @@ redrawn figures. A test covers the served axis labels and the page's threshold
 annotation, and it was checked by putting the ASCII back and watching it fail.
 
 1036 passed, 2 skipped.
+
+### 11 October, 20:15. A finding the data had overtaken
+
+Section 1.1 ends by reading the state map: "The shaded path is `abl1_apo`,
+which stays inside the DFG-in cluster throughout." That was written against the
+43 frames the run had at the time. It now has 229 and the sentence is false.
+The figure regenerated at 19:39 shows it plainly, which is the uncomfortable
+part: the evidence had been redrawn and committed before the claim beside it
+was re-read.
+
+What the path actually does is a better argument than the one it replaced. The
+Lys anchor has left the DFG-in reference range completely, 12.78 to 16.80 Å
+against a reference 12.91 to 14.04, final tenth 15.16. The difference between
+the two anchors has moved further into DFG-in, and the rule calls `in` on all
+229 frames. Three things say nothing is breaking: the salt bridge holds at
+2.83 Å in 225 of 229 frames and is uncorrelated with the drift at r = -0.013,
+αC has not moved, centroid shift 0.68 Å and rotation 5.4°, and the spine is
+assembled in 228.
+
+So the recalibration in 1.1 has a cost and it is now recorded: reading the
+state from a difference leaves neither distance bounded, and a motif can travel
+a long way with the label unchanged and confident. The published absolute rule
+would have called this `other` from frame one, which is the same fault that
+made it mislabel six DFG-out references, so the recalibration is still right.
+
+What is moving is left for the finished run. The catalytic Lys Cα is receding
+from the DFG-Phe ring while its own side chain stays bonded and αC stays put,
+which points at the N-lobe, but 23 of 50 ns is exactly where 5.0c read a trend
+that was not there.
+
+Swept the rest of FINDINGS for claims of the same shape. The others that match
+on "throughout", "every frame" and similar are descriptions of past faults
+rather than live readings. The one user-facing claim that could be checked, the
+About page's TM3-TM6 range, holds: 96.8 per cent of the finished run's frames
+are in the stated 11 to 15 Å band. It now gives the measured range instead,
+because a number that can be exact on a finished run should be.
+
+1038 passed, 2 skipped.

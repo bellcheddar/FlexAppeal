@@ -47,8 +47,47 @@ which is a two-distance criterion and so applies to each axis. On the αC axis i
 falls in an empty six-angstrom gap and separates the classes cleanly. On the Lys
 axis it cuts straight through the DFG-out cluster: six red points sit between
 11.1 and 11.35 Å, just above the line, and those are exactly the six structures
-the rule calls `other`. The shaded path is `abl1_apo`, which stays inside the
-DFG-in cluster throughout.
+the rule calls `other`. The shaded path is `abl1_apo`.
+
+**That path has since left the DFG-in cluster on one axis, and the sentence
+here used to say it did not.** It read "stays inside the DFG-in cluster
+throughout", which was true of the 43 frames that existed when it was written
+and is not true of the 229 frames that exist now. The correction matters more
+than the slip, because what the path does is the clearest statement of what the
+recalibrated rule costs.
+
+At 22.8 ns, with the run still going:
+
+| | DFG-in references | `abl1_apo` so far |
+|---|---|---|
+| αC anchor | 5.61 to 6.83 Å | 5.16 to 8.34 Å, final tenth 6.96 |
+| Lys anchor | 12.91 to 14.04 Å | 12.78 to **16.80** Å, final tenth 15.16 |
+| difference | −6.1 to −7.9 Å | −5.44 to −9.74 Å, final tenth −8.21 |
+
+The Lys anchor has left the reference range entirely and is 2.8 Å past its
+maximum at the extreme, while the difference has moved **further** into DFG-in
+territory and the rule calls `in` on all 229 frames. Three independent things
+say nothing is breaking: the αC-Glu to catalytic-Lys salt bridge is intact at
+2.83 Å for 225 of 229 frames, the αC helix has not moved (centroid shift
+0.68 Å, axis rotation 5.4°, both flat), and the regulatory spine is assembled
+in 228. The salt bridge is uncorrelated with the drift, r = −0.013, so this is
+not the lysine letting go.
+
+**The cost of reading the state from a difference is that neither distance is
+bounded.** The published rule put an absolute line on each axis, and this
+trajectory would have crossed it: the Lys anchor is above 11.0 Å throughout and
+would have read `other` by the published criterion from the first frame, which
+is the same fault that made it call six DFG-out references `other`. The
+recalibration fixes that and pays for it here, by being insensitive to a motif
+moving a long way as long as both anchors move together. The label is right and
+it is not the whole story, which is why the state map is on the page beside it
+rather than only the label.
+
+What is actually moving is left for the finished run: the catalytic Lys Cα is
+receding from the DFG-Phe ring while its own side chain stays bonded to αC-Glu
+and αC stays put, which points at the N-lobe rather than at the motif, but 23
+of 50 ns is where 5.0c read a trend that was not there and this build has
+already made that mistake once.
 
 Logged as D010. The same threshold is in BoltzMaker's own `compare-sse` and will
 mislabel the same structures there, so this is a candidate upstream change.
@@ -382,7 +421,7 @@ itself. The error named a NaN coordinate and nothing about a box.
 | 5.3 | every row apo, with ligands an optional phase 5.7 | one bound row per system: imatinib on ABL1 DFG-out, carazolol on β2AR inactive | D007 and D008. The ligand goes on the state that ligand is known to stabilise, so each system has one row expected to hold and one expected to move, which is the comparison the matrix is for. This promotes half of the optional phase into the core. |
 | 6.2 | explorer carries a replica selector, a start-state selector and a protonation-arm selector | none of the three | A consequence of the two rows above rather than a separate decision: one replica and one arm leave nothing to select between, and each start state is its own run with its own page, reached from the index. Restoring either row restores the need for its selector. |
 | 5.4 | core is αE, αF, αH | KLIFS pocket scaffold | See 2.1. Verified at 0.456 Å. |
-| 7 | per-residue DSSP in `data/dssp/<run_id>.parquet` | in the run's own analysis JSON, one string per frame of one character per residue | The point section 7 makes is that a residues-by-frames matrix must not become SQLite rows, and it does not: b2ar_apo is 160,678 cells, 162 KiB on disk and 10 KiB gzipped, against 160,678 rows. Parquet would be comparable and pyarrow is installed, so this is not about cost. The analysis JSON is already the one artefact written per run and already read by the page that draws the ribbon, and a second file would be another thing to write, rsync and keep in step. It is still served as the compact per-run JSON section 7 asks for. |
+| 7 | per-residue DSSP in `data/dssp/<run_id>.parquet` | in the run's own analysis JSON, one string per frame of one character per residue | The point section 7 makes is that a residues-by-frames matrix must not become SQLite rows, and it does not: b2ar_apo is 160,678 cells, 162 KiB on disk and 10 KiB gzipped, against 160,678 rows. Parquet would be comparable and pyarrow is installed, so this is not about cost. The analysis JSON is already the one artefact written per run and already read by the page that draws the ribbon, and a second file would be another thing to write, rsync and keep in step. It is still served as the compact per-run JSON section 7 asks for. 4z records the same fact from the other end: `pyarrow` and `duckdb` were added for a DSSP store that was never built, on a size estimate out by orders of magnitude. This row is the deviation itself, which the table did not carry. |
 
 ---
 
