@@ -87,9 +87,22 @@ map is on the page beside the label rather than the label alone.
 **What this cost three times is a lesson about reading a running trajectory.**
 Each wrong version was written from the frames that happened to exist. 5.0c did
 the same thing to TM5 at 30.8 ns, calling flat a motif that had moved by 50 ns.
-The fix is not more caution in the prose; it is to date the reading. Every
-quantitative claim about a run in this document now carries the length it was
-taken at, and the finished-run number replaces it rather than sitting beside it.
+The fix is not more caution in the prose; it is to date the reading. Swept this
+document for the same shape afterwards, because a rule stated and not applied is
+worse than no rule. Three kinds of claim came up and they need different
+treatment:
+
+* **A reading of a trajectory** now carries the length it was taken at, and the
+  finished-run number replaces it rather than sitting beside it. 5.0b and 5.0c
+  already did this; 1.1 and 4ba now do.
+* **A control measured at frame 0**, such as P4 in 1.4, does not depend on the
+  run's length at all, so dating it by nanoseconds would say nothing. It
+  depends on the analysis, which has been re-run since it was first recorded:
+  two of its four numbers had moved in the third decimal and are corrected.
+* **A transcript of a past fault**, such as the injected `0.98765` in the
+  verifier's demonstration, is a record of what happened and is left alone. It
+  is marked as a transcript where that was not obvious, which is why 4af now
+  says its bilayer numbers came from a row 10 ns into 50.
 
 Logged as D010. The same threshold is in BoltzMaker's own `compare-sse` and will
 mislabel the same structures there, so this is a candidate upstream change.
@@ -183,10 +196,17 @@ structure-only comparison can still use the published number.
 
 | row | expected | whole-protein s | verdict |
 |---|---|---|---|
-| abl1_apo, DFG-in from 2GQG | active | **+0.305** | pass |
+| abl1_apo, DFG-in from 2GQG | active | **+0.304** | pass |
 | abl1_imatinib, DFG-out from 2HYY | inactive | **−0.368** | pass |
 | b2ar_apo, active refined from 4LDE | active | **+0.593** | pass |
-| b2ar_carazolol, inactive refined from 5D5A | inactive | **−0.934** | pass |
+| b2ar_carazolol, inactive refined from 5D5A | inactive | **−0.923** | pass |
+
+These are frame-0 readings, so they do not change as a run lengthens. They do
+change when the analysis changes, and this build has altered the superposition
+core and the alignment target since they were first written: `abl1_apo` moved
+from +0.305 to +0.304 and `b2ar_carazolol` from −0.934 to −0.923. Re-derived
+from the current analyses at 22:50 on 11 October. `abl1_apo` is the thin one,
++0.304 against a +0.300 band, and it is flagged rather than rounded away.
 
 Measured on the start structures themselves, with no simulation in between: the
 start model is both topology and single frame. A scorer that cannot place its
@@ -2306,8 +2326,11 @@ on the rehearsal database of section 4n. Five of six are now decided and only
 P5 is waiting, on a row that has not started.
 
 **And the bilayer figure drew for the first time**, which is worth more than
-the control line because it shows the direction. Area per lipid reads 68.0 then
-67.2 A^2 across the two chunks, with the receptor tilted 14.9 degrees. Section
+the control line because it shows the direction. The numbers in this section
+are what the rehearsal printed against a `b2ar_apo` that was **10 ns into a
+50 ns run**, and they are left as the transcript rather than updated: 5.6 has
+the finished bilayer. Area per lipid reads 68.0 then 67.2 Å² across the two
+chunks then available, with the receptor tilted 14.9 degrees. Section
 5.2 measured 68.4 on the Tier 1 run and said it was "still falling from where
 the builder left it, which is what an equilibrating bilayer should do". Ten
 nanoseconds later it is 67.2, inside the expected window rather than 0.4 above
@@ -3572,8 +3595,9 @@ What existed was one combined state-score chart, recorded as a deviation in
 section 4u and never closed. This closes it.
 
 **A panel each, not one chart.** The distances run from a tenth of an angstrom
-to ten: ABL1's hinge sits at 0.2 Å from its nearest active reference and its
-activation loop at 7.2. On a shared axis five of the six motifs are flattened
+to ten: over `abl1_apo`'s finished 50 ns the hinge comes within **0.15 Å** of
+its nearest active reference while the activation loop never gets closer than
+**5.68 Å**. On a shared axis five of the six motifs are flattened
 into the floor, which is why the combined chart plots the score rather than the
 distances and why the distances needed their own panels.
 

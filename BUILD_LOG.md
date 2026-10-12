@@ -1721,3 +1721,39 @@ GATE_OPEN's status line updated again; it went stale within 90 minutes of being
 corrected, which is what a status line in a hand-written document does.
 
 1040 passed, 2 skipped.
+
+### 11 October, 22:55. Applying the rule I had just written down
+
+Rewriting 1.1 on the finished run, I ended it with "Every quantitative claim
+about a run in this document now carries the length it was taken at." That was
+an unchecked universal assertion in a deliverable, written in the same
+paragraph as the lesson about unchecked assertions, so it got swept.
+
+Five sections quoted a run number without a length. Three kinds, needing
+different treatment:
+
+**A reading of a trajectory.** 4ba said ABL1's hinge "sits at 0.2 Å from its
+nearest active reference and its activation loop at 7.2". Over the finished run
+the hinge comes within 0.15 Å and the activation loop never closer than 5.68.
+The argument, that distances spanning a fraction of an angstrom to ten cannot
+share an axis, is unaffected and is now exact.
+
+**A control measured at frame 0.** 1.4's P4 table does not depend on run
+length, so dating it in nanoseconds would say nothing. It depends on the
+analysis, and this build has changed the superposition core and the alignment
+target since it was written: `abl1_apo` had moved +0.305 to +0.304 and
+`b2ar_carazolol` −0.934 to −0.923. Corrected, with a note saying when they were
+re-derived and from what. Same two numbers GATE_OPEN carried wrongly.
+
+**A transcript of a past fault.** The verifier's demonstration quotes an
+injected `0.98765`, and the overlay diagnosis quotes distances from the
+investigation. Those are records of what happened and are left alone. 4af was
+the one case where that was not obvious, because its bilayer numbers look like
+results: it now says they came from a row 10 ns into 50, and points at 5.6 for
+the finished figures.
+
+The sentence in 1.1 is replaced by what is actually true, which is these three
+rules rather than one. A rule stated and not applied is worse than no rule,
+and I had just spent an evening on claims that were true when written.
+
+1040 passed, 2 skipped. `b2ar_carazolol` is in its NPT ladder at 10 kcal/mol/Å².
