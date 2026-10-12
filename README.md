@@ -288,7 +288,7 @@ at 300 K.
 | TM3–TM6 state separation, leave-one-out | 100 / 100 at 11.39 Å |
 | R-spine label after recalibration | 5 / 5 active, 14 / 14 inactive |
 | Each start structure scores as its own state | 4 / 4 |
-| Bilayer inside its published windows | 67.7 Å² per lipid, 38.6 Å thick, every chunk inside |
+| Bilayer inside its published windows | mean 67.09 Å² per lipid and 38.92 Å thick over the finished 50 ns, both inside the expected windows; 4 of 5 chunks inside, the first 0.05 Å² above it and inside the acceptable one. G6 closed |
 | An inactive start stays inactive | **pending**: no inactive-start run has finished yet |
 
 The last row is listed rather than left out. It is the one control of the six

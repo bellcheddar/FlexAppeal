@@ -394,11 +394,11 @@ def controls(args: argparse.Namespace) -> int:
         if row.get("status") != "ok":
             print(f"    {row['run_id']:16s} {row.get('status')}")
             continue
-        thickness = (f"{row['thickness_mean']:.1f} A"
+        thickness = (f"{row['thickness_mean']:.1f} \u00c5"
                      if row["thickness_mean"] else "no thickness")
         print(f"    {row['run_id']:16s} {row['chunks']:3d} "
               f"chunk{'' if row['chunks'] == 1 else 's'}, APL "
-              f"{row['apl_mean']:.1f} A^2 ({row['apl_min']:.1f} to "
+              f"{row['apl_mean']:.1f} \u00c5\u00b2 ({row['apl_min']:.1f} to "
               f"{row['apl_max']:.1f}), {thickness}  "
               f"{'PASS' if row['passed'] else 'FAIL'}")
 

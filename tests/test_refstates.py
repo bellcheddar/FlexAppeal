@@ -6047,3 +6047,20 @@ def test_the_published_threshold_is_annotated_in_angstrom():
                 / "templates" / "refstates_run.html").read_text()
     assert "published ${v} \\u00c5" in template, \
         "the state map threshold annotation lost its Angstrom"
+
+
+def test_the_g6_reason_names_its_unit_in_angstrom():
+    """The gate's own sentence is a readout too.
+
+    Section 10's units line is not only about plots. P6 printed its area per
+    lipid as `A^2` and its thickness as `A` in the controls report, and
+    `gate_six` wrote `A^2` into the reason a raised gate carries, which is the
+    sentence somebody reads when the build stops.
+    """
+    from flexappeal.refstates.membrane import MembraneChunk, gate_six
+
+    raised = gate_six([MembraneChunk(start_ns=0.0, end_ns=10.0,
+                                     apl_a2=90.0, thickness_a=38.0)])
+    assert raised["open"] is True, "90 A^2 should raise G6"
+    assert "Å²" in raised["reason"], raised["reason"]
+    assert "A^2" not in raised["reason"], raised["reason"]

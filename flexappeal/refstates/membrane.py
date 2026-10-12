@@ -8,7 +8,7 @@ the protein panels rather than assumed.
 
 The expected ranges are POPC at 303 K with Lipid17, and they are the spec's:
 
-    area per lipid      60 to 68 A^2 expected, outside 55 to 75 is G6
+    area per lipid      60 to 68 Å² expected, outside 55 to 75 is G6
     P-P thickness       36 to 41 A expected
     core water          a count, as a sanity metric rather than a threshold
     receptor tilt       against the bilayer normal
@@ -435,7 +435,7 @@ def gate_six(chunks: list[MembraneChunk]) -> dict[str, Any]:
         "acceptable_a2": list(APL_ACCEPTABLE_A2),
         "n_chunks": len(scored),
         "n_chunks_out_of_range": len(bad),
-        "reason": (f"mean area per lipid {mean_apl:.1f} A^2 is outside "
+        "reason": (f"mean area per lipid {mean_apl:.1f} \u00c5\u00b2 is outside "
                    f"{APL_ACCEPTABLE_A2[0]} to {APL_ACCEPTABLE_A2[1]}")
                   if opens else "mean area per lipid is within the acceptable window",
     }

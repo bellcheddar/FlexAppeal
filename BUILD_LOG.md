@@ -1601,3 +1601,28 @@ are in the stated 11 to 15 Å band. It now gives the measured range instead,
 because a number that can be exact on a finished run should be.
 
 1038 passed, 2 skipped.
+
+### 11 October, 20:40. The same stale claim, in the public README
+
+Having found one claim the data had overtaken, checked the other documents
+that quote run numbers. The README's control table said the bilayer was
+"67.7 Å² per lipid, 38.6 Å thick, every chunk inside". The finished run is
+67.09 and 38.92, and **one chunk is not inside**: the first measures 68.05 Å²
+against a window ending at 68.0. Corrected to the measured means with the
+chunk count and G6's verdict, so the row says what happened rather than
+rounding towards it.
+
+The other six rows of that table check out against the controls run just now.
+
+Running the controls also showed P6 printing `APL 67.1 A^2 ... 38.9 A`, and
+`gate_six` writing `A^2` into the reason a raised gate carries, which is the
+sentence somebody reads when a build stops. Same section 10 units line as
+19:50, in the report rather than the plot. Fixed in `cli.py` and
+`membrane.py`, with a test on the gate's reason.
+
+`tools/run_md.py` has three more, all `kcal/mol/A^2` in log lines about the
+restraint strength. Left alone deliberately: it is the file the queue launches
+each remaining row from, and a cosmetic string is not worth an edit to the
+production path with two rows to go. Noted here so it is not lost.
+
+1039 passed, 2 skipped.
