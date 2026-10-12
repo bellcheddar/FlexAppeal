@@ -1826,3 +1826,31 @@ is what `--start` does in the real pipeline. The assertion is on names and
 distances now.
 
 1042 passed, 2 skipped.
+
+### 12 October, 00:35. The other conditional panel, and the same rounding fault
+
+Asked of the ligand panel the question 4bb asked of the membrane one: has a
+browser ever drawn it? No. `{% if ligand %}` gates it, no fixture supplied the
+key, and both bound rows are last in the queue. The fixture now carries one,
+filled with the real carazolol numbers from last night's rehearsal rather than
+round ones, and the panel draws clean at both viewports with nothing from axe.
+
+Drawing it found a rounding fault this build has fixed once already. The panel
+says the residues listed are within 4.0 Å of the ligand, then prints each
+closest approach to one decimal. Leu248 at 3.97 and Val289 at 3.98, both real
+imatinib contacts, printed as "4.0 Å": two of sixteen contacts reading as
+though they sit on the line the sentence above has just said they are inside.
+
+Identical to the bilayer cell that read "68.0 Å²" beside a badge calling it
+outside a window ending at 68.0. Same fix, two decimals on a value that
+carries a verdict, and the comment explaining the first one is forty lines
+below this panel in the same file. Now with a test, checked by putting one
+decimal back.
+
+The point worth keeping: neither case was found by thinking about rounding.
+Both were found by rendering a panel with real numbers in it. Round fixture
+values never produce the problem, and 0.84 and 2.54 would have passed this
+panel for ever. The rehearsal produced 3.97 and 3.98 because it ran on a real
+pocket.
+
+1043 passed, 2 skipped.

@@ -494,10 +494,16 @@
         {{ "%.1f"|format(ligand.contact_cutoff_a) }} &#8491; of the ligand for
         at least half the run, closest approach beside each.
       </p>
+      {# Two decimals, for the reason the bilayer cell below carries them.
+         The cutoff is 4.0 A and these are the residues inside it, so a
+         contact at 3.97 printed as "4.0 A" reads as sitting exactly on the
+         line it is meant to be inside. The real imatinib pocket has two of
+         them, Leu248 at 3.97 and Val289 at 3.98, and the rounding would have
+         made the sentence above contradict every tag beneath it. #}
       <p>
         {% for contact in ligand.persistent_contacts %}
           <span class="md-tag">{{ contact.name }}{{ contact.residue }}
-            <em>{{ "%.1f"|format(contact.closest_a) }} &#8491;</em></span>
+            <em>{{ "%.2f"|format(contact.closest_a) }} &#8491;</em></span>
         {% endfor %}
       </p>
     {% endif %}

@@ -6276,3 +6276,39 @@ def test_a_real_ligand_gets_its_symmetry_mapping():
     names = {row["name"] for row in contacts}
     assert {"LYS", "GLU"} <= names, sorted(names)
     assert min(row["closest_a"] for row in contacts) < 3.5
+
+
+def test_a_contact_at_the_cutoff_does_not_print_as_the_cutoff():
+    """The ligand panel's contact tags carry two decimals.
+
+    The panel says these residues are within 4.0 Å of the ligand and then
+    prints each one's closest approach. At one decimal a contact at 3.97 Å
+    printed as "4.0 Å", which reads as sitting exactly on the line it is meant
+    to be inside. Two of the sixteen contacts in the real imatinib pocket do
+    this, Leu248 at 3.97 and Val289 at 3.98.
+
+    The same fault was already fixed once, for the bilayer cell that read
+    "68.0 Å²" beside a badge saying it was outside a window ending at 68.0.
+    Rounding that hides the only digit deciding a verdict makes the page look
+    wrong when it is right.
+    """
+    from flask import render_template_string
+
+    from flexappeal.webapp import create_app
+
+    template = (Path(__file__).resolve().parents[1] / "flexappeal"
+                / "templates" / "refstates_run.html").read_text()
+    start = template.index("{% for contact in ligand.persistent_contacts %}")
+    end = template.index("{% endfor %}", start)
+    fragment = template[start:end] + "{% endfor %}"
+
+    application = create_app()
+    with application.app_context():
+        out = render_template_string(
+            fragment,
+            ligand={"persistent_contacts": [
+                {"name": "LEU", "residue": 248, "closest_a": 3.97},
+                {"name": "VAL", "residue": 289, "closest_a": 3.98}]})
+    assert "3.97" in out and "3.98" in out, out
+    assert "4.0 " not in out.replace("4.00", ""), (
+        "a contact inside the 4.0 A cutoff is printing as 4.0 A", out)

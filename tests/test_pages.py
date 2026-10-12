@@ -272,6 +272,30 @@ def site(tmp_path_factory):
                               "n_atoms": 476, "n_frames": 6}},
         "frames": [{"time_ns": t / 2.0, "measurements": {}}
                    for t in range(12)],
+        # Section 5.7's ligand panel, which is gated on this key and so had
+        # never been rendered in a browser or seen by axe: both bound rows are
+        # last in the queue, so no run has ever carried one. The shape is
+        # `pose_and_contacts`'s, and the values are the real carazolol
+        # rehearsal's, so the panel is exercised with the numbers it will
+        # actually be given rather than with round ones.
+        "ligand": {
+            "resname": "CAU", "n_residues": 2, "n_heavy_atoms": 22,
+            "final_pose_rmsd_a": 0.84, "max_pose_rmsd_a": 1.37,
+            "symmetry_corrected": True, "contact_cutoff_a": 4.0,
+            "mean_contacts": 15.2,
+            "persistent_contacts": [
+                {"residue": 113, "name": "ASP", "fraction_of_frames": 1.0,
+                 "closest_a": 2.54},
+                {"residue": 203, "name": "SER", "fraction_of_frames": 0.98,
+                 "closest_a": 2.7},
+                {"residue": 193, "name": "PHE", "fraction_of_frames": 0.91,
+                 "closest_a": 3.69},
+                {"residue": 118, "name": "THR", "fraction_of_frames": 0.76,
+                 "closest_a": 3.51},
+            ],
+            "n_contacts_per_frame": [15, 16, 15, 14, 16, 15,
+                                     15, 16, 14, 15, 16, 15],
+        },
     }))
     # Spanning this fixture's motifs, 267 to 270 and 322 to 326.
     _write_bundle(analysis, "b2ar_apo", n_residues=75, n_frames=6,

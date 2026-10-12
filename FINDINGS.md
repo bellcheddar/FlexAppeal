@@ -3912,6 +3912,47 @@ calculation itself, only the machinery around it, and the real test is
 `b2ar_carazolol`'s 500 frames on Monday. The test skips on a clean checkout,
 because the built systems are gigabytes and are not committed.
 
+## 4bf. The ligand panel had never been drawn either, and it rounded a contact onto its own cutoff
+
+4bb found that the browser checks had never opened a membrane run page. The
+same question asked of the other conditional panel gives the same answer:
+`{% if ligand %}` gates section 5.7's ligand panel, no fixture supplied the
+key, and both bound rows are last in the queue, so that panel had never been
+rendered in a browser, measured by axe, or seen at all.
+
+The fixture now carries one, shaped like `pose_and_contacts`'s output and
+filled with the real carazolol numbers from 4be's rehearsal rather than round
+ones. The panel draws, nine pages at two viewports pass, axe reports nothing.
+
+**And drawing it found a rounding fault of a kind this build has already
+fixed once.** The panel says these residues are within 4.0 Å of the ligand and
+then prints each one's closest approach to **one** decimal. In the real
+imatinib pocket, Leu248 is at 3.97 Å and Val289 at 3.98. Both print as
+`4.00 Å`:
+
+> Residues within 4.0 Å of the ligand for at least half the run, closest
+> approach beside each.
+>
+> LEU248 *4.0 Å*  VAL289 *4.0 Å*
+
+Two of the sixteen contacts, reading as though they sit exactly on the line
+they are inside, in a sentence that has just said they are inside it.
+
+This is the bilayer cell again. That one printed `68.0 Å²` beside a badge
+saying it was outside a window ending at 68.0, because the chunk measured
+68.05 and the rounding hid the only digit that decided. The fix there was two
+decimals on the values that carry a verdict, and the comment explaining it sits
+forty lines below the ligand panel in the same template. The same fix, and now
+the same kind of test, which was checked by putting one decimal back.
+
+Worth drawing the general point, because the two cases are nine hundred lines
+and three weeks apart and neither was found by thinking about rounding. Both
+were found by rendering a panel with real numbers in it. A display precision is
+only wrong next to a specific value, and fixtures with round values never
+produce one: `0.84` and `2.54` would have passed this panel for ever. 4be's
+rehearsal produced 3.97 and 3.98 because it ran on a real pocket, and those two
+numbers are what made this visible.
+
 ## 5. Production runs
 
 Tier 2 started at 17:04 on 10 October, in section 5.3's priority order: β2AR
