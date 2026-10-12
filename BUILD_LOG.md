@@ -2052,3 +2052,31 @@ that were already right.
 
 b2ar_carazolol re-analysed: ligand pose RMSD 0.759 Å, 14 persistent contacts.
 P4 re-run after the edit, 4 of 4. 1054 passed, 3 skipped.
+
+### 12 October, 05:05. Two arrays nothing drew
+
+`pose_and_contacts` returns a pose RMSD and a contact count per frame on every
+bound row. Both are written into the payload, shipped to the browser and read
+by no template, figure or script, which is 4f's fault again. Found by asking
+which outputs nothing consumes, the same question as the gated panels.
+
+Drawn rather than deleted, because a final and a maximum cannot tell a ligand
+that sat still from one that left and came back, and this build has a worked
+example of exactly that distinction mattering: abl1_apo's DFG anchor made a
+four angstrom round trip, outside its reference range for 342 of 500 frames,
+back by the end, with the label unchanged. As a final and a maximum that is a
+ligand that moved once and settled.
+
+One chart with a second y axis, not two panels: a pose RMSD rising while the
+contact count holds is a ligand shifting inside its pocket, and both moving
+together is one coming out.
+
+The test found the fixture before the page. It timed out waiting for a chart
+that could not appear, because the container is gated on `pose_rmsd_a` and the
+fixture carried the contact counts without it. Same lesson as the overlay
+fixture missing `mean_motif_rmsd_a`: a fixture assembled from what a panel
+displays will omit whatever that panel has not displayed yet.
+
+Live b2ar_carazolol draws 57 frames of it now and will draw 500.
+
+1055 passed, 3 skipped, all three GPU contention.

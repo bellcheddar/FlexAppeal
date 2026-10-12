@@ -4180,6 +4180,48 @@ row had finished. Listing the measurements by whether they cross a molecular
 boundary took about ten minutes and answered the question for all of them at
 once, including the five that were already right.
 
+## 4bj. Two arrays computed for every bound row and drawn by nothing
+
+`pose_and_contacts` returns five things. Three of them reach the page: the
+residue name, the final and maximum pose RMSD, and the list of persistent
+contacts. The other two, `pose_rmsd_a` and `n_contacts_per_frame`, are a value
+per frame each, computed on every bound row, written into the analysis
+payload, shipped to the browser in it, and read by no template, figure or
+script. That is 4f's fault again, which recorded four functions implemented,
+tested and called by nothing.
+
+Found by asking which of this build's outputs nothing consumes, which is the
+same shape of question as the gated panels in 4bg and worth asking at the same
+time.
+
+**Drawn rather than deleted, and the reason is the night's other finding.** A
+final value and a maximum cannot distinguish a ligand that sat still from one
+that left its pocket and came back. `abl1_apo`'s DFG anchor did precisely that
+in section 1.1: a four angstrom round trip, out of the reference range for 342
+of 500 frames, back inside by the end, with the label unchanged throughout.
+Reported as a final and a maximum, that excursion is a ligand that moved once
+and settled. Only the series shows it going and returning.
+
+Two series on one chart with a second y axis rather than two panels, because
+they are read against each other: a pose RMSD rising while the contact count
+holds is a ligand shifting inside its pocket, and both moving together is one
+coming out of it.
+
+The frame axis comes from the run's own length rather than a stride written
+into the page, because the analysis strides and the page must not guess at
+what it strided by.
+
+**The test found the fixture before it found the page.** Its first run timed
+out waiting for a chart that could not appear: the container is gated on
+`pose_rmsd_a` and the fixture, written in 4bf from the rehearsal's summary
+numbers, carried the contact counts and not the RMSD series. The gate was
+right and the fixture was incomplete, which is the same lesson as the overlay
+fixture that omitted `mean_motif_rmsd_a`. A fixture assembled from what a
+panel displays will omit whatever the panel has not displayed yet.
+
+On the live `b2ar_carazolol` row the chart now draws 57 frames of it, and will
+draw 500 when the run finishes.
+
 ## 5. Production runs
 
 Tier 2 started at 17:04 on 10 October, in section 5.3's priority order: β2AR

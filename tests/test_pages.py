@@ -335,6 +335,12 @@ def site(tmp_path_factory):
             ],
             "n_contacts_per_frame": [15, 16, 15, 14, 16, 15,
                                      15, 16, 14, 15, 16, 15],
+            # The per-frame RMSD the timeline plots, which the fixture had
+            # omitted: the panel's container is gated on it, so the plot was
+            # simply not rendered and the first version of its test timed out
+            # waiting for a chart that could not appear.
+            "pose_rmsd_a": [0.0, 0.21, 0.33, 0.41, 0.52, 0.68,
+                            0.74, 1.37, 0.91, 0.79, 0.86, 0.84],
         },
     }))
     # Spanning this fixture's motifs, 267 to 270 and 322 to 326.
@@ -459,6 +465,29 @@ def test_no_serious_or_critical_accessibility_violations(chromium, site, name,
                   "nodes": [n.get("target") for n in v.get("nodes", [])][:3]}
                  for v in blocking], indent=2)
             pytest.fail(f"{path}: {len(blocking)} blocking violations\n{detail}")
+    finally:
+        context.close()
+
+
+def test_the_ligand_timeline_draws(chromium, site):
+    """Section 5.7's two per-frame series, which nothing drew.
+
+    `pose_rmsd_a` and `n_contacts_per_frame` were computed and stored in every
+    bound row's payload and read by no template, figure or script, which is
+    the fault 4f records for four other functions. They are worth drawing
+    rather than deleting because the final and maximum above them cannot tell
+    a ligand that sat still from one that left and came back.
+    """
+    context, page, response, problems = _open(
+        chromium, site, "/refstates/run/b2ar_apo", VIEWPORTS["desktop"])
+    try:
+        assert response is not None and response.status == 200
+        page.wait_for_selector("#ligand-timeline .main-svg", timeout=15000)
+        assert page.locator("#ligand-timeline .main-svg").count() > 0
+        # Two traces: the RMSD and the contact count on its own axis.
+        traces = page.evaluate(
+            "document.getElementById('ligand-timeline').data.length")
+        assert traces == 2, traces
     finally:
         context.close()
 
