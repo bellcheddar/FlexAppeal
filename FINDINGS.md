@@ -4327,6 +4327,32 @@ timebase needs to know whether its timebase is complete, and nothing else in
 section 9 did, which is why the omission was easy to make and is worth naming
 rather than just fixing.
 
+### The same word, in the column a reader looks at
+
+Asking where else the build says "final" about something still happening finds
+one more, on the page rather than in a control. The motif table is headed
+"Motifs at the end of the run", with columns "Final s", "Final tenth mean" and
+"Nearest at end". On a producing row those are the latest frame and the latest
+tenth of whatever exists, which on `b2ar_carazolol` this morning was eleven
+nanoseconds of fifty.
+
+This one was **not** misleading, and the difference from P5 is worth being
+precise about rather than filing both under the same heading. The page states
+`Status running` and `Analysed 11.0 ns` directly above the table, and the
+generated finding beside it opens "Over 11 ns", so everything a reader needs
+is on the screen. P5 emitted a bare `PASS` with nothing qualifying it, into a
+result that gets copied into three documents.
+
+Changed anyway, because a column header should not depend on another line
+being read first: a running row now reads "Motifs so far", "Latest s" and
+"Latest tenth mean", and a finished one is unchanged. The cost of being wrong
+here is small and the cost of the fix is a Jinja conditional.
+
+The pair is the useful record. The same loose word appeared in a control and
+in a template, written months apart, and in one place it was harmless and in
+the other it would have put a false `PASS` into the deliverables. Finding the
+harmless one took asking the question that the serious one had just raised.
+
 ## 5. Production runs
 
 Tier 2 started at 17:04 on 10 October, in section 5.3's priority order: β2AR
