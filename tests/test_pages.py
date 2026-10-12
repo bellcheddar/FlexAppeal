@@ -234,6 +234,16 @@ def site(tmp_path_factory):
                 source="KLIFS", source_state=state, our_state=state,
                 metrics={"dfg_d_alphac": alphac, "dfg_d_lys": lys})
 
+        # One reference the catalogue labels and this build could not, which
+        # is the `n_unlabelled` branch of the references page. It fires on
+        # real data, where ABL1 has three, and fired on no fixture: the page
+        # says "a further N structures could not be labelled here, which is
+        # not a disagreement", and that sentence had never been rendered.
+        store.put_reference(
+            connection, "abl1:2V7A", "abl1", pdb="2V7A", chain="B",
+            source="KLIFS", source_state="in", our_state=None,
+            metrics={"dfg_d_alphac": 6.71, "dfg_d_lys": 13.9})
+
         # And the receptor's, which has different axes: the kinase map plots
         # two DFG distances and this one plots the TM3-TM6 cleft against the
         # NPxxY RMSD. Without these the receptor page drew no map, so only the
@@ -363,6 +373,11 @@ PAGES = [
     ("refstates-run", "/refstates/run/abl1_apo"),
     ("refstates-run-membrane", "/refstates/run/b2ar_apo"),
     ("refstates-references", "/refstates/references/abl1"),
+    # Both families, for the reason the state map needed both: the page is
+    # rendered per system and its prose is family specific, naming KLIFS for a
+    # kinase and GPCRdb for a receptor, so only the kinase half had ever been
+    # loaded in a browser or measured by axe.
+    ("refstates-references-gpcr", "/refstates/references/b2ar"),
 ]
 
 

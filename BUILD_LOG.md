@@ -1909,3 +1909,28 @@ has no bilayer and an apo receptor has no ligand. Checked by removing the
 ligand from the fixture, which fails naming the panel and what to do.
 
 1047 passed, 2 skipped.
+
+### 12 October, 02:35. The references page, both families and the branch neither fixture hit
+
+The same question once more, of the page the enumeration did not cover. The
+reference browser is rendered per system and its prose is family specific,
+naming KLIFS and its resolution and quality cuts for a kinase and GPCRdb for a
+receptor. Only `/refstates/references/abl1` was in the QC list, so the
+receptor half had never been loaded in a browser or measured by axe. Added.
+
+Its one interesting conditional is `n_unlabelled`, the sentence that reads "a
+further N structures could not be labelled here, which is not a disagreement
+and is counted separately". I first checked for it by looking for references
+with no catalogue state and found none, and concluded it never fires. That was
+the wrong query: unlabelled means the catalogue has an opinion and this build
+does not, and ABL1 has three, 2V7A, 3QRI and 5HU9, all with a KLIFS state and
+no state of ours. So the branch fires on every real kinase page and fired on
+no fixture. One such reference added.
+
+That distinction matters beyond the test. P1 is 17 of 17, not 17 of 20, and
+the page is careful to say why: three structures this build could not label
+are not three disagreements. Had the fixture carried the case from the start,
+the sentence would have been visible rather than inferred.
+
+1050 passed, 2 skipped. Equilibration is on its last rung at 0.0 kcal/mol/Å²,
+so production starts shortly.
