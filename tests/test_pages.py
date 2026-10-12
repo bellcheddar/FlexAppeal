@@ -234,6 +234,20 @@ def site(tmp_path_factory):
                 source="KLIFS", source_state=state, our_state=state,
                 metrics={"dfg_d_alphac": alphac, "dfg_d_lys": lys})
 
+        # And the receptor's, which has different axes: the kinase map plots
+        # two DFG distances and this one plots the TM3-TM6 cleft against the
+        # NPxxY RMSD. Without these the receptor page drew no map, so only the
+        # kinase half of a panel that is built per family had ever been in a
+        # browser.
+        for code, state, cleft, npxxy in (("3P0G", "active", 14.2, 2.95),
+                                          ("3SN6", "active", 14.9, 2.79),
+                                          ("2RH1", "inactive", 9.1, 0.42),
+                                          ("5D5A", "inactive", 9.4, 0.51)):
+            store.put_reference(
+                connection, f"b2ar:{code}", "b2ar", pdb=code, chain="A",
+                source="GPCRdb", source_state=state, our_state=state,
+                metrics={"tm3_tm6": cleft, "npxxy_to_inactive": npxxy})
+
     # The run's analysis file, which the DSSP ribbon and the viewer read.
     analysis = root / "analysis"
     analysis.mkdir(exist_ok=True)
@@ -607,3 +621,47 @@ def test_clicking_the_state_map_moves_the_viewer_to_that_frame(chromium, site):
         assert moved > 0, "a click in the middle of the path left the slider at zero"
     finally:
         context.close()
+
+
+# Section 6.2's panels are conditional, and the rows that fill them were last
+# in the queue, so three of them had never been drawn in a browser: the
+# membrane health table (4bb), the ligand panel (4bf) and the reference
+# overlay (4bg). Each was found separately. This asserts the whole set at
+# once, so the next panel added to the template is caught by the fixture not
+# covering it rather than by somebody noticing a fourth time.
+GATED_PANELS = {
+    "viewer": 'id="molstar-viewer"',
+    "measurements": "Measurement",
+    "reference spread": "reference",
+    "DSSP agreement": "Secondary structure",
+    "state map": 'id="state-map"',
+    "ligand panel": "<h3>The ligand</h3>",
+    "membrane health": "<h3>Membrane health</h3>",
+    "superposition core": "superposition core",
+    "reference overlay": 'id="overlay-toggle-',
+}
+
+
+def test_every_gated_panel_is_drawn_by_some_fixture_row(chromium, site):
+    """Each panel on the run page is drawn by at least one fixture run.
+
+    Not by both: a water row has no bilayer and the apo receptor has no
+    ligand, and a fixture that forced every panel onto every row would be
+    testing something that cannot happen. The union is the claim.
+    """
+    pages = {}
+    for run in ("abl1_apo", "b2ar_apo"):
+        context, page, response, _problems = _open(
+            chromium, site, f"/refstates/run/{run}", VIEWPORTS["desktop"])
+        try:
+            assert response is not None and response.status == 200, run
+            pages[run] = page.content().lower()
+        finally:
+            context.close()
+
+    undrawn = [name for name, marker in GATED_PANELS.items()
+               if not any(marker.lower() in body for body in pages.values())]
+    assert not undrawn, (
+        f"no fixture row draws {undrawn}, so {'it has' if len(undrawn) == 1 else 'they have'} "
+        f"never been through a browser or axe. Give one of the fixture runs "
+        f"the data that gates it.")

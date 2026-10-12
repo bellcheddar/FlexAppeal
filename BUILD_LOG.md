@@ -1891,3 +1891,21 @@ an overlay entry that exists always carries its score. The fixture was wrong
 about the payload.
 
 1046 passed, 2 skipped.
+
+### 12 October, 01:50. The enumeration, done against the real fixture and then kept
+
+The gate enumeration used a simplified probe rather than the fixture the page
+QC serves, which is how a shortcut produces a confident wrong answer, so it was
+re-run against the real one. That found a fourth gap: the receptor page drew no
+state map, because the fixture carried reference geometry for ABL1 only. The
+map is built per family and the families plot different axes, two DFG distances
+against the TM3-TM6 cleft and NPxxY RMSD, so half of that panel had never been
+in a browser. Four receptor references fixed it.
+
+The enumeration is now a test rather than something done once:
+`test_every_gated_panel_is_drawn_by_some_fixture_row` asserts the union over
+both fixture rows covers all nine gates. The union, not each row: a water row
+has no bilayer and an apo receptor has no ligand. Checked by removing the
+ligand from the fixture, which fails naming the panel and what to do.
+
+1047 passed, 2 skipped.

@@ -3996,6 +3996,25 @@ re-asked the question when the shape of a run changed. Enumerating the gates
 takes a minute and answers it for all nine at once, which is the move that
 should have come before the first two.
 
+**And the enumeration is now the test, rather than a thing I did once.** The
+first pass used a simplified probe rather than the fixture the page QC
+actually serves, which is the kind of shortcut that produces a confident wrong
+answer, so it was re-run against the real one. That turned up a fourth gap:
+the receptor drew no state map, because the fixture carried reference geometry
+for ABL1 only. The map is built per family and the two families plot different
+axes, the kinase two DFG distances and the receptor the TM3-TM6 cleft against
+the NPxxY RMSD, so only half of a panel had ever been in a browser. Four
+receptor references fixed it.
+
+`test_every_gated_panel_is_drawn_by_some_fixture_row` now asserts the union
+over both fixture rows covers all nine. Not both rows for each panel: a water
+row has no bilayer and an apo receptor has no ligand, and a fixture that
+forced every panel onto every row would be testing something that cannot
+happen. Checked by removing the ligand from the fixture, which fails with the
+panel named and what to do about it. The next panel added to this template is
+caught by the fixture not covering it, rather than by somebody noticing a
+fourth time.
+
 ## 5. Production runs
 
 Tier 2 started at 17:04 on 10 October, in section 5.3's priority order: β2AR
