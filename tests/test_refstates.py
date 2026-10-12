@@ -6119,3 +6119,98 @@ def test_2g1t_deciding_pair_is_what_the_about_page_prints():
     assert widest < R_SPINE_CONTACT_A, "should be assembled at the build's 7.7"
     assert widest > R_SPINE_CONTACT_CRYSTAL_A, "should be broken at 6.0"
     assert state["state"] == "assembled"
+
+
+# ===========================================================================
+#  The documents that quote P4 agree with what P4 computes
+# ===========================================================================
+
+
+def _p4_now() -> dict[str, float]:
+    """P4's four scores, from the artefact `controls` writes.
+
+    Not recomputed here: P4 re-analyses each start model against its whole
+    reference ensemble, which is tens of seconds and a network cache. The
+    artefact is the same numbers the command printed, written every run.
+    """
+    import json
+
+    root = Path(__file__).resolve().parents[1]
+    artefact = root / "data" / "analysis" / "controls.json"
+    if not artefact.is_file():
+        pytest.skip("no controls.json in this checkout")
+    # Stale against what P4 actually depends on, which is not the database.
+    # P4 scores the start structures at frame 0 against the reference
+    # ensembles; it never reads a trajectory. Comparing against
+    # `refstates.db` made this skip every time the streaming loop re-ingested,
+    # which is every half hour, so the check was almost always absent exactly
+    # while production was running.
+    age = artefact.stat().st_mtime
+    inputs = [root / "data" / "systems", root / "tools" / "analyse_run.py"]
+    inputs += [root / "flexappeal" / "refstates" / f"{name}.py" for name in
+               ("traj", "state", "ensembles", "kinase", "gpcr", "pocket")]
+    newer = []
+    for item in inputs:
+        if item.is_dir():
+            newer += [f for f in item.rglob("*.pdb") if f.stat().st_mtime > age]
+        elif item.is_file() and item.stat().st_mtime > age:
+            newer.append(item)
+    if newer:
+        pytest.skip("controls.json predates "
+                    f"{newer[0].name}, which determines P4; re-run "
+                    "`cli controls`")
+    rows = json.loads(artefact.read_text())["controls"]["P4"]
+    return {r["name"]: round(float(r["whole_s"]), 3)
+            for r in rows if r.get("whole_s") is not None}
+
+
+def test_the_documents_quoting_p4_agree_with_it():
+    """FINDINGS 1.4 and GATE_OPEN both print P4's four numbers.
+
+    They drifted on 11 October: the superposition core and the alignment target
+    changed, `abl1_apo` moved +0.305 to +0.304 and `b2ar_carazolol` -0.934 to
+    -0.923, and **both** documents kept the old pair, as did `controls.json`,
+    which `controls` was not writing unless asked. The same two numbers wrong
+    in three places is what a copied figure looks like, and none of the three
+    is generated from the others.
+
+    It reads the scores where they are printed as a signed three-decimal number
+    and asks whether any is one P4 does not currently produce, rather than
+    checking the documents mention the run at all, which would fire on every
+    rewording.
+    """
+    import re
+
+    current = _p4_now()
+    if len(current) < 4:
+        pytest.skip("not all four rows are scored in this checkout")
+    allowed = {f"{v:+.3f}" for v in current.values()}
+
+    root = Path(__file__).resolve().parents[1]
+    checked = 0
+    for name, pattern in (
+            ("FINDINGS.md",
+             r"\|\s*(?:abl1|b2ar)_\w+[^|]*\|[^|]*\|\s*\*\*([+\u2212-]0\.\d{3})\*\*"),
+            # Exactly the four comma-separated scores, not the rest of the
+            # cell: it also names the +0.300 pass band, and a looser capture
+            # read that as a fifth score and failed on it.
+            ("GATE_OPEN.md",
+             r"P4 each start scores as its own state \|[^|]*?4 / 4:\s*"
+             r"((?:[+\u2212-]0\.\d{3}(?:,\s*)?){4})")):
+        text = (root / name).read_text()
+        found = re.findall(pattern, text)
+        if not found:
+            continue
+        quoted = []
+        for chunk in found:
+            quoted += re.findall(r"[+\u2212-]0\.\d{3}", chunk)
+        quoted = [q.replace("\u2212", "-") for q in quoted]
+        if not quoted:
+            continue
+        checked += 1
+        stale = sorted({q for q in quoted if q not in allowed})
+        assert not stale, (
+            f"{name} quotes {stale} as P4 scores; P4 currently produces "
+            f"{sorted(allowed)}. Re-derive the numbers in that document.")
+    if not checked:
+        pytest.skip("neither document prints P4's scores in a known shape")

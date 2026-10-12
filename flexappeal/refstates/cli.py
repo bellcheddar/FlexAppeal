@@ -213,7 +213,18 @@ def build_parser() -> argparse.ArgumentParser:
                      default=Path(__file__).resolve().parents[2]
                      / "data" / "refstates.db",
                      help="the explorer database, which P5 and P6 read")
-    two.add_argument("--out", type=Path, default=None)
+    # Written by default, not only when asked. It defaulted to None, so the
+    # command printed the current numbers and left `controls.json` alone, and
+    # nothing in the build passed `--out`. The file sat from 10 October
+    # carrying P4 as +0.305 and -0.934 while the command printed +0.304 and
+    # -0.923, and those two stale numbers are the pair that turned up in both
+    # FINDINGS and GATE_OPEN. An artefact that can silently not be written is
+    # worse than no artefact, because it still looks authoritative.
+    two.add_argument("--out", type=Path,
+                     default=Path(__file__).resolve().parents[2]
+                     / "data" / "analysis" / "controls.json",
+                     help="where to write the controls result; it is written "
+                          "every run so it cannot fall behind what was printed")
     two.set_defaults(func=controls)
 
     three = sub.add_parser("report", help="print what the explorer database holds")

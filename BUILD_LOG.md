@@ -1757,3 +1757,38 @@ rules rather than one. A rule stated and not applied is worse than no rule,
 and I had just spent an evening on claims that were true when written.
 
 1040 passed, 2 skipped. `b2ar_carazolol` is in its NPT ladder at 10 kcal/mol/Å².
+
+### 11 October, 23:15. Where the copied numbers came from
+
+Chasing the P4 drift to its source rather than fixing the third copy of it.
+`cli controls` takes `--out`, it defaulted to `None`, and nothing in the build
+passed it. So the command printed the current numbers and left
+`data/analysis/controls.json` untouched. That file had sat since 10 October at
+19:58 holding P4 as +0.305 and -0.934, which is exactly the pair that was
+wrong in FINDINGS and in GATE_OPEN. Three copies, one stale source, none of
+them generated from another.
+
+`--out` now defaults to `data/analysis/controls.json`, so the artefact is
+written every run and cannot fall behind what was printed. The file is not
+tracked, so the stale one never reached the public remote.
+
+A test now reads the four scores where FINDINGS and GATE_OPEN print them and
+fails if any is a score P4 does not currently produce. Checked by putting each
+document's old numbers back: both fail, naming the document and the stale
+value. It first failed on a false positive worth keeping in mind, reading
+GATE_OPEN's `+0.300` pass band as a fifth score, so the pattern now takes
+exactly the four comma-separated numbers.
+
+The staleness guard took two goes. Comparing the artefact's age against
+`refstates.db` made it skip every time the streaming loop re-ingested, which is
+every half hour, so the check would have been absent exactly while production
+ran. P4 never reads a trajectory: it scores start structures at frame 0
+against the reference ensembles. It now compares against what P4 actually
+depends on, `data/systems` and the six scoring modules, and runs.
+
+Also marked the two invariance claims in 4l and 4m that quote the old P4
+values. Both say a change "did not move" the numbers, which was true, so the
+values stay and a line now says they are the values as they stood for that
+comparison.
+
+1040 passed, 3 skipped, all three GPU contention.

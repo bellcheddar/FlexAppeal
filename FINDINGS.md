@@ -1327,7 +1327,9 @@ caps at 40 per state, best first by the catalogue's own quality for KLIFS and by
 resolution for GPCRdb, and the same run takes 90 seconds. The cap is the reuse
 path's alone: the production path passes no limit, so every committed result is
 still computed over all of ABL1's 12 and 45 and beta2AR's 72 and 28, and P4
-still reads +0.305, -0.368, +0.593 and -0.934 exactly as before.
+still reads +0.305, -0.368, +0.593 and -0.934 exactly as before. Those were
+P4's values when this check was made; the claim is that the cap did not move
+them, not that they are current. 1.4 carries the current four.
 
 **And the ensemble that survived was one structure.** Of the 40 active
 references kept, 39 were dropped at the core alignment, which needs a matching
@@ -1387,7 +1389,9 @@ that is already uniform, and every ABL1 and β2AR ensemble here is: ABL1 aligns
 19 of 19 onto 2F4J at 0.568 Å mean and 0.989 Å max, β2AR 100 onto 3P0G at 0.829
 and 1.289, and P4 still reads +0.305, −0.368, +0.593, −0.934. Those are the
 same numbers to three decimals, which is the check that mattered before
-touching shared code with four rows in flight.
+touching shared code with four rows in flight. They are the values as they
+stood for this comparison, not current ones: the core intersection later moved
+two of them, which 1.4 records.
 
 The thorough fix, intersecting the cores, is still not available and the reason
 is worth keeping: these are residue numbers, and ABL1's references are split
