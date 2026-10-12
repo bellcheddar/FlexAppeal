@@ -1036,6 +1036,52 @@ def write_lipid_bundle(solvated: Path, trajectory: Path, name: str,
             "bytes": size}
 
 
+# A peptide bond is 3.8 A between consecutive Calpha. A protein wrapped through
+# the edge of the box has one that is a box length instead.
+CHAIN_BREAK_A = 10.0
+
+
+def report_broken_chain(loaded) -> bool:
+    """Say so if the protein is split across a periodic boundary.
+
+    Every cross-molecule distance in this build turned out to need the minimum
+    image, four times: the viewer bundle, the lipids, the ligand and the
+    sodium. Each was found by a number that looked wrong, two of them only
+    after a row had finished. The protein is the one case where nothing images
+    anything, because a protein is a single molecule and OpenMM keeps it whole,
+    and every state score depends on that being true.
+
+    So it is checked rather than assumed. Measured on the three trajectories
+    that exist, consecutive Calpha run a median 3.86 A and a maximum 4.05, with
+    nothing above 10 in 6,141 pairs, so the assumption holds here. If it ever
+    stops holding, the state scores do not fail: they quietly measure a
+    distance the long way round the box, which is exactly the shape of fault
+    this build has spent the night finding.
+
+    Reported rather than raised. A broken chain makes the geometry wrong, not
+    the run, and stopping the analysis would lose the measurements that are
+    still fine along with the ones that are not.
+    """
+    import numpy as np
+
+    alpha = [atom.index for atom in loaded.topology.atoms
+             if atom.name == "CA" and atom.residue.is_protein]
+    if len(alpha) < 2:
+        return False
+    coords = loaded.xyz[:, alpha, :] * 10.0
+    step = np.sqrt(((coords[:, 1:, :] - coords[:, :-1, :]) ** 2).sum(axis=2))
+    worst = float(step.max())
+    if worst <= CHAIN_BREAK_A:
+        return False
+    frames = int((step > CHAIN_BREAK_A).any(axis=1).sum())
+    log(f"REFUSING to trust the geometry silently: the protein chain is "
+        f"broken in {frames} of {loaded.n_frames} frames, the widest "
+        f"consecutive Calpha gap being {worst:.1f} A against a peptide bond's "
+        f"3.8. The protein is split across a periodic boundary and every "
+        f"distance measured through the break is the long way round the box")
+    return True
+
+
 def secondary_structure(loaded, motif_residues: dict[str, list[int]],
                         profiles: dict | None = None) -> dict:
     """Per-frame DSSP, and each motif's helix and strand content (section 5.6).
@@ -1136,6 +1182,7 @@ def main() -> int:
 
     log(f"loading {trajectory.name} (stride {args.stride})")
     loaded = traj.load(solvated, trajectory, stride=args.stride)
+    report_broken_chain(loaded)
     # Section 5.5's sodium, loaded beside the analysis trajectory rather than
     # kept in it, so the topology every other measurement runs against does not
     # gain 114 counter-ions. None for a system with none, and the measurement

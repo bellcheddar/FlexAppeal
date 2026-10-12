@@ -2018,3 +2018,37 @@ unchanged at 4 of 4, which the staleness guard asked for by skipping when
 traj.py was edited.
 
 1052 passed, 2 skipped.
+
+### 12 October, 04:30. The periodic audit, listed and closed
+
+Made the list the rule implies: every measurement that crosses between
+molecules. Five of them. Two were fixed tonight, the ligand and the sodium;
+the lipid viewer bundle was fixed earlier; and two were already right and had
+been all along. `centre_bilayer` takes a circular mean of the phosphorus z,
+which is the correct periodic treatment, and the core-water count carries its
+own scar in a comment: "Counting it against an uncentred midplane reported
+8,622 waters in a core that had none".
+
+Everything else is between atoms of one protein, which OpenMM keeps whole, so
+none of it needs imaging. That assumption is now measured rather than held:
+across all three trajectories, consecutive Calpha run a median 3.86 Å and a
+maximum 4.05, nothing above 10 in 6,141 pairs. The protein never wraps. Every
+intra-protein number in this build is sound, and abl1_apo's four-angstrom
+excursion is physics rather than an artefact, which was worth knowing for
+certain rather than by inference.
+
+`report_broken_chain` says so at analysis time if that stops being true,
+reported rather than raised because a split chain makes the geometry wrong and
+not the run. It is worth having because a broken chain does not fail either:
+it measures the long way round the box and returns something that reads as a
+conformational change. Two tests. Silent on the real analysis, as it should
+be.
+
+The audit is the part to keep. Four faults of one kind, found over three weeks,
+each by noticing a number that looked wrong and two of them after a row had
+finished. Listing the measurements by whether they cross a molecular boundary
+took ten minutes and answered it for all five at once, including the three
+that were already right.
+
+b2ar_carazolol re-analysed: ligand pose RMSD 0.759 Å, 14 persistent contacts.
+P4 re-run after the edit, 4 of 4. 1054 passed, 3 skipped.

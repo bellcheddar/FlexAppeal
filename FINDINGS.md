@@ -4142,6 +4142,44 @@ periodic boundary needs the minimum image**, and the way to find the next one
 is to list the measurements that cross between molecules rather than to wait
 for a number that looks wrong.
 
+### So the list was made, and it closes
+
+Every measurement in this build that crosses between molecules:
+
+| measurement | status |
+|---|---|
+| ligand pose and contacts | fixed here, 4bh |
+| sodium to D2.50 | fixed here |
+| lipid phosphorus for the viewer | fixed earlier, by minimum image about the receptor |
+| bilayer thickness and area per lipid | already correct: `centre_bilayer` takes a circular mean of the phosphorus z, which is the right periodic treatment |
+| waters in the hydrophobic core | already correct, and carries the scar: "Counting it against an uncentred midplane reported 8,622 waters in a core that had none" |
+
+That leaves the measurements that do **not** cross between molecules, which is
+most of them: the DFG two-distance test, the αC salt bridge, the R-spine, the
+TM3-TM6 cleft, NPxxY, the connector, every motif RMSD. All are between atoms
+of one protein, and a protein is a single molecule that OpenMM keeps whole, so
+none of them needs imaging.
+
+**That assumption is now checked rather than held.** Measured on all three
+trajectories: consecutive Cα run a median 3.86 Å and a maximum 4.05, with
+nothing above 10 Å in 6,141 pairs. The protein never wraps, so every
+intra-protein number in this build is sound, and `abl1_apo`'s four-angstrom
+excursion in 1.1 is physics rather than an artefact, which was worth knowing
+for certain.
+
+`report_broken_chain` now says so at analysis time if that ever stops being
+true. It is reported rather than raised, because a split chain makes the
+geometry wrong and not the run, and it is worth having because a broken chain
+does not fail either: it measures the long way round the box and returns a
+number that looks like a conformational change. Two tests, one for a whole
+chain and one for a chain wrapped mid-sequence.
+
+The audit is the part to keep. Four faults of one kind were found over three
+weeks, each by noticing a number that looked wrong, and two of them after a
+row had finished. Listing the measurements by whether they cross a molecular
+boundary took about ten minutes and answered the question for all of them at
+once, including the five that were already right.
+
 ## 5. Production runs
 
 Tier 2 started at 17:04 on 10 October, in section 5.3's priority order: β2AR

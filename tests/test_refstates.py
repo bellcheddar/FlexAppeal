@@ -6553,3 +6553,45 @@ def test_a_wrapped_sodium_is_imaged_onto_the_receptor(tmp_path: Path):
     nearest = float(np.linalg.norm(positions[0][0] - protein[0] * 10.0))
     assert nearest < 5.0, (
         f"a wrapped sodium 2 A from the protein read as {nearest:.1f} A away")
+
+
+def _chain_trajectory(break_it: bool):
+    """A short chain, optionally with one residue wrapped through the box."""
+    import mdtraj as md
+    import numpy as np
+
+    topology = md.Topology()
+    chain = topology.add_chain()
+    for index in range(8):
+        residue = topology.add_residue("ALA", chain, resSeq=index + 1)
+        topology.add_atom("CA", md.element.carbon, residue)
+    coords = np.zeros((8, 3), dtype=np.float32)
+    coords[:, 0] = np.arange(8) * 0.38          # a peptide bond, in nm
+    if break_it:
+        coords[4:, 0] -= 4.0                     # the tail wrapped one box
+    xyz = np.stack([coords] * 2)
+    traj = md.Trajectory(xyz.astype(np.float32), topology)
+    traj.unitcell_lengths = np.tile(np.array([4.0, 4.0, 4.0]), (2, 1))
+    traj.unitcell_angles = np.full((2, 3), 90.0, dtype=np.float32)
+    return traj
+
+
+def test_a_whole_protein_is_not_reported_as_broken():
+    module = _analyse_run_module()
+    assert module.report_broken_chain(_chain_trajectory(break_it=False)) is False
+
+
+def test_a_protein_split_across_the_box_is_reported(capsys):
+    """The one geometry nothing images, so it is checked instead.
+
+    Four cross-molecule distances in this build needed the minimum image and
+    none of them announced itself; each was found by a number that looked
+    wrong. The protein is the case where nothing images anything, because
+    OpenMM keeps a molecule whole, and every state score depends on that. A
+    split chain does not fail: it measures the long way round the box and
+    returns a plausible number.
+    """
+    module = _analyse_run_module()
+    assert module.report_broken_chain(_chain_trajectory(break_it=True)) is True
+    said = capsys.readouterr().out
+    assert "broken" in said and "periodic boundary" in said, said
