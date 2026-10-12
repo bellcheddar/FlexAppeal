@@ -65,6 +65,49 @@ def _heavy(topology, residue_index: int) -> list[int]:
             if atom.element is not None and atom.element.symbol != "H"]
 
 
+def _imaged_ligand(traj, heavy: list[int]) -> tuple:
+    """The ligand's coordinates in the periodic copy nearest the receptor.
+
+    Returns `(xyz_in_nm, note)`. Without this the first real trajectory
+    reported carazolol 110 Å from its own receptor and holding no contacts at
+    all: the integrator had wrapped the ligand through the edge of the box, so
+    it sat at y = 0.18 nm against a receptor at 12.83 in a box 13.11 tall. The
+    two are touching. The arithmetic is not.
+
+    It is the same minimum-image convention `write_lipid_bundle` applies to the
+    bilayer, and the third time this build has met periodic wrapping: the
+    viewer bundle had 17 of 50 frames in another image, and the lipids were
+    shifted rather than imaged and grew a 269 Å span. A ligand is the case
+    where it matters most, because the failure is silent and reads as a
+    result: a pose RMSD of 5.4 Å and zero contacts is exactly what a ligand
+    that had come out of its pocket would look like.
+
+    One shift per frame for the whole molecule, taken from its centroid, not
+    per atom. Imaging atoms independently would place a ligand sitting across
+    the boundary into two pieces, which is a worse answer than the one being
+    fixed and would not look wrong in the numbers.
+    """
+    import numpy as np
+
+    xyz = traj.xyz[:, heavy, :]
+    if traj.unitcell_lengths is None:
+        return xyz, ("the trajectory carries no box, so the ligand could not "
+                     "be imaged about the receptor")
+    protein = [atom.index for atom in traj.topology.atoms
+               if atom.residue.is_protein and atom.element is not None
+               and atom.element.symbol != "H"]
+    if len(protein) < 3:
+        return xyz, "too little protein to image the ligand about"
+
+    box = np.asarray(traj.unitcell_lengths)
+    if not np.all(box > 0):
+        return xyz, "the trajectory's box is degenerate, so no imaging was done"
+    anchor = traj.xyz[:, protein, :].mean(axis=1)
+    centre = xyz.mean(axis=1)
+    shift = box * np.round((centre - anchor) / box)
+    return xyz - shift[:, None, :], ""
+
+
 def pose_and_contacts(traj, core_residues: list[int], *,
                       cutoff_a: float = CONTACT_CUTOFF_A) -> dict[str, Any]:
     """Pose RMSD per frame and per-residue contact persistence.
@@ -107,7 +150,11 @@ def pose_and_contacts(traj, core_residues: list[int], *,
     # first frame rather than a deposited pose: the question section 5.7 asks
     # is whether the ligand stayed where this simulation started it.
     reference = core_coords[0]
-    ligand_xyz = traj.xyz[:, heavy, :] * 10.0
+    # Imaged about the receptor before anything is measured. Both readings
+    # depend on it: a wrapped ligand is a hundred angstrom from its own pocket,
+    # which reads as a lost pose and no contacts rather than as a fault.
+    imaged, imaging_note = _imaged_ligand(traj, heavy)
+    ligand_xyz = imaged * 10.0
     moved = np.empty_like(ligand_xyz)
     for index in range(traj.n_frames):
         transform = superpose(core_coords[index], reference)
@@ -116,7 +163,7 @@ def pose_and_contacts(traj, core_residues: list[int], *,
     symmetry, note = _symmetry_for(traj, members, heavy)
     drift = _drift(moved, symmetry)
 
-    contacts = _contacts(traj, set(members), heavy, cutoff_a)
+    contacts = _contacts(traj, set(members), heavy, cutoff_a, imaged)
     out: dict[str, Any] = {
         "resname": name,
         "n_residues": len(members),
@@ -130,8 +177,9 @@ def pose_and_contacts(traj, core_residues: list[int], *,
         "n_contacts_per_frame": contacts["per_frame"],
         "mean_contacts": round(float(np.mean(contacts["per_frame"])), 2),
     }
-    if note:
-        out["note"] = note
+    for extra in (note, imaging_note):
+        if extra:
+            out["note"] = (out["note"] + "; " + extra) if out.get("note") else extra
     return out
 
 
@@ -192,7 +240,7 @@ def _drift(coords, symmetry):
 
 
 def _contacts(traj, members: set, heavy: list[int],
-              cutoff_a: float) -> dict[str, Any]:
+              cutoff_a: float, ligand_xyz=None) -> dict[str, Any]:
     """Which receptor residues the ligand holds on to, and for how much of the run.
 
     Closest heavy-atom approach per residue, so a residue counts once however
@@ -211,14 +259,18 @@ def _contacts(traj, members: set, heavy: list[int],
         if atoms:
             candidates.append((residue, np.array(atoms, dtype=np.int64)))
 
-    ligand = np.array(heavy, dtype=np.int64)
+    # The imaged coordinates, not the raw ones. `ligand_xyz` is already in the
+    # periodic copy nearest the receptor; falling back to the raw slice keeps
+    # the function usable on its own, which the tests rely on.
+    coords = (traj.xyz[:, np.array(heavy, dtype=np.int64), :]
+              if ligand_xyz is None else ligand_xyz)
     per_frame = np.zeros(traj.n_frames, dtype=int)
     persistent = []
     for residue, atoms in candidates:
         # (frames, ligand heavy, residue heavy) is the honest shape and is too
         # large to hold for a whole protein, so this is done residue by
         # residue and reduced immediately.
-        diff = (traj.xyz[:, ligand, None, :] - traj.xyz[:, None, atoms, :])
+        diff = (coords[:, :, None, :] - traj.xyz[:, None, atoms, :])
         closest = np.sqrt((diff ** 2).sum(axis=3)).min(axis=(1, 2))
         touching = closest <= cutoff_nm
         per_frame += touching.astype(int)

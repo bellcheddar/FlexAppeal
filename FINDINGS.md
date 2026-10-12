@@ -4015,6 +4015,74 @@ panel named and what to do about it. The next panel added to this template is
 caught by the fixture not covering it, rather than by somebody noticing a
 fourth time.
 
+## 4bh. The ligand left its pocket, and it was the box
+
+`b2ar_carazolol` started producing at 02:39. The streaming pass ten minutes
+later gave section 5.7's panel its first run on a real trajectory, and it
+said this:
+
+```
+ligand CAU: pose RMSD ends at 5.425 A, max 5.425 A, 0 persistent contacts
+```
+
+Carazolol is an inverse agonist in the orthosteric site of the receptor it was
+crystallised in. Zero contacts is not a result, it is an answer to a different
+question. But it is **exactly** what a ligand that had genuinely come out of
+its pocket would print, which is the whole problem with it.
+
+**The ligand was 110 Å from its own receptor, and they were touching.**
+Measured per frame: the ligand's centroid sits at y = 0.18 nm, the receptor's
+at y = 12.83, in a box 13.11 nm tall. The integrator had wrapped the ligand
+through the edge. In the periodic system the two are adjacent; in the raw
+coordinates `_contacts` was given, nothing is within 4 Å of anything.
+
+**This build has met periodic wrapping twice before and fixed it twice.** The
+viewer bundle had 17 of 50 frames in another image and now brings them back.
+The lipid bundle was shifted rather than imaged and grew a y span from 145 to
+269 Å, and now uses the minimum-image convention about the receptor, with a
+comment saying so. `ligand.py` was written after both and got neither.
+
+The fix is the same convention, applied before either reading is taken, with
+one detail that matters: **one shift per frame for the whole molecule**, taken
+from its centroid, rather than per atom. Imaging atoms independently would cut
+a ligand lying across the boundary into two pieces, which is a worse answer
+than the one being corrected and would not look wrong in the numbers.
+
+Before and after, on the same twelve frames:
+
+| | before | after |
+|---|---|---|
+| pose RMSD, final | 5.425 Å | **0.475 Å** |
+| pose RMSD, max | 5.425 Å | **0.800 Å** |
+| persistent contacts | **0** | **15** |
+| mean contacts per frame | 0.0 | 13.3 |
+
+And the contacts are the published pocket: Asp113 at 2.45 Å, which is the
+aspartate every aminergic receptor uses to hold a protonated amine, with
+Val114, Val117, Thr118, Ser203 and Asn293 around it. That list is the one
+4be's rehearsal predicted from the start model, residue for residue.
+
+**Why the rehearsal did not catch it, which is the useful part.** 4be ran this
+path on both bound systems the night before and found the contacts correct. It
+used a single frame taken from `solvated.pdb`, and a freshly built system has
+nothing wrapped: the builder places the ligand in the pocket and writes it
+there. Wrapping is something an integrator does over nanoseconds. So the
+rehearsal tested everything except the one thing that was wrong, and could not
+have done otherwise.
+
+That is not an argument against rehearsing. The rehearsal is what established
+that the symmetry correction works on both real ligands, which is also true
+and was also unverified. It is an argument about what a single frame from a
+built system can stand in for, and the answer is: the parts that do not depend
+on time. A trajectory's faults need a trajectory, and this one surfaced within
+thirty minutes of the first frames because something was watching.
+
+**What it would have cost.** Both bound rows would have finished, been
+analysed, ingested, drawn and written up reporting that the ligand left the
+pocket immediately and held nothing. Section 5.7's two headline numbers would
+both have been wrong, in the direction of a dramatic result, on the two rows
+the whole optional phase exists for.
+
 ## 5. Production runs
 
 Tier 2 started at 17:04 on 10 October, in section 5.3's priority order: β2AR

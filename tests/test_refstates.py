@@ -6408,3 +6408,94 @@ def test_a_ghost_without_its_file_is_not_offered(tmp_path: Path):
 def test_no_ghosts_at_all_draws_no_overlay_control(tmp_path: Path):
     page = _overlay_page(tmp_path, write_ghosts=())
     assert 'id="overlay-toggle-' not in page
+
+
+def _wrapped_complex(wrap: bool):
+    """A two-residue protein with a ligand beside it, optionally wrapped.
+
+    Generated here rather than committed. The ligand sits 3 Å from the protein
+    in reality; when `wrap` is set it is moved one box length in y, which is
+    what an integrator does to a molecule that drifts through the edge and is
+    exactly what the first real `b2ar_carazolol` frames looked like.
+    """
+    import mdtraj as md
+    import numpy as np
+
+    topology = md.Topology()
+    chain = topology.add_chain()
+    protein_atoms = []
+    for index in range(6):
+        residue = topology.add_residue("ALA", chain, resSeq=index + 1)
+        for atom_name in ("N", "CA", "C", "O"):
+            protein_atoms.append(
+                topology.add_atom(atom_name, md.element.carbon
+                                  if atom_name != "O" else md.element.oxygen,
+                                  residue))
+    ligand_chain = topology.add_chain()
+    ligand_residue = topology.add_residue("LIG", ligand_chain, resSeq=900)
+    for index in range(4):
+        topology.add_atom(f"C{index}", md.element.carbon, ligand_residue)
+
+    box = np.array([4.0, 4.0, 4.0], dtype=np.float32)
+    protein = np.zeros((len(protein_atoms), 3), dtype=np.float32)
+    protein[:, 0] = np.arange(len(protein_atoms)) * 0.15
+    protein[:, 1] = 2.0
+    protein[:, 2] = 2.0
+    ligand = np.zeros((4, 3), dtype=np.float32)
+    ligand[:, 0] = np.arange(4) * 0.15 + 0.2
+    ligand[:, 1] = 2.0 + 0.30          # 3 A from the protein in y
+    ligand[:, 2] = 2.0
+    if wrap:
+        ligand[:, 1] -= box[1]          # through the edge, as an integrator does
+
+    xyz = np.stack([np.vstack([protein, ligand])] * 3)
+    traj = md.Trajectory(xyz.astype(np.float32), topology)
+    traj.unitcell_lengths = np.tile(box, (3, 1))
+    traj.unitcell_angles = np.full((3, 3), 90.0, dtype=np.float32)
+    return traj
+
+
+def test_a_wrapped_ligand_is_imaged_back_onto_its_pocket():
+    """Section 5.7's readings both depend on the ligand being in the right image.
+
+    The first real `b2ar_carazolol` frames reported carazolol 110 Å from its
+    own receptor, holding **zero** contacts, with a pose RMSD of 5.4 Å. The
+    ligand had been wrapped through the edge of the box: it sat at y = 0.18 nm
+    against a receptor at 12.83 in a box 13.11 tall, so the two were touching
+    and the arithmetic was not. Imaged about the receptor the same frames give
+    a pose RMSD of 0.45 Å and 15 contacts.
+
+    The failure is silent and reads as a result, which is why it has a test: a
+    lost pose and no contacts is exactly what a ligand that had genuinely come
+    out of its pocket would look like.
+    """
+    from flexappeal.refstates import ligand as ligand_mod
+
+    core = list(range(6))
+    here = ligand_mod.pose_and_contacts(_wrapped_complex(wrap=False), core)
+    there = ligand_mod.pose_and_contacts(_wrapped_complex(wrap=True), core)
+
+    assert here["persistent_contacts"], "the unwrapped case should hold contacts"
+    assert len(there["persistent_contacts"]) == len(here["persistent_contacts"]), (
+        "a wrapped ligand must read the same as the same ligand unwrapped; "
+        f"got {len(there['persistent_contacts'])} against "
+        f"{len(here['persistent_contacts'])}")
+    assert there["max_pose_rmsd_a"] == pytest.approx(here["max_pose_rmsd_a"],
+                                                     abs=1e-6)
+    # The note this fixture does carry is about symmetry: four carbons in a
+    # line have no graph to infer, which is a property of the fixture. What
+    # must not appear is a note about imaging, which would mean the correction
+    # declined to run.
+    assert "image" not in (there.get("note") or ""), there.get("note")
+    assert "box" not in (there.get("note") or ""), there.get("note")
+
+
+def test_a_trajectory_with_no_box_says_so_rather_than_imaging():
+    """Omission over a stand-in: no box means no imaging, and the note says it."""
+    from flexappeal.refstates import ligand as ligand_mod
+
+    traj = _wrapped_complex(wrap=False)
+    traj.unitcell_lengths = None
+    traj.unitcell_angles = None
+    out = ligand_mod.pose_and_contacts(traj, list(range(6)))
+    assert "no box" in (out.get("note") or ""), out.get("note")

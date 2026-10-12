@@ -1934,3 +1934,48 @@ the sentence would have been visible rather than inferred.
 
 1050 passed, 2 skipped. Equilibration is on its last rung at 0.0 kcal/mol/Å²,
 so production starts shortly.
+
+### 12 October, 03:10. The ligand left its pocket, and it was the box
+
+b2ar_carazolol started producing at 02:39. The streaming pass ten minutes later
+gave section 5.7's panel its first run on a real trajectory: "pose RMSD ends at
+5.425 A, max 5.425 A, 0 persistent contacts". Carazolol is an inverse agonist
+sitting in the orthosteric site of the receptor it was crystallised in, so zero
+contacts is not a result. It is also exactly what a ligand that had genuinely
+come out would print, which is what makes it dangerous.
+
+The ligand was 110 Å from its own receptor and they were touching. Its centroid
+sits at y = 0.18 nm against the receptor's 12.83, in a box 13.11 tall: wrapped
+through the edge by the integrator.
+
+Third time this build has met periodic wrapping. The viewer bundle had 17 of 50
+frames in another image; the lipids were shifted rather than imaged and grew a
+269 Å span. `ligand.py` was written after both fixes and got neither. Same
+minimum-image convention about the receptor, applied before either reading is
+taken, with one shift per frame for the whole molecule rather than per atom:
+imaging atoms independently would cut a ligand lying across the boundary in
+two, which is worse and would not look wrong.
+
+On the same twelve frames: pose RMSD 5.425 to 0.475 Å, max 5.425 to 0.800,
+contacts 0 to 15. Asp113 at 2.45 Å with Val114, Val117, Thr118, Ser203 and
+Asn293, which is the published pocket and is residue for residue what 4be's
+rehearsal predicted from the start model.
+
+Why the rehearsal missed it is the useful part. It used a single frame from
+`solvated.pdb`, and a freshly built system has nothing wrapped: the builder
+puts the ligand in the pocket and writes it there. Wrapping is what an
+integrator does over nanoseconds. The rehearsal tested everything except the
+thing that was wrong and could not have done otherwise. It still earned its
+place, because it is what established the symmetry correction works on both
+real ligands. The lesson is narrower: a single frame from a built system stands
+in for the parts that do not depend on time, and a trajectory's faults need a
+trajectory.
+
+Had nothing been watching, both bound rows would have been analysed, drawn and
+written up reporting that the ligand left immediately and held nothing. Section
+5.7's two headline numbers, both wrong, in the direction of a dramatic result,
+on the two rows the optional phase exists for.
+
+Two tests, checked by removing the imaging: a wrapped ligand must read the same
+as the same ligand unwrapped, and a trajectory with no box says so instead of
+imaging. 1052 passed, 2 skipped.
