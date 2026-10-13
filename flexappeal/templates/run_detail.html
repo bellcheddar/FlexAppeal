@@ -15,6 +15,7 @@
 #}
 
 {% from "_refstates_panels.html" import refstates_section %}
+{% from "_viewer_card.html" import viewer_card %}
 
 {% block content %}
 {% include "_banner.html" %}
@@ -22,12 +23,10 @@
 <section class="md-card md-run-header">
   <p class="md-run-back"><a href="{{ url_for('analysis.runs_page') }}">&larr; All runs</a></p>
   <h2>{{ run_label }}</h2>
-  <p class="md-run-sub">
-    {{ summary.duration_ns }} ns
-    {% if summary.force_field %} · {{ summary.force_field }}{% endif %}
-    {% if summary.platform %} · {{ summary.platform }}{% endif %}
-    {% if summary.structure.filename %} · {{ summary.structure.filename }}{% endif %}
-  </p>
+  {# No subtitle. It read "49.900001525878906 ns · amber14-all.xml · OpenCL ·
+     2HYY.pdb", which is one unrounded number the tile below carries with its
+     unit, and three facts that are worth a box each rather than a line of
+     small grey text. They are tiles now, in `plots.tiles`. #}
   {% if tiles %}
     <dl class="md-tiles">
       {% for t in tiles %}
@@ -49,91 +48,8 @@
 {% endif %}
 
 {% if has_viewer %}
-  <section class="md-card md-viewer-card">
-    <h3>Structure</h3>
-    <div class="md-viewer-stage">
-      <div id="molstar-viewer"
-           data-structure="{{ url_for('analysis.structure_file', token=token) }}"
-           data-trajectory="{{ url_for('analysis.trajectory_file', token=token) }}"
-           data-frames="{{ summary.frames_packed or 0 }}"
-           {# Whether the B-factor column carries a motif number. A results
-              file packed without one keeps the default theme rather than being
-              painted from a column of zeroes. #}
-           data-motif-painted="{{ "1" if refstates_viewer and refstates_viewer.motif_painted else "0" }}"
-           data-duration="{{ summary.duration_ns or 0 }}"></div>
-      {% if binding and binding.depiction %}
-        <figure class="md-depiction">
-          <img src="{{ binding.depiction }}" loading="lazy"
-               alt="{% if binding.painted %}Two-dimensional structure of the ligand, each atom shaded by how far it moved over the scored window{% else %}Two-dimensional structure of the ligand{% endif %}">
-          <figcaption>
-            {% if binding.painted %}
-              <span class="md-depiction-label">mobility</span>
-              <span class="md-ramp" aria-hidden="true">
-                {% for edge, colour in mobility_bands %}<i style="background: {{ colour }}"></i>{% endfor %}
-              </span>
-              <span class="md-ramp-ticks" aria-hidden="true">
-                <b>0</b><b>{{ mobility_ceiling }}+ Å</b>
-              </span>
-            {% else %}
-              <span class="md-depiction-label">structure only: no per-atom mobility</span>
-            {% endif %}
-          </figcaption>
-        </figure>
-      {% endif %}
-    </div>
-    {# The viewer's reference-state controls, for a run that carries the
-       analysis they need. `analysis.js` has driven all three of these from
-       markup since before this page showed them, so there is no viewer code
-       here, only the facts each control is made of. #}
-    {% if refstates_viewer and refstates_viewer.overlay %}
-      {# One toggle per state rather than one for both, because the question a
-         reader has is usually about one of them. Each names its structure and
-         how far this run sits from it, so a ghost is labelled rather than being
-         an anonymous second protein. #}
-      <div class="md-checkgroup md-viewer-toggles">
-        {% for state, ref in refstates_viewer.overlay | dictsort %}
-          <label class="md-check">
-            <input type="checkbox" class="overlay-toggle"
-                   id="overlay-toggle-{{ state }}"
-                   data-state="{{ state }}"
-                   data-structure="{{ url_for('analysis.viewer_member', token=token, member=ref.member) }}">
-            <span>Ghost the nearest {{ state }}
-              {% if ref.code %}<em>{{ ref.code }}{% if ref.mean_motif_rmsd_a is not none %},
-                {{ "%.1f"|format(ref.mean_motif_rmsd_a) }} &#8491; mean over the motifs{% endif %}</em>{% endif %}
-            </span>
-          </label>
-        {% endfor %}
-      </div>
-    {% endif %}
-    {% if refstates_viewer and refstates_viewer.lipids %}
-      {# Off by default: the receptor is what the page is about, and 476
-         spheres around it is a lot to meet first. #}
-      <div class="md-checkgroup md-viewer-toggles">
-        <label class="md-check">
-          <input type="checkbox" id="lipid-toggle"
-                 data-structure="{{ url_for('analysis.viewer_member', token=token, member=refstates_viewer.lipids.topology) }}"
-                 data-trajectory="{{ url_for('analysis.viewer_member', token=token, member=refstates_viewer.lipids.trajectory) }}">
-          <span>Show the bilayer
-            {% if refstates_viewer.lipids.n_atoms %}<em>{{ refstates_viewer.lipids.n_atoms }} lipid phosphorus atoms</em>{% endif %}
-          </span>
-        </label>
-      </div>
-    {% endif %}
-    {% if (summary.frames_packed or 0) > 1 %}
-      <div class="md-scrubber">
-        <label for="scrub">Trajectory</label>
-        <input type="range" id="scrub" min="0" max="{{ summary.frames_packed - 1 }}"
-               value="0" step="1"
-               data-frames="{{ summary.frames_packed }}"
-               data-duration="{{ summary.duration_ns or 0 }}"
-               aria-describedby="scrub-readout">
-        <span id="scrub-readout" class="md-scrub-readout">0.0 ns</span>
-        <button class="md-button" type="button" id="scrub-play"
-                aria-label="Pause the trajectory">Pause</button>
-      </div>
-    {% endif %}
-    <p class="md-viewer-status" id="viewer-status">Loading the structure…</p>
-  </section>
+  {{ viewer_card(summary, token, binding, mobility_bands,
+                 mobility_ceiling, refstates_viewer) }}
 {% endif %}
 
 {% macro panel_card(panel) %}

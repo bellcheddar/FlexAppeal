@@ -1,0 +1,140 @@
+{#
+  The structure viewer, for every page that shows one.
+
+  One macro, for the reason `_results_context` is one function and
+  `_refstates_panels.html` is one include: the Example tab and a run in the
+  library draw the same viewer of the same kind of file, and when the markup
+  was duplicated the two drifted. The Example tab had an intro line saying how
+  many frames and atoms were packed, and the explanation a screen reader needs
+  for the mobility ramp; the run pages, which are the pages with the longest
+  trajectories and the most to explain, had neither.
+
+  Everything optional is optional in one place. A run with no ligand has no
+  mobility inset, a run with no reference-state analysis has no motif key and
+  no bilayer, and a single-frame structure has no scrubber, and none of that is
+  a different viewer.
+#}
+{% macro viewer_card(summary, token, binding, mobility_bands, mobility_ceiling,
+                     refstates_viewer=none) %}
+<section class="md-card md-viewer-card">
+  <h3>Structure</h3>
+  <p class="md-panel-blurb">
+    The decimated trajectory, {{ summary.frames_packed }} frames of
+    {{ summary.atoms_packed }} atoms. Press play, or scrub the frame slider:
+    the plots below highlight the frame you are on.
+  </p>
+  <div class="md-viewer-stage">
+    <div id="molstar-viewer"
+         data-structure="{{ url_for('analysis.structure_file', token=token) }}"
+         data-trajectory="{{ url_for('analysis.trajectory_file', token=token) }}"
+         data-frames="{{ summary.frames_packed or 0 }}"
+         {# Whether the B-factor column carries a motif number. A results file
+            packed without one keeps the default theme rather than being
+            painted from a column of zeroes. #}
+         data-motif-painted="{{ "1" if refstates_viewer and refstates_viewer.motif_painted else "0" }}"
+         {# Where the bilayer lies and which way is extracellular, both measured
+            when the run was packed. The viewer points the camera along the
+            membrane with this and leaves it alone without it. #}
+         {% if refstates_viewer and refstates_viewer.orientation %}data-orientation='{{ refstates_viewer.orientation | tojson }}'{% endif %}
+         data-duration="{{ summary.duration_ns or 0 }}"></div>
+    {# The flat diagram answers what three dimensions cannot: a mobile tail is
+       hidden behind whatever it is moving in front of. Bottom right of the
+       stage, where the structure is framed centrally and nothing else sits. #}
+    {% if binding and binding.depiction %}
+      <figure class="md-depiction">
+        <img src="{{ binding.depiction }}" loading="lazy"
+             alt="{% if binding.painted %}Two-dimensional structure of the ligand, each atom shaded by how far it moved over the scored window{% else %}Two-dimensional structure of the ligand{% endif %}">
+        <figcaption>
+          {% if binding.painted %}
+            <span class="md-depiction-label">mobility</span>
+            {# Six swatches rather than a gradient, because the shading is
+               banded: a reader can match an atom to a band and read it as a
+               number. The values come from flexappeal.measure, which paints the
+               diagram, so the legend cannot describe colours that are not on
+               it. #}
+            <span class="md-ramp" aria-hidden="true">
+              {% for edge, colour in mobility_bands %}<i style="background: {{ colour }}"></i>{% endfor %}
+            </span>
+            <span class="md-ramp-ticks" aria-hidden="true">
+              <b>0</b><b>{{ mobility_ceiling }}+ Å</b>
+            </span>
+            <span class="md-visually-hidden">Each atom is shaded by how far it
+              moved over the scored window, in six bands of half an angstrom:
+              deep indigo for an atom that held still, through to amber for
+              {{ mobility_ceiling }} angstrom and over. The bands are the same on
+              every diagram, so a still ligand reads as still rather than being
+              stretched to fill the scale.</span>
+          {% else %}
+            <span class="md-depiction-label">structure only: no per-atom mobility</span>
+          {% endif %}
+        </figcaption>
+      </figure>
+    {% endif %}
+  </div>
+
+  {# What the cartoon's colours mean. The structure carries each atom's motif
+     number in its B-factor column and Mol* colours from that, so without this a
+     reader sees an orange helix and a blue one with nothing on the page naming
+     either. Same swatch and same tokens as the panel tables, so a colour means
+     one thing down the whole page. #}
+  {% if refstates_viewer and refstates_viewer.motifs %}
+    <ul class="md-motif-key">
+      {% for motif in refstates_viewer.motifs %}
+        <li><i class="md-swatch" style="background: {{ motif.colour }}"
+               aria-hidden="true"></i>{{ motif.name }}{% if motif.residues %}
+          <em>{{ motif.residues }}</em>{% endif %}</li>
+      {% endfor %}
+      <li><i class="md-swatch md-swatch-muted" aria-hidden="true"></i>everything else</li>
+    </ul>
+  {% endif %}
+
+  {# The controls for what is in the scene, all in one row: the reference
+     ghosts and the bilayer. `analysis.js` has driven all three from markup
+     since before this page showed them, so there is no viewer code here, only
+     the facts each control is made of. #}
+  {% if refstates_viewer and (refstates_viewer.overlay or refstates_viewer.lipids) %}
+    <div class="md-checkgroup md-viewer-toggles">
+      {% for state, ref in (refstates_viewer.overlay or {}) | dictsort %}
+        <label class="md-check">
+          <input type="checkbox" class="overlay-toggle"
+                 id="overlay-toggle-{{ state }}"
+                 data-state="{{ state }}"
+                 data-structure="{{ url_for('analysis.viewer_member', token=token, member=ref.member) }}">
+          <span>Ghost the nearest {{ state }}
+            {% if ref.code %}<em>{{ ref.code }}{% if ref.mean_motif_rmsd_a is not none %},
+              {{ "%.1f"|format(ref.mean_motif_rmsd_a) }} &#8491; mean over the motifs{% endif %}</em>{% endif %}
+          </span>
+        </label>
+      {% endfor %}
+      {% if refstates_viewer.lipids %}
+        {# On by default: a receptor in a membrane should open looking like
+           one. Drawn at the first frame, because the whole lipid is 24,752
+           heavy atoms and five hundred frames of that is 48 MB. #}
+        <label class="md-check">
+          <input type="checkbox" id="lipid-toggle" checked
+                 data-structure="{{ url_for('analysis.viewer_member', token=token, member=refstates_viewer.lipids.topology) }}"
+                 {% if refstates_viewer.lipids.trajectory %}data-trajectory="{{ url_for('analysis.viewer_member', token=token, member=refstates_viewer.lipids.trajectory) }}"{% endif %}>
+          <span>Show the bilayer
+            <em>{% if refstates_viewer.lipids.n_residues %}{{ refstates_viewer.lipids.n_residues }} lipids{% if refstates_viewer.lipids.within_a %} within {{ refstates_viewer.lipids.within_a | round | int }} &#8491;{% endif %}{% endif %}{% if refstates_viewer.lipids.n_frames == 1 %}, at the first frame{% endif %}</em>
+          </span>
+        </label>
+      {% endif %}
+    </div>
+  {% endif %}
+
+  {% if (summary.frames_packed or 0) > 1 %}
+    <div class="md-scrubber">
+      <label for="scrub">Trajectory</label>
+      <input type="range" id="scrub" min="0" max="{{ summary.frames_packed - 1 }}"
+             value="0" step="1"
+             data-frames="{{ summary.frames_packed }}"
+             data-duration="{{ summary.duration_ns or 0 }}"
+             aria-describedby="scrub-readout">
+      <span id="scrub-readout" class="md-scrub-readout">0.0 ns</span>
+      <button class="md-button" type="button" id="scrub-play"
+              aria-label="Pause the trajectory">Pause</button>
+    </div>
+  {% endif %}
+  <p class="md-viewer-status" id="viewer-status">Loading the structure…</p>
+</section>
+{% endmacro %}

@@ -115,6 +115,16 @@
       node.innerHTML = '<p class="md-plot-error">This panel could not be drawn.</p>';
       return;
     }
+    /* A panel that asks for a height gets it.
+       
+       The stylesheet gives `.md-plot` a fixed height, which is right for a time
+       series and wrong for anything whose height is its content: the
+       protein-ligand contacts panel is a horizontal bar per residue and it
+       already computed a height from the number of bars, which the container
+       then overrode. Twenty bars were drawn into a box the size of ten. */
+    if (figure.layout && figure.layout.height) {
+      node.style.height = figure.layout.height + 'px';
+    }
     Plotly.newPlot(node, figure.data, figure.layout, PLOT_CONFIG);
     drawn.push(node);
     wirePlotClick(node);
@@ -873,7 +883,182 @@
     });
   }
 
-  function wireLipidToggle(viewer, say) {
+  /* Point the camera along the bilayer rather than down through it.
+   *
+   * A membrane run opens on whatever view Mol* chose when it framed the
+   * structure, which is as likely to be straight down the bilayer normal as
+   * anything else: the membrane is then a disc the receptor is buried in and
+   * the thing a reader is being shown cannot be seen at all. Edge on, it is a
+   * slab with the receptor through it.
+   *
+   * Both vectors are measured by `tools/pack_run_fxa.py` and travel in the
+   * results file, because neither is something a page can guess. The normal is
+   * the axis the bilayer's phosphorus atoms are least spread along, and which
+   * end of it is extracellular comes from helix 8, which lies on the
+   * intracellular face: `up` points at the extracellular side, so the
+   * extracellular loops are at the top of the viewport.
+   *
+   * Everything here is optional and guarded. A page with no orientation, or a
+   * Mol* whose camera does not expose a snapshot, keeps the default view: a
+   * viewer pointing somewhere arbitrary is a worse outcome than one pointing
+   * where Mol* put it. */
+  /* A copy, not the camera's own object.
+     
+     `getSnapshot` hands back state that Mol* goes on mutating, so a reference
+     kept across a load is not a record of the view before it: the first
+     version of this restored the framing to exactly what it was trying to
+     undo, and the receptor stayed a speck in the middle of a bilayer four
+     times its width. The three vectors are copied element by element because
+     they are typed arrays. */
+  function cameraSnapshot(viewer) {
+    try {
+      const camera = viewer.plugin && viewer.plugin.canvas3d
+        && viewer.plugin.canvas3d.camera;
+      if (!camera || typeof camera.getSnapshot !== 'function') return null;
+      const live = camera.getSnapshot();
+      const copy = Object.assign({}, live);
+      ['position', 'target', 'up'].forEach(function (key) {
+        if (live[key] && live[key].length >= 3) {
+          copy[key] = [live[key][0], live[key][1], live[key][2]];
+        }
+      });
+      return copy;
+    } catch (err) {
+      return null;
+    }
+  }
+
+  function restoreCamera(viewer, snapshot) {
+    if (!snapshot) return false;
+    try {
+      viewer.plugin.canvas3d.camera.setState(snapshot);
+      return true;
+    } catch (err) {
+      return false;
+    }
+  }
+
+  /* Applied now and again shortly after.
+     
+     Mol* frames the camera on what it holds when a load resolves, and that
+     framing runs on its own schedule *after* the promise settles: a camera set
+     inside the continuation is overwritten a moment later, which is why the
+     first version of this produced a perfect top-down view of a bilayer that
+     was supposed to be edge on. The second application lands after Mol* has
+     finished and is what the reader sees. Both are guarded, so a bundle whose
+     camera does not expose a snapshot simply keeps its own view. */
+  function orientToMembraneSoon(viewer, host) {
+    /* Applied, then checked and applied again if it did not hold.
+       
+       Mol* frames the camera on what it holds when a load resolves, and it
+       animates into that framing over the next few hundred milliseconds: a
+       camera set inside the continuation is interpolated away a moment later,
+       which is why the first two attempts at this produced a perfect top-down
+       view of a bilayer that was supposed to be edge on. Checking the result
+       and reapplying is what makes it stick without guessing a delay long
+       enough to outlast an animation whose length is Mol*'s business. Three
+       looks over two seconds, and it stops as soon as the view is the one
+       asked for, so a reader who takes hold of the camera is not fighting it. */
+    let plan;
+    try {
+      plan = JSON.parse(host && host.dataset.orientation || 'null');
+    } catch (err) {
+      return;
+    }
+    if (!plan || !plan.up) return;
+    orientToMembrane(viewer, host);
+    let attempts = 0;
+    const settle = setInterval(function () {
+      attempts += 1;
+      const snapshot = cameraSnapshot(viewer);
+      const held = snapshot && snapshot.up
+        && Math.abs(snapshot.up[0] - plan.up[0]) < 0.01
+        && Math.abs(snapshot.up[1] - plan.up[1]) < 0.01
+        && Math.abs(snapshot.up[2] - plan.up[2]) < 0.01;
+      if (held || attempts >= 3) { clearInterval(settle); return; }
+      orientToMembrane(viewer, host);
+    }, 700);
+  }
+
+  function orientToMembrane(viewer, host) {
+    if (!host || !host.dataset.orientation) return false;
+    let plan;
+    try {
+      plan = JSON.parse(host.dataset.orientation);
+    } catch (err) {
+      return false;
+    }
+    if (!plan || !plan.up || !plan.along) return false;
+    try {
+      const camera = viewer.plugin && viewer.plugin.canvas3d
+        && viewer.plugin.canvas3d.camera;
+      if (!camera || typeof camera.getSnapshot !== 'function') return false;
+      const snapshot = camera.getSnapshot();
+      const target = snapshot.target;
+      /* The distance Mol* already chose, so the structure stays framed: this
+         moves the camera around the target rather than towards it. */
+      const dx = snapshot.position[0] - target[0];
+      const dy = snapshot.position[1] - target[1];
+      const dz = snapshot.position[2] - target[2];
+      const radius = Math.sqrt(dx * dx + dy * dy + dz * dz)
+        || (snapshot.radius || 50) * 3;
+      camera.setState(Object.assign({}, snapshot, {
+        position: [target[0] + plan.along[0] * radius,
+                   target[1] + plan.along[1] * radius,
+                   target[2] + plan.along[2] * radius],
+        up: [plan.up[0], plan.up[1], plan.up[2]],
+      }));
+      return true;
+    } catch (err) {
+      return false;
+    }
+  }
+
+  /* The bilayer, drawn so the receptor is still visible through it.
+   *
+   * Mol*'s default preset for a structure of 476 lipids and no polymer is
+   * spheres, and 24,752 of them is a wall: the first version drew a perfect
+   * edge-on bilayer with the receptor completely hidden inside it. Lines show
+   * the chains, which is what a membrane looks like, and cost almost nothing
+   * to draw. Translucent on top of that, so the cartoon reads in front.
+   *
+   * Differenced across the load like the ghosts, for the same reason: it is how
+   * the new structure's representations are found without depending on the
+   * shape of what the loader returns. Any failure leaves the default, which is
+   * ugly rather than broken.
+   */
+  function thinComponents(plugin, before) {
+    const seen = {};
+    before.forEach(function (ref) { seen[ref] = true; });
+    let touched = 0;
+    try {
+      const update = plugin.build();
+      (plugin.managers.structure.hierarchy.current.structures || [])
+        .forEach(function (ref) {
+          (ref.components || []).forEach(function (component) {
+            const key = component.cell && component.cell.transform
+              && component.cell.transform.ref;
+            if (!key || seen[key]) return;
+            (component.representations || []).forEach(function (rep) {
+              if (!rep.cell) return;
+              update.to(rep.cell).update(function (old) {
+                if (!old.type) return;
+                old.type.name = 'line';
+                old.type.params = old.type.params || {};
+                old.type.params.alpha = 0.55;
+                touched += 1;
+              });
+            });
+          });
+        });
+      update.commit();
+    } catch (err) {
+      return 0;
+    }
+    return touched;
+  }
+
+  function wireLipidToggle(viewer, say, host) {
     const toggle = document.getElementById('lipid-toggle');
     if (!toggle) return;
     let loaded = null;
@@ -892,21 +1077,38 @@
       }
       try {
         if (toggle.checked) {
-          loaded = await viewer.loadTrajectory({
-            model: { kind: 'model-url', url: toggle.dataset.structure,
-                     format: 'pdb' },
-            coordinates: { kind: 'coordinates-url',
-                           url: toggle.dataset.trajectory,
-                           format: 'xtc', isBinary: true },
-            preset: 'default'
-          });
+          /* A trajectory when there is one, a structure when there is not.
+             The bilayer is the whole lipid now rather than its phosphorus,
+             which is 24,752 atoms: two megabytes for one frame and forty-eight
+             for five hundred, so it is drawn at the first frame and the
+             control says so. Without a trajectory there is nothing with a
+             model index in it, which also keeps it out of the scrubber's way. */
+          /* Taken before the load and restored after it. Mol* frames the
+             camera on everything it holds, so adding a bilayer four times the
+             width of the receptor zooms out until the receptor is a speck in
+             the middle of it. The run is what the page is about. */
+          const framing = cameraSnapshot(viewer);
+          const before = componentRefs(viewer.plugin);
+          loaded = toggle.dataset.trajectory
+            ? await viewer.loadTrajectory({
+                model: { kind: 'model-url', url: toggle.dataset.structure,
+                         format: 'pdb' },
+                coordinates: { kind: 'coordinates-url',
+                               url: toggle.dataset.trajectory,
+                               format: 'xtc', isBinary: true },
+                preset: 'default'
+              })
+            : await viewer.loadStructureFromUrl(
+                toggle.dataset.structure, 'pdb', false);
           /* Said out loud. A control that does something invisible from this
            * camera angle, which the bilayer is until you rotate, reads as a
            * control that did nothing. The attribute is the same fact in a
            * form a test can assert on without reaching into Mol*. */
+          thinComponents(viewer.plugin, before);
+          restoreCamera(viewer, framing);
           toggle.dataset.loaded = 'yes';
-          if (say) say('Bilayer shown as phosphate spheres. '
-                       + 'Rotate to see it edge on.');
+          orientToMembraneSoon(viewer, host);
+          if (say) say('Bilayer drawn around the receptor, at the first frame.');
         } else if (loaded && loaded.model) {
           await viewer.plugin.state.data.build()
             .delete(loaded.model.ref).commit();
@@ -992,8 +1194,25 @@
          * which is any single-frame structure. */
         applyNeon(viewer);
         colourByMotif(viewer, host);
-        wireLipidToggle(viewer, say);
+        wireLipidToggle(viewer, say, host);
         wireOverlayToggles(viewer, say);
+        /* The bilayer is on by default on a membrane run, so the control that
+           is already checked has to be acted on rather than waited for: a
+           `change` listener never fires for a box that arrived checked.
+           
+           Deferred to a later task rather than dispatched here. Fired inline
+           it starts a second structure load from inside the continuation of
+           the first one, and Mol* never resolves it: the toggle sat disabled
+           and the bilayer never appeared, with no error anywhere, while the
+           same control clicked by hand a second later worked every time. */
+        const lipids = document.getElementById('lipid-toggle');
+        if (lipids && lipids.checked) {
+          setTimeout(function () {
+            lipids.dispatchEvent(new Event('change', { bubbles: true }));
+          }, 0);
+        } else {
+          orientToMembraneSoon(viewer, host);
+        }
         const scrubbing = wireSlider(viewer, frames, duration);
         const playing = scrubbing || (frames > 1 && autoplay(viewer, frames));
         const pass = Math.round(playbackSeconds(frames));

@@ -1,5 +1,6 @@
 {% extends "base.html" %}
 {% from "_refstates_panels.html" import refstates_section %}
+{% from "_viewer_card.html" import viewer_card %}
 {% block title %}{% if results %}{{ summary.job_name }}{% else %}Analysis{% endif %}{% endblock %}
 
 {% block head %}
@@ -89,13 +90,14 @@
   <section class="md-card md-run-header">
     <h2>{{ summary.job_name }}</h2>
     {% if summary.description %}<p class="md-run-desc">{{ summary.description }}</p>{% endif %}
+    {# The force field, the platform and the structure moved into tiles, where
+       every page shows them the same way, so this line carries what is left:
+       the conditions the tiles do not. #}
     <p class="md-meta">
-      {{ summary.force_field }}{% if summary.water_model %} / {{ summary.water_model }}{% endif %}
-      · {{ summary.temperature }} K
+      {% if summary.water_model %}{{ summary.water_model }} · {% endif %}
+      {{ summary.temperature }} K
       · {{ summary.timestep }} fs
-      {% if summary.platform %} · {{ summary.platform }}{% endif %}
       {% if summary.openmm_version %} · OpenMM {{ summary.openmm_version }}{% endif %}
-      {% if summary.structure.filename %} · {{ summary.structure.filename }}{% endif %}
       {% if summary.structure.citation %} <span class="md-citation">{{ summary.structure.citation }}</span>{% endif %}
     </p>
   </section>
@@ -121,69 +123,8 @@
   {% endif %}
 
   {% if has_viewer %}
-    <section class="md-card md-viewer-card">
-      <h3>Structure</h3>
-      <p class="md-panel-blurb">
-        The decimated trajectory, {{ summary.frames_packed }} frames of
-        {{ summary.atoms_packed }} atoms. Press play, or scrub the frame slider —
-        the plots below highlight the frame you are on.
-      </p>
-      <div class="md-viewer-stage">
-        <div id="molstar-viewer"
-             data-structure="{{ url_for('analysis.structure_file', token=token) }}"
-             data-trajectory="{{ url_for('analysis.trajectory_file', token=token) }}"
-             data-frames="{{ summary.frames_packed or 0 }}"
-             data-duration="{{ summary.duration_ns or 0 }}"></div>
-        {# The flat diagram answers what three dimensions cannot: a mobile tail
-           is hidden behind whatever it is moving in front of. Bottom right of
-           the stage, where the structure is framed centrally and nothing else
-           sits. #}
-        {% if binding and binding.depiction %}
-          <figure class="md-depiction">
-            <img src="{{ binding.depiction }}" loading="lazy"
-                 alt="{% if binding.painted %}Two-dimensional structure of the ligand, each atom shaded by how far it moved over the scored window{% else %}Two-dimensional structure of the ligand{% endif %}">
-            <figcaption>
-              {% if binding.painted %}
-                <span class="md-depiction-label">mobility</span>
-                {# Six swatches rather than a gradient, because the shading is
-                   banded: a reader can match an atom to a band and read it as a
-                   number. The values come from flexappeal.measure, which paints
-                   the diagram, so the legend cannot describe colours that are
-                   not on it. #}
-                <span class="md-ramp" aria-hidden="true">
-                  {% for edge, colour in mobility_bands %}<i style="background: {{ colour }}"></i>{% endfor %}
-                </span>
-                <span class="md-ramp-ticks" aria-hidden="true">
-                  <b>0</b><b>{{ mobility_ceiling }}+ Å</b>
-                </span>
-                <span class="md-visually-hidden">Each atom is shaded by how far
-                  it moved over the scored window, in six bands of half an
-                  angstrom: deep indigo for an atom that held still, through to
-                  amber for {{ mobility_ceiling }} angstrom and over. The bands
-                  are the same on every diagram, so a still ligand reads as
-                  still rather than being stretched to fill the scale.</span>
-              {% else %}
-                <span class="md-depiction-label">structure only: no per-atom mobility</span>
-              {% endif %}
-            </figcaption>
-          </figure>
-        {% endif %}
-      </div>
-      {% if (summary.frames_packed or 0) > 1 %}
-        <div class="md-scrubber">
-          <label for="scrub">Trajectory</label>
-          <input type="range" id="scrub" min="0" max="{{ summary.frames_packed - 1 }}"
-                 value="0" step="1"
-                 data-frames="{{ summary.frames_packed }}"
-                 data-duration="{{ summary.duration_ns or 0 }}"
-                 aria-describedby="scrub-readout">
-          <span id="scrub-readout" class="md-scrub-readout">0.0 ns</span>
-          <button class="md-button" type="button" id="scrub-play"
-                  aria-label="Pause the trajectory">Pause</button>
-        </div>
-      {% endif %}
-      <p class="md-viewer-status" id="viewer-status">Loading the structure…</p>
-    </section>
+    {{ viewer_card(summary, token, binding, mobility_bands,
+                   mobility_ceiling, refstates_viewer) }}
   {% endif %}
 
   {% if binding and binding.panels %}

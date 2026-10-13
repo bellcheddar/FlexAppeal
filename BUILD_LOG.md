@@ -2550,3 +2550,79 @@ control comes back, and so does the bilayer, which is a second trajectory and
 takes longer.
 
 **1,051 passed, nothing skipped.**
+
+### 13 October, 15:20. Ten things a reader asked for, and two of them were faults
+
+Marc went through the new run pages and sent ten changes. Two were faults in
+what I had built, two more were faults the move had exposed, and the rest were
+the page not yet being the page he wanted.
+
+**The ghost and the bilayer were not on the protein.** 4bw: three files in three
+coordinate frames, each correct beside itself and tens of angstrom apart in one
+viewer. The transform is measured with the build's own Kabsch now, fitted on the
+protein alone, 0.005 angstrom residual. Fitting on every shared atom gave 15.6,
+because the ligand is its own molecule and imaging had put it a box length away
+in one of the two frames. That same measurement showed the reference-state
+viewer bundle has its ligand 159.6 angstrom from the protein, so the page that
+existed until this morning drew carazolol outside its own receptor.
+
+**The bilayer, four ways.** 4bx: phosphorus dots became whole lipids, off became
+on by default, the camera now looks along the membrane rather than down through
+it, and the receptor is the right way up. The normal is the axis the phosphorus
+is least spread along and helix 8 says which end is extracellular, both measured
+when the run is packed rather than assumed from the convention the system was
+built with. Whole lipids at 500 frames would be 48 MB, so the bilayer is drawn at
+the first frame and the control says so.
+
+**The mobility inset was missing, and the reason was in the ligand.** Every
+built system puts a ligand's heavy atoms in one residue and its hydrogens in
+the next, so the binding measurement took "the largest fragment", got the heavy
+atoms with no hydrogens, and could not infer bond orders. No depiction, no
+strain or torsion, and a pose RMSD with no symmetry correction. The staged
+topology puts the two halves back into one residue and all three come back.
+Imatinib turns out to have four graph symmetries, so its pose RMSD was
+overstated until now.
+
+**One viewer, two pages.** The Example tab's viewer carried an intro line and
+the explanation a screen reader needs for the mobility ramp, and the run pages
+did not, because the markup was duplicated. It is one macro now, used by both,
+which is what `_results_context` and `_refstates_panels.html` already do.
+
+**And the rest.** A legend under the viewport naming the cartoon's colours,
+which named nothing before. The ghost and bilayer controls on one row. The run
+length rounded to whole nanoseconds, and the subtitle gone altogether: it read
+"49.900001525878906 ns · amber14-all.xml · OpenCL · 2HYY.pdb", which is one
+unrounded number the tile below carries with its unit and three facts that are
+worth a box each. They are tiles now, on every page that shows one. Each table's note moved
+into the "What this shows" it sits beside, so a panel explains itself in one
+place rather than two. The protein-ligand contacts panel sizes to its bars: the
+figure had always computed a height from their number and the stylesheet
+overrode it, so twenty bars were drawn into a box the size of ten. And the
+header carries the GitHub link beside the website and the email.
+
+The camera took four attempts and each failure looked deliberate on the page:
+set inside the load's continuation and interpolated away by Mol*'s own framing;
+a "before" snapshot that was the after state because `getSnapshot` hands back
+live state; a normal measured on the patch, which is as wide as it is thick; and
+a normal measured on unimaged coordinates, where lipids wrapped through the box
+make the spread a cube. Imaged and measured on the whole bilayer it is 37, 39
+and 19 angstrom and the normal is obvious. 4bx has all four, because the
+instructive part is that none of them errored.
+
+The bilayer also would not load at all when it was switched on by default: a
+second structure load started inside the continuation of the first never
+resolves, so the toggle sat disabled with no error while the same control
+clicked by hand worked every time. Deferred to a later task, it loads.
+
+And the merge, in its first form, edited the simulation's own output. The
+staging hard links the topology out of `data/md` because it is read and not
+changed, and this change made it a file that is changed: the merged copy was
+written through the link. Both bound rows lost the heavy-and-hydrogen split in
+`solvated.pdb` itself, with correct packed files either way, so nothing in the
+packer could have shown it. The test that reads `solvated.pdb` and asserts the
+split is there failed on the next full run. Restored exactly, since the merge
+only rewrites a residue number; the staged topology is a copy now, held by a
+test on the inode rather than on the content, because identical content is what
+hid it.
+
+**1,061 passed, nothing skipped.**

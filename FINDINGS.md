@@ -4990,6 +4990,174 @@ The production check that found them took four minutes and is the same one that
 has been run after every deploy since 4bs. It is worth running before saying a
 thing is finished rather than after.
 
+## 4bw. The ghost was fifty angstrom from the protein, and nothing said so
+
+Reported by the reader, who opened a run page and found that the reference
+overlay and the bilayer were not on the receptor at all.
+
+**Three files, three coordinate frames.** The packed topology, the ghost and
+the bilayer were written by two passes that each image a trajectory for their
+own purposes, and nothing had ever drawn two of them together:
+
+| member | centroid, angstrom |
+|---|---|
+| `topology.pdb`, from the bundle's analysis | 62, 66, 56 |
+| `refstates_active.pdb`, from the reference-state analysis | 114, 131, 79 |
+| `lipids.pdb`, likewise | 100, 126, 110 |
+
+Each file is correct in its own frame. The reference-state pass images and
+superposes for its measurements; the bundle's `analyse.py` images independently
+before it packs; and `tools/pack_run_fxa.py` copied the first pass's output
+into the second pass's file, where the two frames differ by a translation of
+tens of angstrom.
+
+**Fixed by measuring the transform rather than assuming one.** The two
+topologies are the same atoms in the same order, which is checked rather than
+trusted, so `traj.superpose`, the build's own Kabsch, gives the transform
+exactly. Residual after the fit: 0.005 angstrom, which is what a pure
+translation should give and is the evidence that this is the right transform.
+
+**The first attempt got 15.6 angstrom and was still wrong.** It fitted on every
+atom the two frames share, which includes the ligand. A ligand is its own
+molecule, so imaging can put it in a different periodic copy in one frame from
+the other, and 44 atoms of 5,288 sitting a box length away drag the fit that
+far. Fitted on the protein alone it is 0.005. The 15.6 was the useful number:
+a residual that large on two frames that should differ by a translation is a
+statement that something in the fit is not where it should be.
+
+**And that same measurement found an older fault.** In the reference-state
+viewer bundle the ligand sits **159.6 angstrom** from the protein centroid, a
+box length out. That bundle is what the removed tab's viewer drew, so the page
+that existed until this morning was drawing carazolol outside its own receptor,
+and nothing in the suite or on the page said so. The packed file has it at
+14.9 angstrom, which is the binding site.
+
+## 4bx. A bilayer you cannot see is not a bilayer
+
+Four things the reader asked for about the membrane viewer, each of which was
+a real fault rather than a preference.
+
+**The lipids were phosphorus.** One atom per lipid, 476 of them, which draws as
+a cloud of dots rather than as a membrane. The whole lipid is 24,752 heavy
+atoms: 2 MB for one frame and **48 MB for five hundred**, measured rather than
+estimated. So the bilayer is now the whole lipid at the first frame. That is a
+trade and the control says which way it went: "476 lipids, drawn at the first
+frame". The bilayer's own measurements are in its panel, where they are per
+chunk over the whole run; what the viewer is for is seeing the receptor sit in
+a membrane.
+
+**It was off by default.** A receptor in a membrane should open looking like
+one. It is on now, which needed the control to be acted on at load rather than
+waited for: a `change` listener never fires for a box that arrives checked.
+
+**The camera pointed wherever Mol* had framed it**, which for a membrane system
+is as likely to be straight down the bilayer normal as anything else. Down the
+normal the membrane is a disc with the receptor buried in it and the thing the
+page is showing cannot be seen. The camera now looks along the membrane.
+
+**And the receptor was as likely to be upside down.** The extracellular loops
+belong at the top, which is the orientation every figure of a receptor in the
+literature uses, and nothing in the file said which way that was. Both vectors
+are measured when the run is packed, because neither is something a page can
+guess:
+
+* the normal is the axis the phosphorus atoms are least spread along, 19
+  angstrom across the membrane against 38 and 40 in its plane. If no axis
+  stands out that way there is no bilayer lying flat and no orientation is
+  offered.
+* which end of it is extracellular comes from helix 8, which lies on the
+  intracellular face: its centroid is 13 angstrom below the protein's, so
+  extracellular is the positive direction.
+
+Taken from the structure rather than from the OPM convention the system was
+built with, so a system built some other way still comes out the right way up.
+
+**The ligand was two residues, and three measurements fell over it.** Every
+built system here puts a ligand's heavy atoms in one residue and its hydrogens
+in the next: imatinib 37 and 31, carazolol 22 and 22. Nothing in the simulation
+cares, and neither does the reference-state analysis, which selects a ligand by
+name. The Analysis tab's binding measurements build a molecule, and with the
+halves apart they took "the largest fragment", which is the heavy atoms with no
+hydrogens, and could not infer bond orders from them. Three consequences, all
+of the quiet kind:
+
+* no two-dimensional depiction, so the mobility inset beside the viewer was
+  missing on every bound run while the committed example had one. That is what
+  the reader noticed.
+* no strain and no torsion measurement, so the conformation sub-score stayed
+  pending on the grade.
+* a pose RMSD with no symmetry correction, which overstates drift on a ligand
+  with equivalent atoms. Imatinib has four graph symmetries.
+
+Merged in the staged copy, not in `data/md`, which is the simulation's own
+output. Only where the split is that specific shape: two residues of one name,
+adjacent, one carrying hydrogens and the other not. Two genuine copies of a
+ligand have hydrogens in both and are left alone.
+
+**The first version of that merge edited `data/md` anyway.** The staging hard
+links the topology out of the run directory, because it is read and not
+changed, and this change made it a file that is changed: writing the merged
+copy wrote through the link into `data/md/<row>/solvated.pdb`. Both bound rows
+lost the heavy-and-hydrogen split in the simulation's own output, silently,
+and the packed files were correct either way, so nothing in the packer could
+have shown it.
+
+What showed it was a test that reads `solvated.pdb` and asserts the split is
+there, which exists because that split is the thing the production path has to
+cope with. It failed on the next full run with "expected 2, got 1", which is
+the sentence this build is for.
+
+Both files are restored: the merge only rewrites a residue number, so the
+inverse is exact, and the counts are checked against the molecules, 37 heavy
+and 31 hydrogens for imatinib and 22 and 22 for carazolol. The staged topology
+is a copy now, and two tests hold it: one that the merge leaves the source
+untouched, asserted on the inode rather than the content, because identical
+content is exactly what hid this; and one on the staging code itself.
+
+**Four attempts at the camera, and three of them taught something.** The
+orientation is two vectors in the results file and a `setState` on Mol*'s
+camera, which sounds like nothing and took four goes:
+
+* the first set the camera inside the continuation of the load that had just
+  resolved. Mol* frames the camera on what it holds *after* that, animating
+  into its own view over the next few hundred milliseconds, so the camera was
+  interpolated away from the one that had just been set. It now applies, checks
+  whether the view held, and reapplies up to three times over two seconds,
+  stopping as soon as it has: guessing a delay long enough to outlast an
+  animation whose length is Mol*'s business is how this breaks again.
+* the second tried to keep the protein framed by restoring a snapshot taken
+  before the bilayer loaded. `getSnapshot` hands back state that Mol* goes on
+  mutating, so the "before" snapshot was the "after" state by the time it was
+  restored, and the restore put the camera exactly where it already was. The
+  snapshot is copied element by element now.
+* the third established no orientation at all, because the normal is read off
+  the phosphorus spread and I measured it on the patch rather than on the
+  bilayer. A patch 18 angstrom around a receptor is about as wide as it is
+  thick, and the test that asks "is one axis much thinner than the others"
+  correctly said no.
+* the fourth measured it on the whole bilayer and still said no, because the
+  coordinates had not been imaged: lipids wrapped through the edge of the box
+  put the spread at 35, 36 and 38 angstrom, which is a cube. Imaged about the
+  receptor first, the same atoms are 37, 39 and 19, and the normal is obvious.
+
+The pattern in all four is the same. Each failure was silent and each produced
+a viewer that looked deliberate: a top-down membrane, a framed structure, a
+camera left alone. The only way any of them was found was by looking at the
+picture.
+
+**And the bilayer would not load at all when it was on by default.** Dispatched
+inline from the viewer's own initialisation, a second structure load starts
+inside the continuation of the first one and Mol* never resolves it: the toggle
+sat disabled with no error anywhere, while the same control clicked by hand a
+second later worked every time. Deferred to a later task, it loads.
+
+**A legend, because the cartoon's colours named nothing.** The structure
+carries each atom's motif number in its B-factor column and Mol* colours from
+it, so a reader saw an orange helix and a blue one with nothing on the page
+saying which motif either was. The key under the viewport uses the same swatch
+and the same section 6.1 tokens as the panel tables, so a motif looks the same
+wherever the page mentions it.
+
 ## 5. Production runs
 
 Tier 2 started at 17:04 on 10 October, in section 5.3's priority order: β2AR

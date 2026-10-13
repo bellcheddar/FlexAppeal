@@ -1237,13 +1237,35 @@ def viewer_controls(results) -> dict[str, Any]:
         if name and name in members:
             overlay[state] = detail
     lipids = viewer.get("lipids") or {}
-    if lipids and not all(lipids.get(key) in members
-                          for key in ("topology", "trajectory")):
+    # The topology is required and the trajectory is optional: the bilayer is
+    # the whole lipid now rather than its phosphorus, which is 2 MB for one
+    # frame and 48 for five hundred, so it is a single frame and has no
+    # trajectory to go with it. An older file that carries both still works.
+    if lipids.get("topology") not in members:
         lipids = {}
+    elif lipids.get("trajectory") and lipids["trajectory"] not in members:
+        lipids = dict(lipids)
+        lipids.pop("trajectory")
     return {
         "motif_painted": bool(viewer.get("motif_painted")),
         "overlay": overlay,
         "lipids": lipids,
+        # Only offered with a bilayer to orient against: the vectors are
+        # measured from the lipids, so a water run has none and the viewer
+        # keeps whatever view Mol* framed.
+        "orientation": (viewer.get("orientation") or {}) if lipids else {},
+        # The key to the cartoon's colours, for a legend under the viewport.
+        # Section 6.1 gives each motif a token and the structure carries the
+        # token's number in its B-factor column, so the viewer draws colours
+        # that nothing on the page named: a reader saw an orange helix and a
+        # blue one with no way to tell which motif either was.
+        "motifs": ([{"name": motif,
+                     "colour": motif_colour(payload.get("kind") or "kinase", motif),
+                     "residues": (f"{min(numbers)} to {max(numbers)}"
+                                  if numbers else "")}
+                    for motif, numbers in
+                    sorted((payload.get("motif_residues") or {}).items())]
+                   if viewer.get("motif_painted") else []),
         "kind": payload.get("kind") or "",
     }
 

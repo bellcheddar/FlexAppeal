@@ -907,6 +907,21 @@ a { color: var(--md-primary); }
 .md-table th { font-weight: 600; color: var(--md-text-muted); white-space: nowrap; }
 .md-table td { font-family: 'Roboto Mono', monospace; }
 
+/* The key to the cartoon's colours, under the viewport. A list rather than a
+   row of divs because it is one: each item is a colour and the thing it names.
+   The swatch is the same 9px square the panel tables use, so a motif looks the
+   same wherever the page mentions it. */
+.md-motif-key {
+  display: flex; flex-wrap: wrap; gap: 4px 16px;
+  margin: 10px 0 0; padding: 0; list-style: none;
+  font-size: 12px; color: var(--md-text);
+}
+.md-motif-key li { display: flex; align-items: baseline; gap: 2px; }
+.md-motif-key em {
+  font-style: normal; color: var(--md-text-muted); margin-left: 4px;
+}
+.md-swatch-muted { background: var(--md-text-muted); }
+
 /* The viewer's own toggles, under the viewport: the reference ghosts and the
    bilayer. A row of their own rather than inside the scrubber, because the
    scrubber is a control for the frame and these are controls for what is in

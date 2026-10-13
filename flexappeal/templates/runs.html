@@ -48,7 +48,7 @@
                 </span>
               {% endif %}
             </th>
-            <td>{% if run.duration_ns %}{{ run.duration_ns }}<span class="md-units">ns</span>{% else %}&mdash;{% endif %}</td>
+            <td>{% if run.duration_ns %}{{ run.duration_ns | round | int if run.duration_ns >= 1 else run.duration_ns }}<span class="md-units">ns</span>{% else %}&mdash;{% endif %}</td>
             <td>
               {% if run.frames %}{{ run.frames }}<span class="md-units">frames</span>{% else %}&mdash;{% endif %}
             </td>

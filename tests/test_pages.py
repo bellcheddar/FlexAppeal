@@ -443,10 +443,15 @@ def site(tmp_path_factory):
             {"time_ns": 10.0, "apl": 69.5, "thickness": 39.4, "tilt": 15.4},
             {"time_ns": 20.0, "apl": 80.0, "thickness": 42.5, "tilt": 9.6},
         ],
+        # The shape production ships: one frame of whole lipids, no
+        # trajectory, and the two vectors the camera is pointed with. The
+        # bilayer is on by default, so this is also the fixture that covers a
+        # control acted on at load rather than waited for.
         "viewer": {"motif_painted": True, "overlay": {},
-                   "lipids": {"topology": "lipids.pdb",
-                              "trajectory": "lipids.xtc",
-                              "n_atoms": 24, "n_frames": 6}},
+                   "orientation": {"up": [0, 0, 1], "along": [1, 0, 0],
+                                   "normal_axis": 2},
+                   "lipids": {"topology": "lipids.pdb", "n_atoms": 24,
+                              "n_residues": 24, "n_frames": 1}},
     })
     _fxa(runs / "b2ar_apo" / "results.fxa", job_name="b2ar_apo",
          payload=receptor, frames=6, atoms=300, duration_ns=5.0,
@@ -473,7 +478,6 @@ def site(tmp_path_factory):
              "topology.pdb": (bundles / "b2ar_apo.pdb").read_bytes(),
              "traj.xtc": (bundles / "b2ar_apo.xtc").read_bytes(),
              "lipids.pdb": (bundles / "b2ar_apo.lipids.pdb").read_bytes(),
-             "lipids.xtc": (bundles / "b2ar_apo.lipids.xtc").read_bytes(),
          })
     (runs / "b2ar_apo" / "run.json").write_text(json.dumps(
         {"label": "beta2AR fixture", "source": "fixture"}))
@@ -866,6 +870,8 @@ GATED_PANELS = {
     "reference overlay": 'id="overlay-toggle-',
     "bilayer toggle": 'id="lipid-toggle"',
     "motif colouring": 'data-motif-painted="1"',
+    "motif legend": 'class="md-motif-key"',
+    "membrane orientation": "data-orientation=",
 }
 
 

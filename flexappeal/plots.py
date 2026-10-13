@@ -617,7 +617,12 @@ def tiles(summary: dict[str, Any], metrics: dict[str, Any]) -> list[dict[str, An
 
     duration = summary.get("duration_ns")
     if duration:
-        add("Simulated", f"{duration:,.1f}" if duration >= 1 else f"{duration:.3f}", "ns")
+        # Whole nanoseconds for a run of a nanosecond or more. A 50 ns run
+        # whose last frame lands at 49.9 is a 50 ns run, and a tile that reads
+        # "49.9" invites a reader to wonder what happened to the other 0.1.
+        # Under a nanosecond the decimals are the measurement, so they stay.
+        add("Simulated", f"{duration:,.0f}" if duration >= 1 else f"{duration:.3f}",
+            "ns")
 
     frames = summary.get("frames_analysed")
     if frames:
@@ -652,6 +657,19 @@ def tiles(summary: dict[str, Any], metrics: dict[str, Any]) -> list[dict[str, An
     wall = summary.get("wall_hours")
     if wall:
         add("Wall time", f"{wall:,.1f}", "h")
+
+    # What a run was, rather than what it measured. These were a subtitle under
+    # the page's title, in a line that also repeated the duration the first
+    # tile carries: a reader meeting a run page wants to know which force field
+    # and which structure as much as they want the RMSD, and a subtitle is not
+    # where the page puts a fact worth reading.
+    #
+    # The platform is already the note under Throughput, where it says what
+    # produced that number, and it earns a box of its own as well: what the run
+    # was computed on is a property of the run.
+    add("Force field", summary.get("force_field") or None)
+    add("Platform", summary.get("platform") or None)
+    add("Structure", (summary.get("structure") or {}).get("filename") or None)
 
     return out
 

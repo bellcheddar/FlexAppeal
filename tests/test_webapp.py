@@ -1105,11 +1105,14 @@ def test_the_viewer_plays_at_a_frame_rate_rather_than_a_fixed_pass():
     # while the browser composites on its own, keeps firing in a backgrounded
     # tab and then delivers a burst, and cannot express a fractional interval
     # at all.
-    assert "requestAnimationFrame(function tick" in js
-    # The call, not the word: the comment above the frame clock names
-    # setInterval three times explaining why it is not used, and a test that
-    # cannot tell a call from the prose about it would forbid the explanation.
-    assert "setInterval(" not in js, "playback must not be driven by a timer"
+    # In the slider's own wiring, not in the file: the comment above the frame
+    # clock names setInterval three times explaining why it is not used, and a
+    # timer is the right tool elsewhere. The membrane camera uses one to check
+    # whether its orientation held after Mol* finished animating.
+    slider = js[js.index("function wireSlider"):]
+    slider = slider[: slider.index("\n  function ")]
+    assert "setInterval(" not in slider, "playback must not be driven by a timer"
+    assert "requestAnimationFrame(function tick" in slider
 
     body = js[js.index("function autoplay"):]
     body = body[: body.index("\n  function ")]

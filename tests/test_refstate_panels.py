@@ -712,19 +712,22 @@ def test_the_viewer_only_offers_a_ghost_whose_structure_is_in_the_file():
     assert without["overlay"] == {}
 
 
-def test_the_bilayer_toggle_needs_both_of_its_files():
-    """One without the other loads a topology with no coordinates."""
+def test_the_bilayer_toggle_needs_the_structure_it_draws():
+    """A toggle whose structure is not in the file would 404 rather than draw.
+
+    It used to need a trajectory as well, which was right when the bilayer was
+    476 phosphorus atoms over 500 frames and wrong now that it is 24,752 atoms
+    at one frame: the newer shape has no trajectory to require, and
+    `test_an_older_bilayer_that_moves_still_works` covers the older one.
+    """
     payload = _payload(viewer={"motif_painted": False, "overlay": {},
                                "lipids": {"topology": "lipids.pdb",
-                                          "trajectory": "lipids.xtc",
-                                          "n_atoms": 476}})
-    both = panels.viewer_controls(_results(payload, members={
-        "lipids.pdb": b"ATOM\n", "lipids.xtc": b"\x00"}))
-    assert both["lipids"]["n_atoms"] == 476
+                                          "n_atoms": 24752}})
+    offered = panels.viewer_controls(
+        _results(payload, members={"lipids.pdb": b"ATOM\n"}))
+    assert offered["lipids"]["n_atoms"] == 24752
 
-    half = panels.viewer_controls(_results(payload, members={
-        "lipids.pdb": b"ATOM\n"}))
-    assert half["lipids"] == {}
+    assert panels.viewer_controls(_results(payload))["lipids"] == {}
 
 
 def test_the_cartoon_is_only_coloured_when_the_topology_was_painted():
@@ -882,3 +885,219 @@ def test_the_state_map_axes_are_labelled_in_angstrom(run_page):
         assert "(A)" not in label, f"{label!r} uses ASCII A"
         assert "Calpha" not in label and "alphaC" not in label, \
             f"{label!r} spells out a Greek letter"
+
+
+# ------------------------------------------------- the bilayer and the camera
+
+
+def test_a_single_frame_bilayer_needs_only_its_topology():
+    """The bilayer is the whole lipid now rather than its phosphorus.
+
+    Phosphorus alone is 476 atoms and draws as a cloud of dots; the full chains
+    are 24,752 heavy atoms, which is 2 MB for one frame and 48 MB for five
+    hundred. So it is one frame and there is no trajectory to require.
+    """
+    payload = _payload(viewer={"motif_painted": False, "overlay": {},
+                               "lipids": {"topology": "lipids.pdb",
+                                          "n_atoms": 24752, "n_residues": 476,
+                                          "n_frames": 1}})
+    controls = panels.viewer_controls(
+        _results(payload, members={"lipids.pdb": b"ATOM\n"}))
+    assert controls["lipids"]["n_residues"] == 476
+    assert "trajectory" not in controls["lipids"]
+
+
+def test_an_older_bilayer_that_moves_still_works():
+    """A results file packed when the bilayer was phosphorus over 500 frames.
+
+    The topology is what is required; a trajectory is carried when the file has
+    one, so an older file keeps the moving bilayer it was packed with.
+    """
+    payload = _payload(viewer={"motif_painted": False, "overlay": {},
+                               "lipids": {"topology": "lipids.pdb",
+                                          "trajectory": "lipids.xtc",
+                                          "n_atoms": 476, "n_frames": 500}})
+    controls = panels.viewer_controls(_results(payload, members={
+        "lipids.pdb": b"ATOM\n", "lipids.xtc": b"\x00"}))
+    assert controls["lipids"]["trajectory"] == "lipids.xtc"
+
+    # And one whose trajectory did not make it into the file is offered as the
+    # single frame it has, rather than as a control that 404s.
+    half = panels.viewer_controls(
+        _results(payload, members={"lipids.pdb": b"ATOM\n"}))
+    assert "trajectory" not in half["lipids"]
+    assert half["lipids"]["topology"] == "lipids.pdb"
+
+
+def test_the_camera_is_only_pointed_where_there_is_a_bilayer_to_point_at():
+    """A water run keeps whatever view Mol* framed.
+
+    The two vectors are measured from the lipids, so a run without them has no
+    edge-on view to offer and the viewer is left alone rather than pointed
+    somewhere arbitrary.
+    """
+    orientation = {"up": [0, 0, 1], "along": [1, 0, 0], "normal_axis": 2}
+    membrane = _payload(viewer={"motif_painted": False, "overlay": {},
+                                "orientation": orientation,
+                                "lipids": {"topology": "lipids.pdb",
+                                           "n_residues": 476, "n_frames": 1}})
+    controls = panels.viewer_controls(
+        _results(membrane, members={"lipids.pdb": b"ATOM\n"}))
+    assert controls["orientation"]["up"] == [0, 0, 1]
+
+    water = _payload(viewer={"motif_painted": False, "overlay": {},
+                             "orientation": orientation, "lipids": {}})
+    assert panels.viewer_controls(_results(water))["orientation"] == {}
+
+
+def test_the_viewer_legend_names_every_motif_the_cartoon_colours():
+    """The structure carries the motif number and Mol* colours from it.
+
+    Without a key a reader sees an orange helix and a blue one with nothing on
+    the page naming either. The colours are section 6.1's tokens, the same ones
+    the panel tables use, so a motif looks the same wherever it appears.
+    """
+    controls = panels.viewer_controls(_results(_payload()))
+    legend = {item["name"]: item["colour"] for item in controls["motifs"]}
+    assert set(legend) == {"xDFG", "hinge"}
+    assert legend["xDFG"] == panels.motif_colour("kinase", "xDFG")
+    assert legend["hinge"] == panels.motif_colour("kinase", "hinge")
+    spans = {item["name"]: item["residues"] for item in controls["motifs"]}
+    assert spans["xDFG"] == "380 to 383"
+
+
+def test_an_unpainted_structure_gets_no_legend():
+    """A key to colours that are not there would be worse than no key."""
+    payload = _payload()
+    payload["viewer"] = {"motif_painted": False, "overlay": {}, "lipids": {}}
+    assert panels.viewer_controls(_results(payload))["motifs"] == []
+
+
+# --------------------------------------------------- the packer's own staging
+
+
+def _packer():
+    """`tools/pack_run_fxa.py`, loaded the way the ingest tests load theirs."""
+    import importlib.util
+
+    root = Path(__file__).resolve().parents[1]
+    spec = importlib.util.spec_from_file_location(
+        "_pack_for_tests", root / "tools" / "pack_run_fxa.py")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def _pdb(rows):
+    """A minimal PDB: (serial, name, resname, resSeq, element) per atom."""
+    out = []
+    for serial, (name, resname, number, element) in enumerate(rows, start=1):
+        # Columns matter: 13-16 the atom name, 17 altLoc, 18-20 the residue
+        # name, 22 the chain, 23-26 the residue number. The first version of
+        # this helper left out altLoc, which shifted the residue name a column
+        # left and made the test assert on a file the parser could not read.
+        out.append(
+            f"HETATM{serial:>5d} {name:<4s} {resname:>3s} A{number:>4d}"
+            f"    {0.0:8.3f}{0.0:8.3f}{0.0:8.3f}  1.00  0.00"
+            f"          {element:>2s}\n")
+    return "".join(out) + "END\n"
+
+
+def test_a_ligand_split_across_two_residues_is_put_back_together(tmp_path):
+    """The built systems have every ligand in two residues, heavy and hydrogen.
+
+    Imatinib is 37 and 31, carazolol 22 and 22. The simulation does not care
+    and neither does the reference-state analysis, which selects the ligand by
+    name. The binding measurements do: with the halves apart they took "the
+    largest fragment", which is the heavy atoms with no hydrogens, and could
+    not infer bond orders from them. No two-dimensional depiction, so the
+    mobility inset was missing from every bound run while the committed example
+    had one; no strain or torsion, so the conformation sub-score stayed
+    pending; and a pose RMSD with no symmetry correction, which overstates
+    drift.
+    """
+    module = _packer()
+    path = tmp_path / "topology.pdb"
+    path.write_text(_pdb([("N", "ALA", 1, "N"), ("CA", "ALA", 1, "C")]
+                         + [("C1", "STI", 2, "C"), ("C2", "STI", 2, "C")]
+                         + [("H1", "STI", 3, "H"), ("H2", "STI", 3, "H")]))
+    module._merge_ligand_residues(path, ["STI"])
+
+    numbers = {int(line[22:26]) for line in path.read_text().splitlines()
+               if line.startswith("HETATM") and line[17:20].strip() == "STI"}
+    assert numbers == {2}, "both halves should share one residue number"
+
+
+def test_two_real_copies_of_a_ligand_are_left_alone(tmp_path):
+    """Merging those would join two molecules into one.
+
+    The split this repairs is a specific shape: two residues of the same name,
+    next to each other, one carrying hydrogens and the other not. Two copies of
+    a ligand have hydrogens in both and are not touched.
+    """
+    module = _packer()
+    path = tmp_path / "topology.pdb"
+    before = _pdb([("C1", "STI", 1, "C"), ("H1", "STI", 1, "H"),
+                   ("C1", "STI", 2, "C"), ("H1", "STI", 2, "H")])
+    path.write_text(before)
+    module._merge_ligand_residues(path, ["STI"])
+    assert path.read_text() == before
+
+
+def test_a_ligand_in_one_residue_already_is_left_alone(tmp_path):
+    module = _packer()
+    path = tmp_path / "topology.pdb"
+    before = _pdb([("C1", "BNZ", 1, "C"), ("H1", "BNZ", 1, "H")])
+    path.write_text(before)
+    module._merge_ligand_residues(path, ["BNZ"])
+    assert path.read_text() == before
+
+
+def test_staging_never_writes_through_to_the_simulation_output(tmp_path):
+    """The staged topology is a copy, because the staging rewrites it.
+
+    `_merge_ligand_residues` puts a ligand back into one residue in the staged
+    copy. The first version of the staging hard-linked that file from
+    `data/md/<row>/solvated.pdb` and then wrote through the link, which edited
+    the simulation's own output: both bound rows lost the heavy-and-hydrogen
+    split that is the evidence for the fault the merge works around.
+
+    Asserted on the inode rather than on the content, because content is what
+    the mistake preserved: the two files were identical afterwards, which is
+    exactly why nothing noticed until a test that reads `solvated.pdb` failed.
+    """
+    import shutil
+
+    source = tmp_path / "md" / "row"
+    source.mkdir(parents=True)
+    (source / "solvated.pdb").write_text(_pdb([("C1", "STI", 1, "C"),
+                                               ("H1", "STI", 2, "H")]))
+    staged = tmp_path / "work" / "row"
+    staged.mkdir(parents=True)
+    shutil.copy2(source / "solvated.pdb", staged / "topology.pdb")
+
+    assert ((staged / "topology.pdb").stat().st_ino
+            != (source / "solvated.pdb").stat().st_ino), "a copy, not a link"
+
+    module = _packer()
+    module._merge_ligand_residues(staged / "topology.pdb", ["STI"])
+    merged = {int(line[22:26]) for line in
+              (staged / "topology.pdb").read_text().splitlines()
+              if line.startswith("HETATM")}
+    original = {int(line[22:26]) for line in
+                (source / "solvated.pdb").read_text().splitlines()
+                if line.startswith("HETATM")}
+    assert merged == {1}, "the staged copy is merged"
+    assert original == {1, 2}, "the simulation's own output is untouched"
+
+
+def test_the_packer_copies_the_topology_rather_than_linking_it():
+    """The guard for the mistake above, in the code that makes the decision."""
+    source = (Path(__file__).resolve().parents[1]
+              / "tools" / "pack_run_fxa.py").read_text(encoding="utf-8")
+    staging = source[source.index("def _stage("):]
+    staging = staging[: staging.index("\ndef ")]
+    assert 'shutil.copy2(source / "solvated.pdb", run_dir / "topology.pdb")' in staging
+    assert "hardlink_to(src)" not in staging, (
+        "the topology is rewritten in place, so it cannot share an inode with "
+        "the simulation's output")

@@ -265,8 +265,75 @@ def _stage_trajectory(source: Path, destination: Path, interval_ps: float,
     return written
 
 
-def _stage(row: str, cfg: dict[str, Any], work: Path,
-           interval_ps: float) -> Path:
+def _merge_ligand_residues(topology: Path, ligands: list[str]) -> None:
+    """Put each ligand back into one residue.
+
+    The built systems have every ligand split across two residues, its heavy
+    atoms in one and its hydrogens in the other: imatinib is 37 and 31, and
+    carazolol 22 and 22. Nothing in the simulation cares, and neither did the
+    reference-state analysis, which measures the ligand by selection rather
+    than by residue.
+
+    The Analysis tab's binding measurements do care, because they build a
+    molecule: with the two halves apart it took "the largest fragment", which
+    is the heavy atoms with no hydrogens, and could not infer bond orders from
+    them. The consequences were all the quiet kind. No two-dimensional
+    depiction, so the mobility inset beside the viewer was missing on every
+    bound run while the committed example had one. No strain or torsion
+    measurement, so the conformation sub-score stayed pending. And a pose RMSD
+    with no symmetry correction, which overstates drift on a ligand with
+    equivalent atoms.
+
+    Merged in the staged copy rather than in `data/md`, which is the
+    simulation's own output and is not this script's to rewrite.
+
+    Only where the split is the one described: residues of the same name, next
+    to each other, one carrying hydrogens and the other not. A system with two
+    genuine copies of a ligand has neither property and is left alone.
+    """
+    import re
+
+    if not ligands or not topology.is_file():
+        return
+    lines = topology.read_text(encoding="utf-8").splitlines(True)
+
+    for name in ligands:
+        blocks: dict[int, dict[str, Any]] = {}
+        for index, line in enumerate(lines):
+            if not line.startswith(("ATOM", "HETATM")):
+                continue
+            if line[17:20].strip() != name:
+                continue
+            number = int(line[22:26])
+            block = blocks.setdefault(number, {"rows": [], "hydrogens": 0})
+            block["rows"].append(index)
+            # The element column where there is one, the atom name where there
+            # is not: a PDB from a builder does not always fill columns 77-78.
+            element = line[76:78].strip() or re.sub(r"[^A-Za-z]", "",
+                                                    line[12:16].strip())[:1]
+            if element.upper().startswith("H"):
+                block["hydrogens"] += 1
+        if len(blocks) != 2:
+            continue
+        numbers = sorted(blocks)
+        if numbers[1] - numbers[0] != 1:
+            continue
+        carries = [bool(blocks[number]["hydrogens"]) for number in numbers]
+        if carries[0] == carries[1]:
+            # Both halves have hydrogens or neither does, so this is not the
+            # heavy-and-hydrogen split and merging would join two molecules.
+            continue
+        keep = f"{numbers[0]:>4d}"
+        for index in blocks[numbers[1]]["rows"]:
+            line = lines[index]
+            lines[index] = line[:22] + keep + line[26:]
+        log(f"  {name}: {len(blocks[numbers[0]]['rows'])} + "
+            f"{len(blocks[numbers[1]]['rows'])} atoms merged into one residue")
+    topology.write_text("".join(lines), encoding="utf-8")
+
+
+def _stage(row: str, cfg: dict[str, Any], work: Path, interval_ps: float,
+           meta_ligands: list[str] | None = None) -> Path:
     """Unpack a real bundle and put the row's finished output inside it.
 
     The bundle arrives as the self-extracting file a user downloads and is
@@ -291,23 +358,36 @@ def _stage(row: str, cfg: dict[str, Any], work: Path,
         path.write_bytes(payload)
 
     # Where `analyse.py` looks: OUTPUT/<job_name>*/ holding a topology and a
-    # trajectory. The topology and the state data are hard links, because they
-    # are small and unchanged; the trajectory is rewritten, because its time
-    # axis has to be put back.
+    # trajectory. The state data is a hard link, because it is small and is
+    # only ever read. The topology is a **copy**, because the staging rewrites
+    # it: `_merge_ligand_residues` puts the ligand back into one residue, and
+    # the first version of this hard-linked the topology and then wrote through
+    # the link, which edited `data/md/<row>/solvated.pdb` itself. That file is
+    # the simulation's own output. The test that found it is the one asserting
+    # the built systems split a ligand in two, which is the fault this staging
+    # exists to work around and which that file is the evidence for.
+    #
+    # The trajectory is rewritten for a different reason: its time axis has to
+    # be put back.
     output = (work / cfg["output_dir"]).resolve()
     run_dir = output / row
     run_dir.mkdir(parents=True, exist_ok=True)
     source = MD_ROOT / row
-    for src, dest in ((source / "solvated.pdb", run_dir / "topology.pdb"),
-                      (source / "state_data.csv", run_dir / "state_data.csv")):
-        if not src.is_file():
-            raise SystemExit(f"{row}: {src} is missing")
-        if dest.exists():
-            dest.unlink()
-        try:
-            dest.hardlink_to(src)
-        except OSError:
-            shutil.copy2(src, dest)
+    if not (source / "solvated.pdb").is_file():
+        raise SystemExit(f"{row}: {source / 'solvated.pdb'} is missing")
+    shutil.copy2(source / "solvated.pdb", run_dir / "topology.pdb")
+    state_data = source / "state_data.csv"
+    if not state_data.is_file():
+        raise SystemExit(f"{row}: {state_data} is missing")
+    dest = run_dir / "state_data.csv"
+    if dest.exists():
+        dest.unlink()
+    try:
+        dest.hardlink_to(state_data)
+    except OSError:
+        shutil.copy2(state_data, dest)
+
+    _merge_ligand_residues(run_dir / "topology.pdb", meta_ligands or [])
 
     log(f"{row}: restaging the trajectory at {interval_ps:.0f} ps per frame")
     frames = _stage_trajectory(
@@ -576,28 +656,296 @@ def _repaint_topology(source: Path, payload: dict[str, Any]) -> bytes | None:
         shutil.rmtree(scratch, ignore_errors=True)
 
 
-def _extra_members(row: str, payload: dict[str, Any]) -> dict[str, bytes]:
-    """The members the standard pass knows nothing about.
+def _frame_transform(mobile, target):
+    """The rigid transform that takes one frame's atoms onto another's.
 
-    The reference-state payload, the two overlay ghosts, and the lipid bundle for
-    a membrane row. Each is a file the viewer or a panel reads; none of them is
-    chemistry. Nothing matching the chemistry roots this build forbids goes into
-    a member or a field name, which is checked by the test suite rather than
-    asserted here.
+    Both arrays are the same atoms of the same system in the same order, in two
+    coordinate frames that differ because they came out of two passes: the
+    reference-state analysis images and superposes for its own measurements,
+    and the bundle's `analyse.py` images independently before it packs. Nothing
+    downstream noticed, because each file was only ever drawn beside itself.
+    Put in one viewer together, the ghost sat 50 angstrom off the protein and
+    the bilayer somewhere else again.
+
+    Superposed rather than assumed to be a translation. Imaging only ever
+    translates whole molecules, so a translation is what this should come out
+    as, but a superposition costs nothing and cannot be wrong about it.
+    `traj.superpose` is the build's own Kabsch, the one every motif distance is
+    measured after, returning the transform so it can be applied to atoms that
+    were not part of the fit.
+
+    **Fit on the protein and nothing else.** The first version fitted on every
+    atom the two frames share, which includes the ligand, and came out with a
+    15.6 angstrom residual on a pair of frames that differ by a translation.
+    The ligand is its own molecule, so imaging can and does put it in a
+    different periodic copy in one frame from the other: 44 atoms of 5,288, a
+    box length out, is enough to drag the fit that far. On the protein alone
+    the residual is 0.005 angstrom, which is what a pure translation should
+    give and is the check that this transform is the right one.
     """
-    members: dict[str, bytes] = {
-        "refstates.json": json.dumps(payload).encode("utf-8"),
-    }
-    for state in ("active", "inactive"):
-        ghost = ANALYSIS_ROOT / f"{row}.ref_{state}.pdb"
-        if ghost.is_file():
-            members[f"refstates_{state}.pdb"] = ghost.read_bytes()
-    for member, suffix in (("lipids.pdb", "lipids.pdb"),
-                           ("lipids.xtc", "lipids.xtc")):
-        source = ANALYSIS_ROOT / f"{row}.{suffix}"
-        if source.is_file():
-            members[member] = source.read_bytes()
-    return members
+    from flexappeal.refstates import traj as traj_mod
+
+    rotation, mobile_centre, target_centre = traj_mod.superpose(mobile, target)
+    residual = traj_mod.rmsd(
+        traj_mod.apply_transform(mobile, rotation, mobile_centre, target_centre),
+        target)
+    return (rotation, mobile_centre, target_centre), residual
+
+
+def _packed_frame(produced: Path):
+    """The packed topology's first frame, which everything else is aligned to."""
+    import mdtraj as md
+
+    scratch = WORK / "_align"
+    scratch.mkdir(parents=True, exist_ok=True)
+    path = scratch / "packed.pdb"
+    with zipfile.ZipFile(produced) as archive:
+        path.write_bytes(archive.read("topology.pdb"))
+    return md.load(str(path)), scratch
+
+
+def _orientation(packed, payload: dict[str, Any],
+                 phosphorus) -> dict[str, Any]:
+    """Which way is up for a membrane run, measured rather than assumed.
+
+    Two facts the viewer needs and neither is a convention it can guess. The
+    bilayer normal is the axis the phosphorus atoms are least spread along: a
+    leaflet is wide in the plane of the membrane and thin across it, and on
+    this receptor the spread is 38 and 40 angstrom in the plane against 19
+    across. The camera looks along one of the other two axes, which is what
+    puts the bilayer edge on.
+
+    Which end of that axis is extracellular comes from helix 8, which lies on
+    the intracellular face: if its centroid is below the protein's along the
+    normal then extracellular is the positive direction, and the extracellular
+    loops are at the top. Taken from the structure rather than from the OPM
+    convention the system was built with, so a system built some other way
+    still comes out the right way up.
+
+    Returns an empty dict when either fact cannot be established, and the
+    viewer then leaves the camera where Mol* put it.
+    """
+    import numpy as np
+
+    if phosphorus is None or len(phosphorus) < 20:
+        return {}
+    spread = np.asarray(phosphorus).std(axis=0)
+    normal = int(np.argmin(spread))
+    others = [value for index, value in enumerate(spread) if index != normal]
+    if min(others) < spread[normal] * 1.5:
+        # Not a bilayer lying across one axis, so there is no edge-on view to
+        # offer and guessing one would point the camera somewhere arbitrary.
+        return {}
+
+    axis = payload.get("dssp", {}).get("residues") or []
+    helix8 = (payload.get("motif_residues") or {}).get("H8") or []
+    if not axis or not helix8:
+        return {}
+    protein = [residue for residue in packed.topology.residues
+               if residue.is_protein]
+    if len(protein) != len(axis):
+        return {}
+    renumbered = {int(number): protein[index].resSeq
+                  for index, number in enumerate(axis)}
+    wanted = {renumbered[int(n)] for n in helix8 if int(n) in renumbered}
+    indices = [atom.index for atom in packed.topology.atoms
+               if atom.residue.is_protein and atom.residue.resSeq in wanted]
+    if not indices:
+        return {}
+
+    coordinates = packed.xyz[0] * 10.0
+    towards = float(coordinates[:, normal].mean()
+                    - coordinates[indices][:, normal].mean())
+    if abs(towards) < 1.0:
+        return {}
+    sign = 1.0 if towards > 0 else -1.0
+    up = [0.0, 0.0, 0.0]
+    up[normal] = sign
+    # The camera looks along the first axis that is not the normal, which puts
+    # the normal across the screen rather than into it.
+    along = [0.0, 0.0, 0.0]
+    along[(normal + 1) % 3] = 1.0
+    return {"up": up, "along": along, "normal_axis": normal,
+             "note": ("the bilayer normal is the axis the phosphorus atoms are "
+                      "least spread along, and helix 8 says which end of it is "
+                      "intracellular")}
+
+
+# How far from the receptor a lipid is still drawn. Eighteen angstrom is about
+# two lipids out from the protein on every side: enough that the bilayer reads
+# as a membrane rather than as a collar, and little enough that the camera
+# frames the receptor rather than the box.
+LIPID_PATCH_A = 18.0
+
+
+def _viewer_members(row: str, payload: dict[str, Any], produced: Path,
+                    work: Path, cfg: dict[str, Any]) -> dict[str, bytes]:
+    """The ghosts and the bilayer, in the coordinate frame the viewer draws in.
+
+    Both used to be copied straight out of `data/analysis`, where they are
+    written in the reference-state analysis's own frame. That frame is not the
+    one the packed trajectory is in, so in the viewer the ghost was tens of
+    angstrom off the protein and the bilayer was somewhere else again. Each is
+    transformed onto the packed first frame here.
+
+    The bilayer is the whole lipid rather than its phosphorus. Phosphorus alone
+    is 476 atoms and draws as a cloud of dots; the full chains are 24,752 heavy
+    atoms, which is 2 MB for one frame and 48 MB for five hundred. So it is one
+    frame: the bilayer is context for a receptor that sits in it, the
+    measurements of the bilayer are in their own panel, and 48 MB on every page
+    view to watch lipid tails wobble is not a trade worth making. Said on the
+    control rather than left for a reader to notice.
+    """
+    import mdtraj as md
+    import numpy as np
+
+    members: dict[str, bytes] = {}
+    packed, scratch = _packed_frame(produced)
+    try:
+        # The ghosts, from the reference-state viewer bundle's frame. Its
+        # topology is the same atoms in the same order as the packed one, which
+        # is checked rather than trusted: a mismatch would superpose two
+        # different molecules and put the ghost anywhere at all.
+        reference = ANALYSIS_ROOT / f"{row}.pdb"
+        if reference.is_file():
+            source = md.load(str(reference))
+            same = ([(a.name, a.residue.name) for a in source.topology.atoms]
+                    == [(a.name, a.residue.name) for a in packed.topology.atoms])
+            if same:
+                backbone = packed.topology.select("protein")
+                transform, residual = _frame_transform(
+                    source.xyz[0][backbone] * 10.0,
+                    packed.xyz[0][backbone] * 10.0)
+                log(f"  ghosts aligned onto the packed frame, {residual:.3f} "
+                    f"angstrom residual")
+                for state in ("active", "inactive"):
+                    ghost = ANALYSIS_ROOT / f"{row}.ref_{state}.pdb"
+                    if not ghost.is_file():
+                        continue
+                    loaded = md.load(str(ghost))
+                    from flexappeal.refstates import traj as traj_mod
+
+                    loaded.xyz[0] = (traj_mod.apply_transform(
+                        loaded.xyz[0] * 10.0, *transform) / 10.0)
+                    out = scratch / f"ref_{state}.pdb"
+                    loaded.save_pdb(str(out))
+                    members[f"refstates_{state}.pdb"] = out.read_bytes()
+            else:
+                log("  the reference-state bundle has different atoms from the "
+                    "packed topology, so no ghost is offered")
+
+        if not cfg.get("use_membrane"):
+            return members
+
+        # The bilayer, from the staged trajectory this run was packed from.
+        staged = work / cfg["output_dir"] / row
+        topology = staged / "topology.pdb"
+        trajectory = staged / "trajectory.xtc"
+        if not topology.is_file() or not trajectory.is_file():
+            return members
+        solvated = md.load(str(topology))
+        lipid = solvated.topology.select("resname POP and element != H")
+        if not len(lipid):
+            return members
+
+        # The protein, in both frames, which is what the transform is fitted
+        # on for the reason `_frame_transform` gives.
+        shared = solvated.topology.select("protein")
+        backbone = packed.topology.select("protein")
+        if len(shared) != len(backbone):
+            log(f"  {len(shared)} protein atoms in the staged system against "
+                f"{len(backbone)} packed, so no bilayer is offered")
+            return members
+
+        first = md.load_frame(str(trajectory), 0, top=str(topology))
+        transform, residual = _frame_transform(
+            first.xyz[0][shared] * 10.0, packed.xyz[0][backbone] * 10.0)
+
+        # The normal is measured on the whole bilayer, before the patch is cut
+        # out of it. A leaflet is wide in the plane of the membrane and thin
+        # across it, which is what identifies the normal, and a patch 18
+        # angstrom around the receptor is about as wide as it is thick: the
+        # test correctly refused to call it a bilayer, and the camera was left
+        # pointing down the normal at a membrane it could not see.
+        whole_phosphorus = np.array(
+            [index for index in lipid
+             if solvated.topology.atom(index).name == "P"])
+
+        # The patch of bilayer around the receptor rather than the whole box.
+        #
+        # All 476 lipids is 24,752 atoms, and Mol* frames the camera on
+        # everything it holds: the receptor came out a speck in the middle of a
+        # membrane four times its width, which is a picture of a box rather
+        # than of a protein in a membrane. Restoring the camera after the load
+        # does not hold, because the framing runs on Mol*'s own schedule after
+        # it. A patch frames itself.
+        #
+        # Whole residues, chosen once at the first frame: a lipid is in or out,
+        # never half drawn, and membership does not change under the reader.
+        near = set(md.compute_neighbors(
+            first, LIPID_PATCH_A / 10.0, shared, haystack_indices=lipid)[0])
+        residues = {solvated.topology.atom(index).residue.index
+                    for index in near}
+        lipid = np.array([index for index in lipid
+                          if solvated.topology.atom(index).residue.index
+                          in residues])
+        if not len(lipid):
+            return members
+
+        # Imaged about the receptor before anything is measured off it, which
+        # is the step that makes a contiguous patch of bilayer out of lipids
+        # scattered through whichever periodic copy the integrator left them
+        # in.
+        #
+        # Before, not after. The orientation is read off the phosphorus spread,
+        # and unimaged that spread is 35, 36 and 38 angstrom, which is a cube
+        # and not a bilayer: the test refused to name a normal and the camera
+        # was left pointing down it. Imaged, the same atoms are 38, 40 and 19.
+        from flexappeal.refstates import traj as traj_mod
+
+        def imaged(indices):
+            coordinates = first.xyz[0][indices] * 10.0
+            if first.unitcell_lengths is None:
+                return coordinates
+            box = np.asarray(first.unitcell_lengths)[0] * 10.0
+            offset = coordinates - centre
+            return centre + offset - box * np.round(offset / box)
+
+        centre = (first.xyz[0][shared] * 10.0).mean(axis=0)
+        moved = traj_mod.apply_transform(imaged(lipid), *transform)
+
+        bilayer = first.atom_slice(lipid)
+        bilayer.xyz = (moved / 10.0).reshape(1, -1, 3).astype("float32")
+        out = scratch / "lipids.pdb"
+        bilayer.save_pdb(str(out))
+        members["lipids.pdb"] = out.read_bytes()
+        log(f"  bilayer: {len(lipid)} lipid atoms aligned onto the packed "
+            f"frame, {residual:.3f} angstrom residual, "
+            f"{len(members['lipids.pdb']) / 1e6:.1f} MB")
+
+        payload.setdefault("viewer", {})["lipids"] = {
+            "topology": "lipids.pdb", "n_atoms": int(len(lipid)),
+            "n_residues": int(len({solvated.topology.atom(i).residue.index
+                                   for i in lipid})),
+            "n_frames": 1, "within_a": LIPID_PATCH_A,
+        }
+        # Imaged and transformed the same way the patch was, so the axes are
+        # the packed frame's. A rigid transform does not change a spread, but
+        # the sign of "which way is extracellular" is read against the packed
+        # protein, so both have to be in one frame.
+        whole = traj_mod.apply_transform(imaged(whole_phosphorus), *transform)
+        payload["viewer"]["orientation"] = _orientation(packed, payload, whole)
+        log(f"  orientation: {payload['viewer']['orientation'] or 'not established'}"
+            f" (phosphorus {len(whole_phosphorus)}, spread "
+            f"{np.round(whole.std(axis=0), 1).tolist()})")
+        return members
+    finally:
+        shutil.rmtree(scratch, ignore_errors=True)
+
+
+def _extra_members(row: str, payload: dict[str, Any]) -> dict[str, bytes]:
+    """The payload itself. The viewer's own members are built by `_viewer_members`."""
+    return {"refstates.json": json.dumps(payload).encode("utf-8")}
 
 
 def _repack(source: Path, destination: Path, extra: dict[str, bytes]) -> dict[str, Any]:
@@ -651,9 +999,10 @@ def pack(row: str, *, force: bool = False) -> bool:
     interval_ps = _frame_interval_ps(payload)
     work = WORK / row
     try:
-        output = _stage(row, cfg, work, interval_ps)
+        output = _stage(row, cfg, work, interval_ps, meta["ligands"])
         produced = _analyse(work, output, row)
         extra = _extra_members(row, payload)
+        extra.update(_viewer_members(row, payload, produced, work, cfg))
         painted = _repaint_topology(produced, payload)
         if painted:
             # Replaces the member the standard pass wrote, which is why the

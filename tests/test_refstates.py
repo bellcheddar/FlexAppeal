@@ -3505,7 +3505,7 @@ def test_a_live_production_process_keeps_the_streaming_going(tmp_path: Path):
 # fails this test.
 TEMPLATE_CLASSES_WITHOUT_CSS = {
     "md-reanalyse",
-    "md-example-terminal", "md-run-sub", "md-source-form", "md-tile-note",
+    "md-example-terminal", "md-source-form", "md-tile-note",
 }
 
 

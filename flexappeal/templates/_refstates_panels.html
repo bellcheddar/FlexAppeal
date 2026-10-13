@@ -35,6 +35,9 @@
         <h3>{{ panel.title }}</h3>
         {% if prose and panel.blurb %}
           <p class="md-panel-blurb">{{ panel.blurb }}</p>
+          {% if panel.kind == 'table' and panel.table.note %}
+            <p class="md-panel-blurb">{{ panel.table.note }}</p>
+          {% endif %}
         {% endif %}
         {% if panel.kind == 'table' %}
           <div class="md-table-scroll">
@@ -69,17 +72,23 @@
               </tbody>
             </table>
           </div>
-          {% if panel.table.note %}
-            <p class="md-note">{{ panel.table.note }}</p>
-          {% endif %}
+
         {% else %}
           <div class="md-plot" id="plot-{{ panel.id }}"
                data-figure='{{ panel.figure | tojson }}'></div>
         {% endif %}
-        {% if not prose and panel.blurb %}
+        {# One place for the prose, which is what the reader asked for: a table's
+           note used to sit under it in a yellow-bordered box while the panel's
+           own description sat in this closed `<details>`, so the same panel
+           explained itself in two places and one of them could not be put
+           away. #}
+        {% if not prose and (panel.blurb or (panel.kind == 'table' and panel.table.note)) %}
           <details class="md-panel-more">
             <summary>What this shows</summary>
-            <p>{{ panel.blurb }}</p>
+            {% if panel.blurb %}<p>{{ panel.blurb }}</p>{% endif %}
+            {% if panel.kind == 'table' and panel.table.note %}
+              <p>{{ panel.table.note }}</p>
+            {% endif %}
           </details>
         {% endif %}
       </section>
