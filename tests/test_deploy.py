@@ -363,3 +363,50 @@ def test_the_deploy_cannot_delete_a_run_somebody_kept():
                     if not line.lstrip().startswith("#"))
     assert "--delete" in code, "the sync is still meant to prune the tree"
     assert "--filter='protect web_runs/**'" in code
+
+
+def test_the_rate_limit_counts_writes_rather_than_paths():
+    """`/analysis/` serves the viewer as well as accepting an upload.
+
+    The zone was keyed on the address alone and applied to the location, so a
+    reader opening three run pages in a minute spent the whole allowance on the
+    GETs that fetch a structure and a trajectory, and the viewer came back 503.
+    It happened on the live site the first time the four reference-state runs
+    were deployed into the Runs library, where there are four pages to click
+    between and each needs two or three of those requests.
+
+    nginx does not account a request whose key is empty, so mapping every read
+    to an empty key limits the uploads and leaves the viewer alone.
+    """
+    import re
+
+    limits = _read("nginx-flexappeal-limits.conf")
+    assert "map $request_method $flexappeal_write" in limits
+    assert "limit_req_zone $flexappeal_write zone=flexappeal_writes" in limits
+    assert "limit_req_zone $binary_remote_addr" not in limits, (
+        "keyed on the address alone, every read counts against the upload budget")
+    for method in ("POST", "PUT"):
+        # Whitespace-insensitive: the file aligns the map's columns, and a test
+        # that counts spaces breaks the next time it is tidied.
+        assert re.search(rf"\n\s*{method}\s+\$binary_remote_addr;", limits), method
+    assert 'default ""' in limits, "a read must map to an empty key"
+
+    # And the locations still reference the zone, which is the other half: a
+    # zone nothing uses limits nothing.
+    site = _read("nginx-flexappeal.conf")
+    assert site.count("limit_req zone=flexappeal_writes") == 2
+    assert "flexappeal_upload" not in site, (
+        "the zone was renamed because nginx refuses a key change on reload")
+
+
+def test_the_workers_preload_the_application():
+    """One copy of the modules shared across the workers rather than one each.
+
+    On a box with 3.8 GB between five applications, preloading puts them in
+    pages the workers share after the fork. It was added while chasing a 12.7
+    second first request and did not fix it, which is 4bv: that was the
+    binding-site measurement and is cached on disk now. Kept for the memory,
+    which is the reason that survived the measurement.
+    """
+    config = _read("gunicorn.conf.py")
+    assert "preload_app = True" in config

@@ -140,12 +140,56 @@ REMOTE
 echo "==> Verifying"
 SERVER_NAME="${SERVER_NAME:-flexappeal.mdeller.com}"
 FAILED=0
-for ROUTE in /healthz / /analysis /example /runs /refstates/ /refstates/about; do
+for ROUTE in /healthz / /analysis /example /runs /runs/abl1_apo; do
     CODE=$(curl -s -o /dev/null -w '%{http_code}' \
            "https://${SERVER_NAME}${ROUTE}" || echo "000")
     printf '    %-22s -> %s\n' "${ROUTE}" "${CODE}"
     [[ "${CODE}" == "200" ]] || FAILED=1
 done
+# The library's own pages, fetched until they are warm.
+#
+# A run with a ligand measures its binding site the first time anybody opens
+# it: 12 seconds for a 500-frame receptor, against 0.6 once the answer is
+# cached. The cache is on disk and keyed on the results file, so that cost is
+# paid once ever rather than once per worker per restart, and this loop is what
+# pays it: a new or changed results file is measured here, by the deploy,
+# instead of by whoever opens the page next.
+#
+# Fetched until two in a row come back quickly, because a request lands on
+# whichever worker is free. The times are printed rather than hidden: a page
+# that is still slow after the cache has been written is something to look at,
+# and so is one that is slow on every deploy, because that would mean the cache
+# is not being kept.
+echo "==> Warming the run pages"
+for RUN in $(curl -s "https://${SERVER_NAME}/runs" \
+             | grep -oE 'href="/runs/[a-zA-Z0-9_-]+"' \
+             | cut -d'"' -f2 | sort -u); do
+    TIMES=""
+    QUICK=0
+    for _ in 1 2 3 4 5 6 7 8; do
+        TAKEN=$(curl -s -o /dev/null -w '%{time_starttransfer}' \
+                "https://${SERVER_NAME}${RUN}")
+        TIMES="${TIMES} ${TAKEN}s"
+        # Two consecutive fetches under two seconds means every worker that
+        # answered has the measurement cached.
+        if [[ "${TAKEN%%.*}" -lt 2 ]]; then
+            QUICK=$((QUICK + 1))
+            [[ "${QUICK}" -ge 2 ]] && break
+        else
+            QUICK=0
+        fi
+    done
+    printf '    %-26s%s\n' "${RUN}" "${TIMES}"
+done
+
+# And one that must be gone. The fifth tab was removed on 13 October and a
+# droplet still answering it is one running code from before that, which is
+# the failure this whole section exists to catch: every route above answers
+# 200 on the old build too.
+GONE=$(curl -s -o /dev/null -w '%{http_code}' \
+       "https://${SERVER_NAME}/refstates/" || echo "000")
+printf '    %-22s -> %s (404 expected)\n' "/refstates/" "${GONE}"
+[[ "${GONE}" == "404" ]] || FAILED=1
 if [[ "${FAILED}" == "0" ]]; then
     echo "==> Deployed."
 else

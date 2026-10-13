@@ -2493,3 +2493,60 @@ moment its subject changed. They are a unit test, a deletion and a refreshed
 artefact now, and the suite skips nothing it can run.
 
 **1,046 passed, nothing skipped**, in 3 min 13 s.
+
+### 13 October, 17:40. Deploying it found four more things
+
+The suite was green and the pages were right in a local browser. The production
+check found four faults none of that could have, and one was mine. 4bv has them
+in full.
+
+The viewer's structure and trajectory are served from `/analysis/`, which nginx
+rate limits because that is also where an upload arrives: a reader clicking
+between four run pages exhausts six requests a minute and the viewer answers
+503. Fourteen console errors on the first check, all of them that. The zone is
+keyed on the request method now, so a read is not counted.
+
+The reload that was meant to apply that did not. `nginx -t` passed and
+`systemctl reload` returned success while the 503s carried on, because a
+shared-memory zone keeps its key for the life of the process and the reload
+failed with an `[emerg]` that only the error log shows. Renaming the zone makes
+it a new zone, which applies on a reload and does not restart nginx for the
+other four applications on the box.
+
+Then I regenerated the installed site file from the template to pick up that
+rename, which dropped the TLS lines certbot had added to it, and the site served
+another application's certificate for about two minutes. Restored from a backup
+taken a minute earlier and changed with `sed` instead. `provision.sh` now carries
+the warning at the line that does it.
+
+And the pages took twelve seconds, which was neither transfer nor rendering: a
+run with a ligand measures its binding site on first view, 10 to 13 seconds,
+cached in the worker that did it. The committed example has always been this
+slow. The cache is on disk now, keyed on the results file's SHA-256, so the
+measurement is paid once ever rather than once per worker per restart. Measured
+after a full restart: 0.61, 0.78 and 0.85 s against 12.8 before.
+
+**Verified in production afterwards**: eight pages at both viewports, zero
+console errors, first paint 200 to 900 ms except the example on a phone at
+2.2 s, every panel drawn, and the viewer holding 25.7 frames a second once its
+trajectory has loaded. The removed tab answers 404.
+
+The disk cache then found a fault in the suite, which is the kind of thing
+shared state does. A test that patches the measurement to raise and asserts the
+panels come back empty got a full set instead: an earlier run of the suite had
+left the real answer in the repository's own `web_runs/.binding-cache`, and the
+test read it. Every test app has a run library of its own now, the way it
+already had a scratch directory of its own, so no test can see another's cache
+and the suite leaves nothing in a directory the application serves.
+
+A last one the production check found, and it is the price of the faster
+playback: toggling a reference ghost took more than ten seconds and its control
+sat disabled the whole time, because loading a structure into Mol* and stepping
+the model index twenty-five times a second are the same thread. At one frame a
+second there was plenty to spare, which is why nobody saw it before. Playback
+pauses for the load and resumes after it, and both toggles now say what they are
+doing while they do it. Measured on the live site: the ghost arrives and the
+control comes back, and so does the bilayer, which is a second trajectory and
+takes longer.
+
+**1,051 passed, nothing skipped.**

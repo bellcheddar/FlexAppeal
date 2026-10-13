@@ -26,6 +26,19 @@
   const PLAYBACK_MIN_SECONDS = 8;
   const PLAYBACK_MAX_SECONDS = 40;
 
+  /* How the rest of this file asks playback to stop and start again.
+     
+     Loading a structure into Mol* is main-thread work, and so is stepping the
+     model index twenty-five times a second: with the trajectory running, a
+     reference ghost took more than ten seconds to appear and its toggle sat
+     disabled the whole time, which reads as a broken control. It was not
+     noticed before because playback used to run at one frame a second, where
+     there was plenty of thread to spare.
+     
+     Set by `wireSlider`, which owns the frame clock. Left as no-ops when there
+     is no slider on the page, so a caller never has to check. */
+  let playback = {pause: function () { return false; }, resume: function () {}};
+
   function playbackSeconds(frames) {
     if (!frames || frames < 2) return PLAYBACK_MIN_SECONDS;
     return Math.min(PLAYBACK_MAX_SECONDS,
@@ -76,25 +89,57 @@
 
   const drawn = [];
 
+  /* Drawn a few at a time, after the first paint, rather than all at once
+     before it.
+     
+     `Plotly.newPlot` is synchronous and it is not cheap: a DSSP heatmap is
+     tens of thousands of cells. Drawing every panel in one pass out of
+     DOMContentLoaded holds the main thread until the last one is done, and the
+     browser cannot paint while it is held. On the example's fourteen panels
+     that cost about a second; on a reference-state run page, which carries
+     thirty-five, first contentful paint measured 12 to 15 seconds against
+     section 6.3's 2 s budget. The page is complete and readable before any
+     chart exists, which is exactly the argument 4bp made for deferring the
+     viewer.
+     
+     Two panels per frame, so the browser paints between batches and the page
+     scrolls while the rest arrive. The order is the document's, so the panels
+     a reader is looking at are the ones drawn first. */
+  const PLOTS_PER_FRAME = 2;
+
+  function drawPlot(node) {
+    let figure;
+    try {
+      figure = JSON.parse(node.dataset.figure);
+    } catch (err) {
+      node.innerHTML = '<p class="md-plot-error">This panel could not be drawn.</p>';
+      return;
+    }
+    Plotly.newPlot(node, figure.data, figure.layout, PLOT_CONFIG);
+    drawn.push(node);
+    wirePlotClick(node);
+  }
+
   function initPlots() {
     if (typeof Plotly === 'undefined') return;
 
-    document.querySelectorAll('.md-plot[data-figure]').forEach(function (node) {
-      let figure;
-      try {
-        figure = JSON.parse(node.dataset.figure);
-      } catch (err) {
-        node.innerHTML = '<p class="md-plot-error">This panel could not be drawn.</p>';
-        return;
-      }
-      Plotly.newPlot(node, figure.data, figure.layout, PLOT_CONFIG);
-      drawn.push(node);
-      wirePlotClick(node);
-    });
+    const pending = Array.prototype.slice.call(
+      document.querySelectorAll('.md-plot[data-figure]'));
 
     window.addEventListener('resize', function () {
       drawn.forEach(function (node) { Plotly.Plots.resize(node); });
     });
+
+    if (typeof requestAnimationFrame !== 'function') {
+      pending.forEach(drawPlot);
+      return;
+    }
+    (function batch() {
+      for (let i = 0; i < PLOTS_PER_FRAME && pending.length; i += 1) {
+        drawPlot(pending.shift());
+      }
+      if (pending.length) requestAnimationFrame(batch);
+    })();
   }
 
   /* Clicking a point that knows its frame moves the viewer to that frame.
@@ -596,6 +641,17 @@
        advancing underneath them is fighting the hand on the control. */
     slider.addEventListener('pointerdown', function () { stop(true); });
 
+    /* Published for the structure toggles. `pause` reports whether it was
+       playing, so a caller can leave it paused if the person already had. */
+    playback = {
+      pause: function () {
+        const wasPlaying = Boolean(frameClock);
+        if (wasPlaying) stop(false);
+        return wasPlaying;
+      },
+      resume: function (wasPlaying) { if (wasPlaying) start(false); },
+    };
+
     show();
     start(false);
     return true;
@@ -774,6 +830,13 @@
         if (busy) return;
         busy = true;
         toggle.disabled = true;
+        /* Paused for the load and resumed after it, so the structure arrives
+           in a second rather than in ten. */
+        const wasPlaying = playback.pause();
+        if (say) {
+          say(toggle.checked ? 'Loading the ' + state + ' reference\u2026'
+                             : 'Removing the overlay\u2026');
+        }
         try {
           if (toggle.checked) {
             /* Coloured after the load, not through `representationParams`.
@@ -803,6 +866,7 @@
           return;
         } finally {
           busy = false;
+          playback.resume(wasPlaying);
         }
         toggle.disabled = false;
       });
@@ -819,6 +883,13 @@
       if (busy) return;
       busy = true;
       toggle.disabled = true;
+      /* Paused for the load, for the reason the overlay toggle gives: the
+         bilayer is a second trajectory and loading it while the first one
+         plays takes the thread from both. */
+      const wasPlaying = playback.pause();
+      if (say) {
+        say(toggle.checked ? 'Loading the bilayer\u2026' : 'Hiding the bilayer\u2026');
+      }
       try {
         if (toggle.checked) {
           loaded = await viewer.loadTrajectory({
@@ -853,6 +924,7 @@
         return;
       } finally {
         busy = false;
+        playback.resume(wasPlaying);
         if (!toggle.disabled) toggle.disabled = false;
       }
       toggle.disabled = false;
@@ -967,7 +1039,9 @@
 
   document.addEventListener('DOMContentLoaded', function () {
     initDropZone();
-    initPlots();
+    /* Both of the heavy ones wait for the paint now. The viewer has since
+       4bp; the plots joined it when a page grew to thirty-five of them. */
+    afterFirstPaint(initPlots);
     afterFirstPaint(initViewer);
   });
 })();

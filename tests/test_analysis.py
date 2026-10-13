@@ -601,7 +601,8 @@ def test_the_panels_survive_a_server_without_scipy_or_rdkit():
     assert not ids & {"binding-clusters", "binding-strain", "binding-torsions"}
 
 
-def test_a_measurement_that_raises_costs_the_panels_not_the_page(monkeypatch):
+def test_a_measurement_that_raises_costs_the_panels_not_the_page(monkeypatch,
+                                                                tmp_path):
     """A traceback here would take down a page that otherwise works."""
     from flexappeal import package, webapp
 
@@ -613,6 +614,13 @@ def test_a_measurement_that_raises_costs_the_panels_not_the_page(monkeypatch):
 
     application = webapp.create_app()
     application.config.update(TESTING=True)
+    # A library of its own, so the measurement is actually attempted. The
+    # record is cached on disk beside the library now, and with the default
+    # root this test read an answer a previous run of the suite had left in the
+    # repository's own `web_runs`: the measurement never ran and the panels it
+    # asserts are empty came back full. It also means the suite stops writing
+    # into a directory the application serves.
+    application.config["RUNS_ROOT"] = str(tmp_path)
     with application.app_context():
         from flexappeal import fxa
 

@@ -61,6 +61,14 @@ echo "==> nginx"
 # The rate-limit zone has to be declared at http scope, which a sites-available
 # file is not -- hence the separate conf.d snippet.
 install -m 644 "${APP_PATH}/deploy/nginx-${APP}-limits.conf" /etc/nginx/conf.d/
+# NOTE: this overwrites the installed site file, and certbot adds its TLS lines
+# to that file rather than to this template. Running this on a box where the
+# certificate is already issued therefore removes them, and the site then serves
+# whichever certificate another application's server block offers:
+# ERR_CERT_COMMON_NAME_INVALID on every page, which is what happened on
+# 13 October when a one-line change was applied this way (4bv). To change the
+# site configuration on a live box, edit the installed file in place and reload,
+# or re-run certbot afterwards.
 sed -e "s|__SERVER_NAME__|${SERVER_NAME}|g" \
     -e "s|__BIND_ADDR__|${BIND_ADDR}|g" \
     "${APP_PATH}/deploy/nginx-${APP}.conf" > "/etc/nginx/sites-available/${APP}"

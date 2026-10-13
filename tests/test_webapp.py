@@ -28,6 +28,13 @@ def app(tmp_path, monkeypatch):
     monkeypatch.setenv("FLEXAPPEAL_SCRATCH_ROOT", str(tmp_path / "scratch"))
     application = create_app()
     application.config.update(TESTING=True)
+    # A run library of its own as well as a scratch directory of its own. The
+    # binding measurement is cached on disk beside the library, so with the
+    # default root the suite both read answers a previous run had left there
+    # and wrote new ones into a directory the application serves. A test should
+    # not be able to see another test's cache, and should not leave anything in
+    # the repository.
+    application.config["RUNS_ROOT"] = str(tmp_path / "web_runs")
     return application
 
 
@@ -1822,3 +1829,72 @@ def test_a_kept_run_is_listed_whatever_id_it_drew(library, monkeypatch):
     assert len(kept) == 1, (
         "a run the page said it kept must appear in the library")
     assert webapp_mod._RUN_ID.match(kept[0]["id"]), kept[0]["id"]
+
+
+def test_the_binding_measurement_is_cached_on_disk(tmp_path, monkeypatch):
+    """Ten to thirteen seconds to measure, half a second to render.
+
+    The memory cache is per worker, so on the live site the first two visitors
+    to each bound run paid the measurement after every deploy, and the
+    committed example was as slow as the reference-state rows. A page that
+    takes twelve seconds is a page a reader assumes is broken.
+
+    Keyed on the SHA-256 of the results file, which is what the memory cache is
+    keyed on: the measurement is a pure function of the file, so nothing can go
+    stale and nothing is invalidated.
+    """
+    import hashlib
+    import json as json_mod
+
+    from flexappeal import webapp
+
+    app = webapp.create_app()
+    app.config["RUNS_ROOT"] = str(tmp_path)
+    content = b"not really a results file"
+    key = hashlib.sha256(content).hexdigest()
+    record = {"panels": [{"id": "pose"}], "notes": [], "depiction": None,
+              "painted": False, "grade": None}
+
+    with app.app_context():
+        webapp._binding_to_disk(key, record)
+        stored = tmp_path / ".binding-cache" / f"{key}.json"
+        assert stored.is_file(), "the record should be beside the library"
+        assert json_mod.loads(stored.read_text()) == record
+        assert webapp._binding_from_disk(key) == record
+        # A key nothing has measured yet, and a file that is not JSON: both are
+        # a miss rather than an error, because this is a cache.
+        assert webapp._binding_from_disk("0" * 64) is None
+        stored.write_text("{ truncated")
+        assert webapp._binding_from_disk(key) is None
+
+
+def test_a_cache_write_failure_does_not_cost_the_page(tmp_path):
+    """A read-only disk must not take down a page that would otherwise render."""
+    from flexappeal import webapp
+
+    app = webapp.create_app()
+    # A path that cannot be created, so `mkdir` raises inside the writer.
+    app.config["RUNS_ROOT"] = str(tmp_path / "a-file")
+    (tmp_path / "a-file").write_text("not a directory")
+    with app.app_context():
+        webapp._binding_to_disk("f" * 64, {"panels": []})     # must not raise
+
+
+def test_the_cache_directory_is_not_listed_as_a_run(tmp_path):
+    """It lives inside the library, so the listing has to ignore it.
+
+    `_RUN_ID` requires an alphanumeric first character, which a dotted
+    directory does not have, so this already holds. It is asserted because the
+    cache was put there deliberately and a listing that showed it would show it
+    as a broken run, with a red error where a run should be.
+    """
+    from flexappeal import webapp
+
+    app = webapp.create_app()
+    app.config["RUNS_ROOT"] = str(tmp_path)
+    (tmp_path / ".binding-cache").mkdir()
+    (tmp_path / ".binding-cache" / "f.json").write_text("{}")
+    with app.app_context():
+        listed = [row["id"] for row in webapp.list_runs()]
+    assert ".binding-cache" not in listed
+    assert all(not name.startswith(".") for name in listed)

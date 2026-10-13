@@ -4909,6 +4909,87 @@ for porting them rather than starting clean:
   The toggles rendered unstyled and the page looked close enough to right that
   a screenshot would not have shown it.
 
+## 4bv. Four faults between a green suite and a working site
+
+The suite was green and the pages were right in a local browser. Deploying them
+found four things none of that could have found, and one of them was mine.
+
+**The viewer's data was rate limited as though it were an upload.** `/analysis/`
+accepts a results file, which is expensive to parse, so nginx limits it to six
+requests a minute per address. It also serves the structure and the trajectory
+to the 3D viewer, and a run page needs two or three of those. With four run
+pages to click between, a reader exhausts the allowance in under a minute and
+the viewer comes back **503**. Fourteen console errors on the first production
+check, all of them that.
+
+The zone is keyed on the request method now, through a `map` that gives every
+read an empty key, which nginx does not account at all. The limit still applies
+to what it was written for.
+
+**And the reload that was supposed to apply it did not.** `nginx -t` passed,
+`systemctl reload nginx` returned success, and the 503s carried on, because:
+
+```
+[emerg] limit_req "flexappeal_upload" uses the "$flexappeal_write" key
+        while previously it used the "$binary_remote_addr" key
+```
+
+A shared-memory zone keeps its key for the life of the process. `nginx -t`
+tests the configuration in isolation, where there is no running zone to
+conflict with, so it cannot see this; the reload fails and nginx carries on
+with the old configuration. Renaming the zone makes it a new zone and the
+reload applies, which matters on a box with five applications on it: the
+alternative is a full restart of nginx for all of them.
+
+**Then I broke the certificate.** The installed site file is the repository's
+template plus the TLS lines certbot adds to it. I regenerated it from the
+template to pick up the rename, which dropped those lines, and the site started
+serving another application's certificate: `ERR_CERT_COMMON_NAME_INVALID` on
+every page. Restored from the backup I had taken a minute earlier, with the one
+line changed by `sed` instead.
+
+The deploy script's own comment already says this, about certbot: "Each
+application on the box serves its own certificate, which is the failure the
+unconditional-certbot rule exists to prevent." The rule existed and I walked
+into the thing it protects against from the other side.
+
+**And the pages took twelve seconds.** Not to transfer, which is 318 KB gzipped
+and 0.6 s, and not to render, which is 0.3 s measured on the box. A run with a
+ligand measures its binding site on first view: pose, contacts, clustering,
+strain, torsions, over 500 frames. 10 to 13 seconds, cached in the worker that
+did it. With two workers the first two visitors to each bound run paid it after
+every deploy, and the committed example was as slow as the new rows, which is
+how long this has been true.
+
+It took two wrong answers to get there, both recorded because each looked right
+at the time. The first was that the file read was slow: measured on the box, it
+is 4 ms. The second was that the application was being imported inside the
+first request, so `preload_app` went on, and the first request was still 12.8
+seconds; importing the whole application takes 0.21 s. What distinguished the
+third answer from the first two is that the slow pages were exactly the ones
+with a ligand, which is a pattern rather than a hypothesis.
+
+The measurement is a pure function of the results file, so the cache is now on
+disk beside the library, keyed on the file's SHA-256. Nothing can go stale and
+nothing is invalidated. Measured after a full restart of the service: 0.61,
+0.78 and 0.85 s for the three bound runs, against 12.8 before.
+
+**And the cache the fix introduced found a fault in the suite.** The disk cache
+is keyed on the results file, which makes it shared state, and the suite was
+using the repository's own run library for it: a test that monkeypatches the
+measurement to raise and asserts the panels come back empty got a full set of
+panels instead, because an earlier run of the suite had left the real answer in
+`web_runs/.binding-cache`. It was reading another test's cache, and writing into
+a directory the application serves. Every test app gets a library of its own
+now, the way it already got a scratch directory of its own.
+
+**What this build should have done.** Three of the four are only visible from
+outside the machine: a rate limit that is not in the test suite, a reload that
+succeeds while failing, and a first-view cost that a warm process never shows.
+The production check that found them took four minutes and is the same one that
+has been run after every deploy since 4bs. It is worth running before saying a
+thing is finished rather than after.
+
 ## 5. Production runs
 
 Tier 2 started at 17:04 on 10 October, in section 5.3's priority order: β2AR

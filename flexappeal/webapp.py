@@ -425,6 +425,52 @@ def analysis_page():
 _BINDING_CACHE: dict[str, dict[str, Any]] = {}
 _BINDING_CACHE_MAX = 4
 
+
+# The same record on disk, so the measurement is paid once rather than once per
+# worker per restart.
+#
+# Measured on the live site: a run with a ligand takes 10 to 13 seconds to
+# measure its binding site, and 0.5 to render once the answer is in hand. The
+# memory cache above is per worker, so with two workers the first two visitors
+# to each bound run paid it after every deploy, and the committed example was
+# as slow as the two reference-state rows. A page that takes twelve seconds is
+# a page a reader assumes is broken.
+#
+# Keyed on the SHA-256 of the results file, which is what the memory cache is
+# keyed on: the measurement is a pure function of the file, so a file that has
+# not changed cannot have a different answer, and a file that has is a
+# different key and a different entry. Nothing is invalidated, because nothing
+# can go stale.
+def _binding_cache_dir() -> Path:
+    return Path(current_app.config["RUNS_ROOT"]) / ".binding-cache"
+
+
+def _binding_from_disk(key: str) -> dict[str, Any] | None:
+    """The stored record, or None. Never raises: this is a cache."""
+    try:
+        return json.loads((_binding_cache_dir() / f"{key}.json").read_text())
+    except (OSError, ValueError, KeyError, RuntimeError):
+        return None
+
+
+def _binding_to_disk(key: str, record: dict[str, Any]) -> None:
+    """Store the record beside the library, atomically and quietly.
+
+    Written to a temporary name and moved into place, so a worker reading the
+    file while another writes it sees either the old one or the new one and
+    never half of either. A failure here costs nothing but the next request's
+    time, so it is swallowed: a read-only disk must not take down a page that
+    would otherwise render.
+    """
+    try:
+        directory = _binding_cache_dir()
+        directory.mkdir(parents=True, exist_ok=True)
+        temporary = directory / f".{key}.{os.getpid()}.tmp"
+        temporary.write_text(json.dumps(record))
+        temporary.replace(directory / f"{key}.json")
+    except (OSError, ValueError, TypeError, RuntimeError):
+        current_app.logger.warning("could not cache the binding panels")
+
 # The mobility legend's swatches, read from the measurement module rather than
 # written out here. The diagram is painted with those exact values, so a second
 # list would be one edit away from a legend that describes colours the diagram
@@ -446,6 +492,10 @@ def _binding_panels(results, content: bytes, label: str) -> dict[str, Any]:
     key = hashlib.sha256(content).hexdigest()
     if key in _BINDING_CACHE:
         return _BINDING_CACHE[key]
+    stored = _binding_from_disk(key)
+    if stored is not None:
+        _BINDING_CACHE[key] = stored
+        return stored
 
     record: dict[str, Any] = {"panels": [], "notes": [], "depiction": None,
                               "painted": False, "grade": None}
@@ -479,6 +529,7 @@ def _binding_panels(results, content: bytes, label: str) -> dict[str, Any]:
     if len(_BINDING_CACHE) >= _BINDING_CACHE_MAX:
         _BINDING_CACHE.pop(next(iter(_BINDING_CACHE)))
     _BINDING_CACHE[key] = record
+    _binding_to_disk(key, record)
     return record
 
 
