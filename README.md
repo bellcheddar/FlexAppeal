@@ -289,7 +289,7 @@ at 300 K.
 | R-spine label after recalibration | 5 / 5 active, 14 / 14 inactive |
 | Each start structure scores as its own state | 4 / 4 |
 | Bilayer inside its published windows | mean 67.09 Å² per lipid and 38.92 Å thick over the finished 50 ns, both inside the expected windows; 4 of 5 chunks inside, the first 0.05 Å² above it and inside the acceptable one. G6 closed |
-| An inactive start stays inactive | **PASS**: `b2ar_carazolol`, 201 frames in its final 20 ns, mean s -0.223, every frame below zero |
+| An inactive start stays inactive | **PASS on both bound rows**: `abl1_imatinib` mean s -0.263 and `b2ar_carazolol` mean s -0.223, each 201 frames of its final 20 ns and every frame below zero |
 
 That last row was listed as pending for most of the build rather than left
 out, because a table of five passes with the undecided one missing would have

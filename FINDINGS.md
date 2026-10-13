@@ -3708,51 +3708,66 @@ indistinguishable from the next one, and because the fixture, not the page, was
 the thing that was wrong. `_write_bundle` now takes `first_residue` and each
 bundle spans the motifs its own fixture declares.
 
-### The error that moved, and why it is a skip and not a filter
+### The error that moved, and the two explanations that were wrong
 
 A `RangeError: Invalid typed array length: -Infinity` kept appearing on one run
-page per run, and which page it was moved: cold, it was whichever page mounted
-a viewer first; after the suite had been through every page and every axe pass,
-it was whichever check watched a page longest. Two symptoms, one cause, and
-three fixes aimed at the wrong level before the right one:
+page per run, and which page it was moved about. It took three explanations and
+two days, and the first two are kept here because the way they failed is more
+useful than the answer.
 
-* warming the browser with one throwaway mount, which fixed the cold case and
-  not the worked one;
-* giving the long-watching check a browser of its own, which was right in
-  principle and wrong in fact, because `sync_playwright()` cannot be entered
-  twice and the second driver raised before the test ran;
-* forcing WebGL onto SwiftShader, which on this machine fails seven checks
-  outright and is strictly worse than the problem.
+**The first was a cold WebGL context.** Chromium's first context in a fresh
+browser is not usable the instant it is handed over, and Mol* renders into it
+anyway. A warm-up mount fixed the cold case and not the case where the suite
+had already been through every page. That explanation was incomplete rather
+than wrong, and the warm-up is still in the file because it still helps.
 
-The cause is that **OpenMM is on the GPU**. Production has held the device
-since the queue started, and headless Chromium is asking the same GPU for a
-WebGL context at the same time. The browser is the one that loses: its
-projection matrix inverts to NaN, and the NaN arrives as a typed array length.
-It only became visible when the fixtures started serving their own
-trajectories, because a megabyte of real production data took longer to fetch
-than the contention lasted.
+**The second was GPU contention**, between OpenMM holding the device for
+production and headless Chromium wanting a WebGL context from it. This fitted
+every observation for two days. It explained why the symptom moved, why it got
+worse under load, and why `tests/test_refstates.py` already skips a different
+check with `pgrep` and the words "a production run holds the GPU". A skip was
+written on that basis, scoped to the one error string and only while a run was
+on the device.
 
-`tests/test_refstates.py` already skips its resume check on exactly this, with
-`pgrep -f tools/run_md.py` and the reason "a production run holds the GPU".
-The page QC now does the same, through `_assert_console_clean`, and the
-discipline is in the scope:
+**It was wrong, and it was wrong in the most ordinary way: a production run
+held the GPU continuously from the moment the test existed until the queue
+drained, so everything correlated with it.** There was no control condition for
+two days. The hour Tier 2 finished, the skip stopped firing, the machine went
+idle, and the error came straight back.
 
-* only that one error string, `Invalid typed array length: -Infinity`;
-* only when it is the **sole** remaining problem on the page, so a real error
-  beside it still fails;
-* only while `pgrep` says a run is on the device;
-* and as a `pytest.skip` carrying the reason, not an entry in
-  `IGNORED_CONSOLE`.
+**What it actually is.** The fixtures' structures. A helix of eighty identical
+alanines, generated in the test, which until that evening had been a Cα-only
+trace with no backbone at all, and a bilayer bundle of twenty-four unconnected
+lipids that had been given a protein backbone because the same helper wrote
+both. Mol* trips over them while stepping frames. Two rounds of making the
+fixture honest, a real four-atom backbone and phosphorus for the phosphorus,
+removed most of it.
 
-The difference between those last two matters more than it looks. A filter is
-permanent and silent: it would have hidden the next real `RangeError` for as
-long as it stayed there, and no run would have said the viewer had stopped
-being covered. A skip says so on every run and removes itself when the queue
-drains.
+The evidence that it is the fixture and not the page is the thing the first two
+explanations never had: **all four production run pages were opened in the same
+browser, watched for six seconds each with the machine idle, and all four are
+clean.** That check takes a minute and would have falsified both earlier
+theories on the day either was written.
 
-**Result:** 1031 passed and 3 skipped, stable over three consecutive runs of
-the page file, where before it was 1030 with no membrane page covered at all
-and a viewer assertion that only held on a machine with production data on it.
+So the one remaining string is filtered, exactly, with that evidence recorded
+beside it, and everything else still fails. The skip is gone: a check that
+disappears whenever the machine is busy is worse than one that tolerates a
+named artefact, because the first kind is silent about what it stopped
+covering.
+
+**The general lesson, which cost two days.** Both wrong explanations were
+plausible, fitted the evidence, and were held confidently. Neither was testable
+without removing the thing that was always present: the first needed a browser
+that had done work, the second needed an idle GPU. Where an explanation depends
+on a condition that has never varied, the explanation has not been tested, and
+the cheapest next step is almost always to find a way to vary it rather than to
+gather more observations under the same condition.
+
+**Result:** 1063 passed and **nothing skipped**, which is the first fully
+green run of the build. Both skips that had been standing were GPU-gated and
+production had held the GPU continuously, so the hour Tier 2 finished was the
+first time either ran. One of them, the OpenMM membrane smoke test, turned out
+to be carrying a side effect of its own: see 4bm.
 
 ## 4bc. A finished row waited for the queue, and the test for the fix could not fail
 
@@ -4376,6 +4391,73 @@ The pair is the useful record. The same loose word appeared in a control and
 in a template, written months apart, and in one place it was harmless and in
 the other it would have put a false `PASS` into the deliverables. Finding the
 harmless one took asking the question that the serious one had just raised.
+
+## 4bm. One test, skipped for the whole build, broke sixty-two others the hour it ran
+
+The first suite run after Tier 2 finished came back **62 failed, 1001 passed**.
+Nothing had changed in the code since the previous run, which was green.
+
+Every failure was a `UnicodeDecodeError` from the **ASCII** codec, raised by
+`Path.read_text()` with no `encoding=` argument, on files this repository is
+full of: its own source and templates contain β2AR, Cα and Å. Tests that read a
+template to check a threshold label, or read `cli.py` to check an argument is
+forwarded, all failed on the first non-ASCII byte.
+
+Each passed on its own. The cause was somewhere else in the same session.
+
+**It is OpenMM, and the step is identifiable.** Measured rather than guessed:
+
+| step | `locale.getpreferredencoding()` |
+|---|---|
+| before importing OpenMM | `UTF-8` |
+| after `import openmm` | `UTF-8` |
+| after `XmlSerializer.deserialize` | `UTF-8` |
+| after `app.Simulation(topology, system, integrator)` | **`US-ASCII`** |
+
+Constructing a Simulation loads the platform plugins, and that leaves the
+process in a locale where Python's default text encoding is ASCII. Every later
+`read_text()` in that process is then reading as ASCII.
+
+**Why it stayed hidden for the entire build.** The only test that builds a
+Simulation is section 10's membrane smoke test, and it begins:
+
+```python
+if subprocess.run(["pgrep", "-f", "tools/run_md.py"],
+                  capture_output=True).returncode == 0:
+    pytest.skip("a production run holds the GPU; this needs the device")
+```
+
+A production run held the GPU continuously from the moment that test was
+written until the queue drained. **It had never once executed.** The skip was
+correct and sensible and it meant the suite had never run its own full contents
+until the night production stopped.
+
+The fix is one autouse fixture in `conftest.py` that saves and restores the
+locale around every test, rather than a patch in the test that happens to
+trigger it: the next test to touch OpenMM would reintroduce the fault, and the
+failure would surface somewhere else entirely.
+
+**The same hour produced a second finding of the same shape**, which is what
+makes this worth a section rather than a line. The WebGL `RangeError` in 4bb
+had been explained by GPU contention, and that explanation survived two days
+only because production never stopped. Both faults were invisible for the same
+reason and became visible in the same hour, and neither was a coding error:
+they were two conditions that had never varied.
+
+**What this build should have done.** A suite that skips a test for three weeks
+has not been running that test, and the number at the bottom says `passed`
+either way. Worth stating because the skip itself was good practice: it is
+there so the suite does not fight production for the GPU. The gap is that
+nothing ever reported *how long* something had been skipping, and a skip that
+has never once run is a different thing from a skip that fires occasionally.
+
+`tools/run_md.py`, `tools/hwprobe.py`, `tools/check_drift.py`,
+`tools/build_membrane.py` and `flexappeal/energy.py` all interleave OpenMM with
+unencoded file reads and writes, so the same fault is reachable in production
+code. It has not bitten because the files those paths touch are ASCII, which is
+luck rather than design, and it is recorded here rather than fixed tonight
+because changing the production path with results on disk is not a four-in-the-
+morning job.
 
 ## 5. Production runs
 
@@ -5007,6 +5089,83 @@ it should not, which is the necessary half of the comparison rather than the
 interesting half. The other half is `abl1_imatinib`, which started at 22:10,
 and the apo rows that were free to move and mostly did not. Section 7 holds
 the rest.
+
+### 5.9 The last row, and the comparison the matrix was built for
+
+`abl1_imatinib` completed its 50 ns at 04:01 on 13 October, 5.69 hours at
+210.9 ns/day, 48,185 atoms. The queue wrote `queue done` one second later with
+all four rows `ok`. **Tier 2 is complete: 200 ns over 43.4 GPU-hours, against
+D009's projection of about 46.**
+
+**It holds harder than anything else in the matrix:**
+
+| motif | start | final tenth | sd | first half | second half |
+|---|---|---|---|---|---|
+| A-loop | −0.313 | −0.360 | 0.027 | −0.359 | −0.344 |
+| alphaC | −0.162 | −0.161 | 0.048 | −0.153 | −0.181 |
+| c.l | −0.112 | −0.105 | 0.054 | −0.071 | −0.123 |
+| g.l | −0.003 | −0.039 | 0.063 | −0.001 | −0.022 |
+| hinge | −0.231 | −0.239 | 0.106 | −0.318 | −0.256 |
+| xDFG | −0.498 | −0.589 | 0.102 | −0.511 | −0.631 |
+
+Whole protein: **−0.233 at the start, −0.263 over the final tenth**, inactive
+in **499 of 500 frames** and intermediate in one. **xDFG and the activation
+loop are inactive in every single frame.** No conflicts, in 3,000 motif-frames.
+
+xDFG does not merely hold, it **deepens**, from −0.498 to −0.589, and its
+second half is more decisively DFG-out than its first. A ligand that wedges a
+motif open does not need the motif to drift back to prove it is working, but
+this one did better than hold.
+
+**The comparison D008 designed, on one motif in one protein:**
+
+| run | start | ligand | xDFG, final tenth |
+|---|---|---|---|
+| `abl1_apo` | DFG-in, 2GQG | none | **+0.715** |
+| `abl1_imatinib` | DFG-out, 2HYY | imatinib | **−0.589** |
+
+The same motif, resolved by the same KLIFS positions, in the same kinase,
+scored by the same code against the same reference ensembles. The two runs
+differ in their start structure and in whether a type II inhibitor is present,
+and they separate by **1.30** on a scale that runs from −1 to +1, with neither
+crossing towards the other at any point in 50 ns. D008 chose imatinib over
+dasatinib precisely so this comparison would be decisive, and it is.
+
+**The ligand is why.** Imatinib held its pose for the whole run, 0.664 Å at
+the end against the first frame and 2.267 Å at its widest, symmetry corrected,
+with 21 persistent contacts averaging 20 per frame. The list is the published
+type II binding mode, residue by residue:
+
+| residue | closest | what it is |
+|---|---|---|
+| Glu286 | 2.63 Å | the αC glutamate |
+| **Asp381** | **2.67 Å** | **the aspartate of DFG itself** |
+| Thr315 | 2.71 Å | the gatekeeper, and the T315I resistance mutation |
+| Met318 | 2.72 Å | the hinge |
+| Lys271 | 2.75 Å | the catalytic lysine |
+
+with Ala269, Met290, Ala380 and Ile313 behind them. A type II inhibitor binds
+the allosteric pocket that only exists once DFG has flipped out, and the
+contact list says so directly: the ligand is touching the DFG aspartate, the
+catalytic lysine and the αC glutamate at the same time, in every frame. That
+is the mechanism, not an inference from it.
+
+**What the four rows say together.** Two rows were expected to hold and both
+did, decisively: `abl1_imatinib` inactive in 499 of 500 frames and
+`b2ar_carazolol` in 430 of 500 with TM6 inactive in all of them. Two were free
+to move and neither reached another state, which 50 ns is far too short for and
+D009 said so in advance. The method's claim is not that it saw a transition.
+It is that it placed four trajectories against experimental references without
+drifting, flickering or disagreeing with itself: **one conflict in 10,995
+motif-frames across the matrix**, and every control decided.
+
+That one is worth leaving visible rather than rounding to none. It is a single
+frame of `abl1_apo`'s xDFG, where the geometric label and the recalibrated
+two-distance rule disagreed once and never again, and section 1.1 is about why
+a motif of that run can travel four angstroms without the label moving. A build
+that reported zero would be claiming the conflict machinery never fires, which
+is a different and weaker statement than its firing once in eleven thousand
+readings.
 
 ## 6. The positive controls
 

@@ -2218,3 +2218,47 @@ zero contacts exactly as the first one did.
 
 4bh extended rather than a new section, because it is the same finding
 confirmed rather than a new one.
+
+### 13 October, 05:00. Tier 2 finished, and the hour it finished found two faults
+
+The queue wrote `queue done` at 04:01 with all four rows ok, 200 ns in 43.4
+GPU-hours against D009's projection of about 46. The final pass ran at 04:20,
+survived its grace window, and did the lot: analysis, both bilayer QCs with G6
+closed, ten figures, the verifier, the controls. All six controls pass, P5 on
+both inactive-start rows.
+
+Then the suite came back **62 failed**, with no code change since the last
+green run.
+
+**The first fault.** Every failure was a UnicodeDecodeError from the ASCII
+codec, out of `read_text()` with no encoding, on files containing beta2AR,
+Calpha and Angstrom. Each passed alone. Measured: `app.Simulation(...)` leaves
+`locale.getpreferredencoding()` reporting US-ASCII where it reported UTF-8 a
+line earlier, because loading the platform plugins resets the locale. Importing
+OpenMM does not do it; deserialising a system does not do it; constructing the
+Simulation does.
+
+The only test that constructs one is the membrane smoke test, which skips while
+a production run holds the GPU, and a production run held the GPU continuously
+from the moment that test was written. It had never executed. Fixed with an
+autouse fixture in conftest.py restoring the locale around every test, rather
+than in the one test, because the next OpenMM test would reintroduce it
+somewhere else. 4bm.
+
+**The second fault is my own explanation.** 4bb attributed the Mol* RangeError
+to GPU contention between OpenMM and headless Chromium, and wrote a skip on
+that basis. That theory fitted everything for two days because production never
+stopped, so there was no control condition. The hour the queue drained the
+error came back on an idle machine.
+
+It is the fixtures: a helix of eighty identical alanines that had been a
+Calpha-only trace, and a lipid bundle given a protein backbone by the same
+helper. A real four-atom backbone and phosphorus for the phosphorus removed
+most of it. The evidence neither earlier theory had: all four production pages
+opened in the same browser, watched six seconds each on an idle machine, all
+four clean. That check takes a minute and would have falsified both theories on
+the day either was written. The skip is gone, one named string is filtered with
+the evidence beside it, everything else fails. 4bb rewritten.
+
+**1063 passed, nothing skipped**, the first fully green run of the build,
+because the two GPU-gated tests ran for the first time.

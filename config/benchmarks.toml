@@ -3,15 +3,30 @@
 
 [[runs]]
 name = "abl1_apo"
-ns_per_day = 202.0
-produced_ns = 4.3
-complete = false
+platform = "OpenCL"
+ns_per_day = 223.9
+atoms = 46721
+production_ns = 50.0
+wall_hours = 4.93
+complete = true
+
+[[runs]]
+name = "abl1_imatinib"
+platform = "OpenCL"
+ns_per_day = 210.9
+atoms = 48185
+production_ns = 50.0
+wall_hours = 5.69
+complete = true
 
 [[runs]]
 name = "b2ar_apo"
+platform = "OpenCL"
 ns_per_day = 59.7
-produced_ns = 16.6
-complete = false
+atoms = 194032
+production_ns = 50.0
+wall_hours = 13.27
+complete = true
 
 [[runs]]
 name = "b2ar_apo_smoke"
@@ -20,4 +35,13 @@ ns_per_day = 59.8
 atoms = 194032
 production_ns = 1.0
 wall_hours = 0.4
+complete = true
+
+[[runs]]
+name = "b2ar_carazolol"
+platform = "OpenCL"
+ns_per_day = 61.5
+atoms = 187848
+production_ns = 50.0
+wall_hours = 19.51
 complete = true

@@ -1,11 +1,11 @@
 # Section 2.1's probe. Regenerate with tools/hwprobe.py; do not edit by hand.
 
-probed_at = "2026-10-11T04:04:06-0400"
+probed_at = "2026-10-13T04:21:47-0400"
 cpu = "Apple M2 Ultra"
 performance_cores = 16
 efficiency_cores = 8
 memory_gb = 128.0
-disk_free_gb = 1368.9
+disk_free_gb = 1336.2
 
 [gpu]
 model = "Apple M2 Ultra"
