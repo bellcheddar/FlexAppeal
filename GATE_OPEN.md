@@ -126,14 +126,31 @@ one SQLite file. The feature is additive: with no database present the section
 renders empty rather than erroring, so deploying the code before the data is
 safe.
 
-**What unblocks it.** Approval to run the existing deploy path. Two things to
-decide with it:
+**What unblocks it.** Approval to run the existing deploy path, and one thing
+to decide with it: how much data goes across. Two directories are gitignored,
+so they travel by rsync or not at all, and both are measured rather than
+guessed.
 
-1. Whether to ship the explorer **now**, with the partial ABL1 run, or wait for
-   Tier 2. The pages are honest about it: a run with no `run.json` is labelled
-   `running` rather than shown as complete.
-2. Whether `data/refstates.db` goes across. It is gitignored, so it travels by
-   rsync or not at all. Without it the tab is an empty section.
+| What | Size | Without it |
+|---|---|---|
+| `data/refstates.db` | 4.2 MB | the tab is an empty section |
+| `data/analysis` | 16 MB in 27 files | every page works, and no run offers its 3D viewer |
+
+The database is 4 rows, 11 motifs and the two reference ensembles, and every
+page and endpoint reads it. `data/analysis` holds each row's analysis JSON
+beside the viewer bundle the 3D panel loads: a topology, an XTC, the two
+reference overlays and, for the receptor rows, the lipid bundle. The page
+offers the viewer only when both its files are there, so the database on its
+own degrades honestly rather than showing an empty canvas. 20 MB together,
+which is why this is a question about what the site should show rather than
+about bandwidth. The production trajectories, 3.0 GB under `data/md`, stay
+here: nothing the site serves reads them.
+
+There were two questions here and Tier 2 answered the first one. It asked
+whether to ship with the partial ABL1 run or wait, and there is no partial run
+any more: all four rows closed `ok` at 04:01 on 13 October with a full 50 ns
+each. The question is struck rather than left to be read as still open, which
+is how a waiting gate goes stale.
 
 **What happens next either way.** Nothing blocks. The pages are tested locally
 at every route.

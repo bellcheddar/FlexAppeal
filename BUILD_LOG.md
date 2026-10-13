@@ -2347,3 +2347,19 @@ the option registry, had none for the reference states.
 All four corrected, 4br. `readme_forge.py`, which section 11 names for this job,
 does not exist in this repository or anywhere under `~/.claude`: D034 records
 the audit standing in for it, and what it found that a polish pass would not.
+
+### 13 October, 11:40. The waiting gate had a question Tier 2 had answered
+
+`G3` asked two things of Marc. The first was whether to ship the explorer with
+the partial ABL1 run or wait for Tier 2, and there has been no partial run
+since 04:01: all four rows closed `ok` with a full 50 ns each. A gate left
+waiting goes stale the same way any other written-down number does, so the
+question is struck rather than left to be read as open.
+
+The remaining question is what data crosses, and it now carries measured sizes
+instead of a sentence about the database being gitignored: `data/refstates.db`
+at 4.2 MB, without which the tab is an empty section, and `data/analysis` at
+16 MB in 27 files, without which every page still works and no run offers its
+3D viewer. 20 MB together, so the decision is about what the public site should
+show rather than about bandwidth. The 3.0 GB of trajectories under `data/md`
+stay here; nothing the site serves reads them.
