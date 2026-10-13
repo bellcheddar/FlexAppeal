@@ -1,11 +1,14 @@
 # Gates waiting on Marc
 
 Written per section 0.2's gate protocol. G4 is now open and pushed. G3 is the
-only gate still waiting and it blocks nothing: Tier 2 is running. As of 22:35
-on 11 October, **two of the four rows are complete and final**: `b2ar_apo` at
-50 ns with its bilayer QC, and `abl1_apo` at 50 ns in 4.93 h at 223.9 ns/day.
-`b2ar_carazolol` started at 22:32 and is the row P5 turns on; `abl1_imatinib`
-is queued behind it.
+only gate still waiting and it blocks nothing. As of 22:15 on 12 October,
+**three of the four rows are complete and final**: `b2ar_apo` at 50 ns,
+`abl1_apo` at 50 ns in 4.93 h at 223.9 ns/day, and `b2ar_carazolol` at 50 ns
+in 19.51 h at 61.5 ns/day. `abl1_imatinib` started at 22:10 and is the last.
+
+**All six controls are now decided**, P5 included: it was the one still
+reading pending, and `b2ar_carazolol` answered it with 201 frames in its final
+20 ns, every one below zero.
 
 ---
 
@@ -21,8 +24,8 @@ section deleted the whole table, which is a poor place to keep the results.
 | P2 alphaC label against KLIFS | 17 / 17 (>= 85 %) |
 | P3 TM3-TM6 separation, leave-one-out | 100 / 100 at 11.39 Å (>= 90 %) |
 | P4 each start scores as its own state | 4 / 4: +0.304, -0.368, +0.593, -0.923. `abl1_apo` is the thin one, +0.304 against a +0.300 band |
-| P6 membrane integrity | **PASS on the finished run**: 5 chunks over the whole 50 ns, APL 67.1 Å² (66.2 to 68.0), thickness 38.9 Å, tilt 13.2 deg. Both means are inside the expected windows rather than only the acceptable ones. Was 2 chunks of a producing row |
-| P5 inactive start stays inactive | still waiting on real data; rehearsed on both qualifying rows and reports PASS, so the control fires rather than staying silent |
+| P6 membrane integrity | **PASS on both membrane rows**: `b2ar_apo` 5 chunks, APL 67.1 Å² (66.2 to 68.0), 38.9 Å; `b2ar_carazolol` 5 chunks, APL 66.6 Å² (65.7 to 67.8), 39.0 Å, every chunk inside the expected window rather than only the acceptable one |
+| P5 inactive start stays inactive | **PASS on the finished `b2ar_carazolol`**: 201 frames in the final 20 ns, mean s -0.223, 100 per cent below zero. It read PASS briefly at 8.4 ns, which was the window containing the start rather than the end; 4bl records why that was P4 measured twice, and the control now waits for the run to stop |
 | Manifests re-derived from source | ABL1 20/20, beta2AR 116/116, 0 changed |
 | All four rows buildable | yes; `abl1_imatinib` built after D019 fixed its ligand |
 | All four rows analysable | yes; the two that have never produced a frame were rehearsed end to end and score -0.281 and -0.662, both inactive, 0 conflicts |

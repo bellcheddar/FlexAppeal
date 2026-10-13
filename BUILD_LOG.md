@@ -2165,3 +2165,35 @@ the other. Finding the harmless one took asking the question the serious one
 had just raised.
 
 1061 passed, 2 skipped.
+
+### 12 October, 22:15. b2ar_carazolol finished, and P5 is decided
+
+50 ns in 19.51 h at 61.5 ns/day, 187,848 atoms, produced_ns a full 50.0. The
+queue handed over to abl1_imatinib two seconds later and it is minimising, the
+last of the four.
+
+The row holds, which is what D008 chose it to do. TM6 is inactive in every one
+of the 500 frames and NPxxY in 493; the whole protein is inactive in 430 and
+intermediate in 70, with no conflicts in 2,500 motif-frames. Every motif
+drifts slightly towards zero and none crosses it, H8 and TM7 most, which is a
+receptor relaxing out of a crystal pose rather than changing state.
+
+**P5 PASS**: 201 frames in the final 20 ns, mean s -0.223, every one below
+zero. That is a real verdict on a complete run, which it nearly was not: at
+8.4 ns this morning it read PASS on a window that was the whole trajectory,
+and the guard added then is why today's answer means something.
+
+All six controls now decided. P1 17/17, P2 17/17, P3 100/100, P4 4/4, P5 PASS,
+P6 PASS on both membrane rows.
+
+The ligand held for 50 ns: pose RMSD 1.084 Å at the end, 2.112 at its widest,
+symmetry corrected, 15 persistent contacts led by Asp113 at 2.39 Å in 100 per
+cent of frames. Twelve hours earlier the same measurement said 5.425 Å and
+zero contacts, because the integrator had wrapped the ligand through the box.
+
+The bilayer is the best of the three: mean APL 66.64 Å², thickness 39.02 Å,
+tilt 7.8 degrees, and every chunk inside the expected window rather than only
+the acceptable one. G6 closed.
+
+5.8 written, GATE_OPEN and the README updated with the decided controls, nine
+figures redrawn, every stored number verified. 1061 passed, 2 skipped.

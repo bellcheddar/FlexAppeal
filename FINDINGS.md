@@ -4913,6 +4913,77 @@ catch a change, which is why the comparison the matrix is built on needs
 `abl1_imatinib`, the row expected to hold for a different reason, and
 `b2ar_carazolol`, the row P5 turns on. Section 7 holds the rest.
 
+### 5.8 The third finished row, and the last undecided control
+
+`b2ar_carazolol` completed its 50 ns at 22:10 on 11 October, 19.51 hours of
+wall clock at 61.5 ns/day on OpenCL single precision, 187,848 atoms. The queue
+handed over to `abl1_imatinib` two seconds later.
+
+**It holds, which is what it was chosen to do.** D008 put the ligand on the
+state that ligand is known to stabilise, so the pair is one row expected to
+hold and one expected to move. Carazolol is an inverse agonist and this is the
+holding half:
+
+| motif | start | final tenth | sd | first half | second half |
+|---|---|---|---|---|---|
+| H8 | −0.314 | −0.116 | 0.135 | −0.160 | −0.119 |
+| NPxxY | −0.561 | −0.532 | 0.130 | −0.525 | −0.466 |
+| TM5 | −0.208 | −0.150 | 0.075 | −0.175 | −0.113 |
+| TM6 | −0.500 | −0.388 | 0.076 | −0.501 | −0.404 |
+| TM7 | −0.294 | −0.110 | 0.105 | −0.327 | −0.156 |
+
+Whole protein: **−0.340 at the start, −0.224 over the final tenth**, labelled
+inactive in 430 of 500 frames and intermediate in 70. **TM6 is inactive in
+every one of the 500 frames** and NPxxY in 493. **No conflicts at all**, in
+2,500 motif-frames, which is now true of all three finished rows.
+
+Every motif drifts slightly towards zero and none crosses it. H8 and TM7 move
+most, from −0.314 to −0.116 and −0.294 to −0.110, which is the receptor
+relaxing out of a crystal pose rather than changing state: both end
+intermediate, and the two motifs that carry the activation signal do not
+follow them.
+
+**P5 is decided, and it is the control this build has been waiting for.**
+
+```
+b2ar_carazolol   201 frames, mean s -0.223, 100% below zero  PASS
+```
+
+Section 9 asks whether an inactive-start run stays inactive over its final
+20 ns. Over the last 201 frames the whole-protein score is below zero in
+**every one**, averaging −0.223. That is a real verdict on a complete run,
+which is worth saying because it was nearly not one: at 8.4 ns this control
+read PASS on a window that was the whole trajectory, and 4bl is about why that
+was P4 measured twice rather than P5 answered.
+
+**All six controls are now decided**: P1 17/17, P2 17/17, P3 100/100, P4 4/4,
+P5 PASS, P6 PASS on both membrane rows.
+
+**The ligand held its pocket for 50 nanoseconds.** Pose RMSD 1.084 Å at the
+end against the run's own first frame, 2.112 Å at its widest, symmetry
+corrected. Fifteen persistent contacts, led by Asp113 at 2.39 Å in **100 per
+cent of frames**, with Ser203, Asn312, Val114, Phe193 and Asn293 behind it.
+Asp113 is the aspartate every aminergic receptor uses to hold a protonated
+amine, and a salt bridge that survives every frame of a 50 ns run is the
+cleanest statement this build makes that the ligand analysis is measuring what
+it claims to.
+
+That is worth setting beside what the same measurement said twelve hours
+earlier, before 4bh: a pose RMSD of 5.425 Å and **zero** contacts, because the
+integrator had wrapped the ligand through the edge of the box.
+
+**The bilayer is the best of the three.** Mean area per lipid 66.64 Å²,
+thickness 39.02 Å, receptor tilt 7.8 degrees, and unlike `b2ar_apo` **every
+chunk is inside the expected window**, from 65.71 to 67.84 Å² against a window
+ending at 68.0. G6 closed.
+
+**What this row cannot say.** A ligand-bound run that holds its state is weak
+evidence on its own: it shows the method does not drift when the physics says
+it should not, which is the necessary half of the comparison rather than the
+interesting half. The other half is `abl1_imatinib`, which started at 22:10,
+and the apo rows that were free to move and mostly did not. Section 7 holds
+the rest.
+
 ## 6. The positive controls
 
 Section 9 names six. **Five are decided** and one is pending on data that is
