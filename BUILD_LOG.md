@@ -2363,3 +2363,46 @@ at 4.2 MB, without which the tab is an empty section, and `data/analysis` at
 3D viewer. 20 MB together, so the decision is about what the public site should
 show rather than about bandwidth. The 3.0 GB of trajectories under `data/md`
 stay here; nothing the site serves reads them.
+
+### 13 October, 11:50. Where the rounded number came from
+
+Re-ran `report --verify` and `controls` against the re-ingested database, as a
+check on this morning's changes rather than to learn anything new. Every stored
+number still agrees with its analysis file, the system names read correctly for
+the first time, and all six controls still pass.
+
+The P6 lines printed this:
+
+    b2ar_apo           5 chunks, APL 67.1 Å² (66.2 to 68.0), 38.9 Å  PASS
+
+Which is 4bn, in the tool that produces the evidence for it. The gate document
+was corrected this morning on the understanding that it had been written from
+memory; it was written from this readout. One decimal puts 68.05 on 68.0 and
+PASS on the same line, and the dict behind the line has carried
+`apl_in_expected: False` the whole time without printing it.
+
+Two decimals now, and the row carries a count rather than only a min and a max,
+because a middle chunk can leave the window while neither extreme does:
+
+    b2ar_apo           5 chunks, APL 67.09 Å² (66.23 to 68.05), 38.92 Å  PASS
+        1 of 5 outside the expected 60 to 68 Å², inside the acceptable 55 to 75
+
+`print_p6` is its own function so that a test can read what a reader reads.
+Two tests: a chunk at 68.05 never prints as 68.0 and the note names both
+windows, and a bilayer that never left the expected window carries no note. 4bn
+extended rather than a new section, because it is the same fault one layer down.
+
+Then looked for the third place rather than waiting for it. `gate_six` writes
+the reason a raised G6 carries, the one line whose only reader is a person
+deciding whether a bilayer invalidated a result, and it printed the mean at one
+decimal as well: a mean of 54.96 Å², which is why the gate would be open, read
+as "55.0 Å² is outside 55.0 to 75.0". Fixed, with a test on the rounding beside
+the one already there on the units. Three places, one habit.
+
+A fourth look found nothing: every other low-precision format in the module and
+the tools prints either a window bound, which is exact, or a figure that carries
+no verdict, such as the queue's elapsed minutes.
+
+**1,070 passed, nothing skipped.** The README badge and the gate table both say
+1,070 now, measured by collecting the suite rather than by adding three to the
+number that was there.

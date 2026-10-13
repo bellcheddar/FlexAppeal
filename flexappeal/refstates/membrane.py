@@ -435,7 +435,11 @@ def gate_six(chunks: list[MembraneChunk]) -> dict[str, Any]:
         "acceptable_a2": list(APL_ACCEPTABLE_A2),
         "n_chunks": len(scored),
         "n_chunks_out_of_range": len(bad),
-        "reason": (f"mean area per lipid {mean_apl:.1f} \u00c5\u00b2 is outside "
+        # Two decimals, for the reason 4bn gives: this sentence is read by
+        # somebody deciding whether to let a build stop, and a mean that
+        # misses the window by hundredths prints as the window itself at one
+        # decimal. `mean_apl_a2` beside it has always been rounded to two.
+        "reason": (f"mean area per lipid {mean_apl:.2f} \u00c5\u00b2 is outside "
                    f"{APL_ACCEPTABLE_A2[0]} to {APL_ACCEPTABLE_A2[1]}")
                   if opens else "mean area per lipid is within the acceptable window",
     }

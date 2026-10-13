@@ -342,6 +342,58 @@ def _score_start(row: dict, systems: Path, work: Path) -> dict[str, Any]:
             "motifs": {m.motif: m.s for m in first.motifs if m.s is not None}}
 
 
+def print_p6(p6: list[dict[str, Any]]) -> None:
+    """P6's half of the controls table.
+
+    Its own function so a test can read what it prints. The numbers here
+    are the evidence for a published claim, and the claim they support was
+    once wrong by a rounding: a chunk at 68.05 A^2 printed as 68.0 beside
+    the window that ends at 68.0 (4bn).
+    """
+    # The windows these lines are read against, named from the one module that
+    # defines them rather than repeated here.
+    from . import membrane
+
+    print()
+    print("P6: every membrane chunk inside section 5.8's windows")
+    if not p6:
+        print("    pending: no membrane chunks ingested yet")
+    for row in p6:
+        if row.get("status") != "ok":
+            print(f"    {row['run_id']:16s} {row.get('status')}")
+            continue
+        # Two decimals, because one puts a number onto its own threshold.
+        # `b2ar_apo`'s widest chunk is 68.05 A^2 against an expected window
+        # ending at 68.0, and at one decimal this line printed "68.0" beside
+        # PASS: a reader could not tell the chunk was outside the window, and
+        # 4bn is the gate document reproducing that very reading. The verdict
+        # is against the acceptable window and is not changed by this; what
+        # changes is that the line now says which window it passed.
+        thickness = (f"{row['thickness_mean']:.2f} \u00c5"
+                     if row["thickness_mean"] else "no thickness")
+        print(f"    {row['run_id']:16s} {row['chunks']:3d} "
+              f"chunk{'' if row['chunks'] == 1 else 's'}, APL "
+              f"{row['apl_mean']:.2f} \u00c5\u00b2 ({row['apl_min']:.2f} to "
+              f"{row['apl_max']:.2f}), {thickness}  "
+              f"{'PASS' if row['passed'] else 'FAIL'}")
+        # Said rather than left in the numbers. A chunk between the two windows
+        # is what section 5.8 calls acceptable and not expected, which is a
+        # real result about the bilayer and the only reason the figures draw
+        # two bands.
+        outside = row.get("apl_outside_expected") or 0
+        if outside:
+            lo, hi = membrane.APL_EXPECTED_A2
+            print(f"        {outside} of {row['chunks']} outside the "
+                  f"expected {lo:.0f} to {hi:.0f} \u00c5\u00b2, inside the "
+                  f"acceptable "
+                  f"{membrane.APL_ACCEPTABLE_A2[0]:.0f} to "
+                  f"{membrane.APL_ACCEPTABLE_A2[1]:.0f}")
+        if row.get("thickness_in_expected") is False:
+            t_lo, t_hi = membrane.THICKNESS_EXPECTED_A
+            print(f"        a thickness chunk is outside the expected "
+                  f"{t_lo:.0f} to {t_hi:.0f} \u00c5")
+
+
 def controls(args: argparse.Namespace) -> int:
     """Evaluate P4 on every start model and print the table."""
     import tempfile
@@ -401,21 +453,7 @@ def controls(args: argparse.Namespace) -> int:
               f"{row['fraction_below_zero']:.0%} below zero  "
               f"{'PASS' if row['passed'] else 'FAIL'}")
 
-    print()
-    print("P6: every membrane chunk inside section 5.8's windows")
-    if not p6:
-        print("    pending: no membrane chunks ingested yet")
-    for row in p6:
-        if row.get("status") != "ok":
-            print(f"    {row['run_id']:16s} {row.get('status')}")
-            continue
-        thickness = (f"{row['thickness_mean']:.1f} \u00c5"
-                     if row["thickness_mean"] else "no thickness")
-        print(f"    {row['run_id']:16s} {row['chunks']:3d} "
-              f"chunk{'' if row['chunks'] == 1 else 's'}, APL "
-              f"{row['apl_mean']:.1f} \u00c5\u00b2 ({row['apl_min']:.1f} to "
-              f"{row['apl_max']:.1f}), {thickness}  "
-              f"{'PASS' if row['passed'] else 'FAIL'}")
+    print_p6(p6)
 
     results = {"P4": results, "P5": p5, "P6": p6}
     if args.out:
@@ -838,6 +876,10 @@ def control_p6(database: Path) -> list[dict[str, Any]]:
                 "apl_mean": sum(apl) / len(apl),
                 "apl_min": min(apl), "apl_max": max(apl),
                 "apl_in_expected": all(lo <= v <= hi for v in apl),
+                # Counted rather than inferred from the min and the max: a
+                # middle chunk can leave the window while neither extreme does.
+                "apl_outside_expected": sum(1 for v in apl
+                                            if not lo <= v <= hi),
                 "apl_in_acceptable": all(acceptable[0] <= v <= acceptable[1]
                                          for v in apl),
                 "thickness_mean": (sum(thickness) / len(thickness)

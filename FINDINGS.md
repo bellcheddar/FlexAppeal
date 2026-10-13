@@ -4515,6 +4515,49 @@ verdict was the wrong one. Both now carry both rows.
 at the precision that decides the verdict, in a sentence exactly as in a cell.
 The rule existed, in a template comment, where no one writing prose would look.
 
+**Extended, same day, 11:20: the control itself printed it the same way.** The
+sentence above says the rule lived in a template comment where no one writing
+prose would look. It turns out the person writing that prose was reading the
+output of `refstates controls`, which printed:
+
+>     b2ar_apo           5 chunks, APL 67.1 Å² (66.2 to 68.0), 38.9 Å  PASS
+
+One decimal, 68.0, and PASS on the same line. So the document was not written
+from memory after all: it was written from a readout that rounds, and the
+readout is the one that produces the evidence for the published claim. The dict
+behind the line has carried `apl_in_expected: False` all along and the printer
+never showed it.
+
+Both halves fixed. The line prints two decimals and the row now carries a
+count, so a chunk between the two windows is named rather than left to be
+inferred from a min and a max:
+
+>     b2ar_apo           5 chunks, APL 67.09 Å² (66.23 to 68.05), 38.92 Å  PASS
+>         1 of 5 outside the expected 60 to 68 Å², inside the acceptable 55 to 75
+
+The counting matters as well as the precision: a middle chunk can leave the
+window while neither the minimum nor the maximum does, and the old line showed
+only the extremes. `print_p6` is its own function now so that a test can read
+what a reader reads, which is the thing neither version had: two tests, one that
+a chunk at 68.05 never prints as 68.0 and that the note names both windows, and
+one that a bilayer which never left the expected window carries no note, because
+a note that appears on every row is not a finding.
+
+**And once in the sentence that would stop the build.** Having found it twice,
+the third place was worth looking for rather than waiting for: `gate_six`
+writes the reason a raised G6 carries, which is the one line whose only reader
+is a person deciding whether a bilayer has invalidated a result, and it printed
+its mean at one decimal too. A mean of 54.96 Å², which is below the acceptable
+window and therefore the entire reason the gate is open, read as "55.0 Å² is
+outside 55.0 to 75.0": a sentence stating that a number is outside a window
+while printing it as the window. The structured `mean_apl_a2` beside it has
+always been rounded to two. Fixed, with a test on the rounding beside the one
+already there on the units.
+
+Three places, one habit. The precision a verdict needs is a property of the
+comparison rather than of the formatter, and each of these was written by
+choosing a format that looked tidy beside the other columns.
+
 ## 4bo. The page QC asked a third party whether the page was good
 
 Two full suite runs after Tier 2 came back **4 failed** and then **5 failed**,

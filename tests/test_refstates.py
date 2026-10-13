@@ -1563,6 +1563,57 @@ def test_p6_fails_on_g6_but_tolerates_outside_expected(tmp_path: Path):
     assert _cli().control_p6(path)[0]["passed"] is False
 
 
+# --- and the line a reader of P6 actually sees --------------------------------
+#
+# 4bn was a number rounded onto its own threshold in a summary document. The
+# control that produced the number printed it the same way: one decimal, so
+# `b2ar_apo`'s widest chunk read "68.0" against an expected window ending at
+# 68.0, beside the word PASS. The verdict was right, because P6 is tied to the
+# wider window, and the line gave a reader no way to see that one chunk had
+# left the narrower one.
+
+def test_p6_prints_a_chunk_on_the_boundary_without_rounding_it_in(
+        tmp_path: Path, capsys):
+    """The printed evidence, not only the dict behind it."""
+    path = tmp_path / "t.db"
+    store.ingest_analysis(path, _analysis_payload(), system_id="b2ar",
+                          run_id="b2ar_apo", family="gpcr", environment="POPC")
+    with store.connect(path) as connection:
+        store.put_membrane(connection, "b2ar_apo", [
+            {"start_ns": 0.0, "apl_a2": 68.05, "thickness_a": 38.42},
+            {"start_ns": 10.0, "apl_a2": 66.23, "thickness_a": 39.35}])
+    cli = _cli()
+    cli.print_p6(cli.control_p6(path))
+    said = capsys.readouterr().out
+
+    assert "68.05" in said, "a chunk outside the window must not print as 68.0"
+    assert "68.0," not in said and "68.0)" not in said, said
+    assert "PASS" in said, "P6 is tied to the acceptable window and this passes"
+    assert "1 of 2 outside the expected 60 to 68" in said, said
+    assert "inside the acceptable 55 to 75" in said, said
+    # Units on a readout, which is section 10's rule and not only about plots.
+    assert "\u00c5\u00b2" in said, said
+
+
+def test_p6_says_nothing_about_windows_a_bilayer_never_left(
+        tmp_path: Path, capsys):
+    """The note is a finding, so a clean run does not carry one."""
+    path = tmp_path / "t.db"
+    store.ingest_analysis(path, _analysis_payload(), system_id="b2ar",
+                          run_id="b2ar_carazolol", family="gpcr",
+                          environment="POPC")
+    with store.connect(path) as connection:
+        store.put_membrane(connection, "b2ar_carazolol", [
+            {"start_ns": 0.0, "apl_a2": 65.71, "thickness_a": 38.49},
+            {"start_ns": 10.0, "apl_a2": 67.84, "thickness_a": 39.38}])
+    cli = _cli()
+    cli.print_p6(cli.control_p6(path))
+    said = capsys.readouterr().out
+
+    assert "PASS" in said
+    assert "outside" not in said, said
+
+
 def test_the_figures_are_drawn_from_whatever_the_database_holds(tmp_path: Path):
     """Section 11 asks for FINDINGS "with figures", so they have to generate.
 
@@ -6168,6 +6219,27 @@ def test_the_g6_reason_names_its_unit_in_angstrom():
     assert raised["open"] is True, "90 A^2 should raise G6"
     assert "Å²" in raised["reason"], raised["reason"]
     assert "A^2" not in raised["reason"], raised["reason"]
+
+
+def test_the_g6_reason_does_not_round_a_mean_onto_the_window():
+    """The sentence that stops a build, at the precision that decides it.
+
+    Same fault as 4bn, in the one readout whose only reader is a person
+    deciding whether a bilayer invalidated a result. A mean of 55.04 Å² is
+    outside the acceptable window and printed as "55.0" at one decimal, which
+    reads as the boundary and so reads as inside, in a sentence whose whole
+    job is to say the number is outside.
+    """
+    from flexappeal.refstates.membrane import MembraneChunk, gate_six
+
+    raised = gate_six([MembraneChunk(start_ns=0.0, end_ns=10.0,
+                                     apl_a2=54.96, thickness_a=38.0)])
+    assert raised["open"] is True, "54.96 is below the acceptable 55"
+    # The window's own bound prints as 55.0, so the measured mean is read off
+    # the front of the sentence rather than by searching the whole of it.
+    assert raised["reason"].startswith("mean area per lipid 54.96 "), \
+        raised["reason"]
+    assert raised["mean_apl_a2"] == 54.96
 
 
 def test_2g1t_deciding_pair_is_what_the_about_page_prints():

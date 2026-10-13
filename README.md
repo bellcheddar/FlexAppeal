@@ -2,7 +2,7 @@
 
 > **Turn the whole OpenMM option surface into a form, run the simulation on your own machine, and explore what comes back.**
 
-[![live](https://img.shields.io/badge/live-flexappeal.mdeller.com-00897B?logo=icloud&logoColor=white)](https://flexappeal.mdeller.com) ![python](https://img.shields.io/badge/python-3.11-3776AB?logo=python&logoColor=white) ![OpenMM](https://img.shields.io/badge/OpenMM-8.5-467FF7) ![MDTraj](https://img.shields.io/badge/analysis-MDTraj-00897B) ![Mol*](https://img.shields.io/badge/viewer-Mol*%205.11-9b51e0) ![tests](https://img.shields.io/badge/tests-1067-00897B) ![licence](https://img.shields.io/badge/licence-MIT-467FF7) ![author](https://img.shields.io/badge/author-Marc%20C.%20Deller%2C%20D.Phil.-1C244B)
+[![live](https://img.shields.io/badge/live-flexappeal.mdeller.com-00897B?logo=icloud&logoColor=white)](https://flexappeal.mdeller.com) ![python](https://img.shields.io/badge/python-3.11-3776AB?logo=python&logoColor=white) ![OpenMM](https://img.shields.io/badge/OpenMM-8.5-467FF7) ![MDTraj](https://img.shields.io/badge/analysis-MDTraj-00897B) ![Mol*](https://img.shields.io/badge/viewer-Mol*%205.11-9b51e0) ![tests](https://img.shields.io/badge/tests-1070-00897B) ![licence](https://img.shields.io/badge/licence-MIT-467FF7) ![author](https://img.shields.io/badge/author-Marc%20C.%20Deller%2C%20D.Phil.-1C244B)
 
 <table>
 <tr>
@@ -354,7 +354,7 @@ The physics is checked against known values rather than against itself. Every fi
 | Glycophorin A in POPC (1AFO) | Bilayer thickness 3.64 nm | 3.7–4.0 nm |
 | Glycophorin A in POPC | Order parameters 0.20–0.25 plateau, falling to 0.12 | The fluid-bilayer profile |
 
-A further 31 tests check every OpenMM symbol the option registry names against the installed package, 23 of them resolving one declared symbol each and the rest covering the force-field files, the lipid types, the integrators, the barostats, the non-bonded methods, the constraint types and every field the state reporter is asked for. Eight more actually run `addSolvent` for each water model rather than merely checking that its file loads. The whole suite is 1,067 tests.
+A further 31 tests check every OpenMM symbol the option registry names against the installed package, 23 of them resolving one declared symbol each and the rest covering the force-field files, the lipid types, the integrators, the barostats, the non-bonded methods, the constraint types and every field the state reporter is asked for. Eight more actually run `addSolvent` for each water model rather than merely checking that its file loads. The whole suite is 1,070 tests.
 
 ## 🧭 Caveats
 
