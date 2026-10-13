@@ -4083,6 +4083,30 @@ pocket immediately and held nothing. Section 5.7's two headline numbers would
 both have been wrong, in the direction of a dramatic result, on the two rows
 the whole optional phase exists for.
 
+**Confirmed independently the next night, on the other ligand.**
+`abl1_imatinib` started producing at 22:20 on 12 October and the streaming
+pass fifteen minutes later gave the panel its first run on imatinib: pose RMSD
+1.529 Å, 20 persistent contacts, symmetry corrected, no note. The contacts are
+the published site, and two of them say so better than a count:
+
+| residue | closest | why it matters |
+|---|---|---|
+| Thr315 | 2.78 Å | the gatekeeper, and the T315I mutation that makes imatinib fail |
+| Met318 | 2.80 Å | the hinge residue imatinib hydrogen bonds to |
+| Glu286 | 2.71 Å | the αC glutamate |
+| Lys271 | 3.28 Å | the catalytic lysine |
+
+with Ala269, Ile313, Phe317 and Leu370 behind them, each held in 100 per cent
+of frames.
+
+This is a different system in every way that could matter: a kinase rather
+than a receptor, water rather than a bilayer, 46,721 atoms rather than 187,848,
+and a ligand with a different shape and symmetry. The fix holds on all of it,
+and without it this row would have reported zero contacts exactly as the first
+one did. Finding Thr315 and Met318 at hydrogen-bond distance in every frame is
+also the strongest statement this build can make that the contact detection is
+finding the real pocket rather than something plausible.
+
 ## 4bi. The same question asked of the ions, and the same answer
 
 4bh fixed the ligand. The obvious next question is what else this build

@@ -2197,3 +2197,24 @@ the acceptable one. G6 closed.
 
 5.8 written, GATE_OPEN and the README updated with the decided controls, nine
 figures redrawn, every stored number verified. 1061 passed, 2 skipped.
+
+### 12 October, 22:40. The periodic fix confirmed on the other ligand
+
+abl1_imatinib started producing at 22:20 and the streaming pass fifteen minutes
+later gave the ligand panel its first run on imatinib: pose RMSD 1.529 Å, max
+2.007, 20 persistent contacts, symmetry corrected, no imaging note.
+
+The contacts are the published site, and two of them say so better than a
+count: Thr315 at 2.78 Å, which is the gatekeeper and the residue whose T315I
+mutation makes imatinib fail, and Met318 at 2.80 Å, the hinge residue imatinib
+hydrogen bonds to. Glu286 at 2.71 and Lys271 at 3.28 are the alphaC glutamate
+and the catalytic lysine, with Ala269, Ile313, Phe317 and Leu370 behind them,
+each held in 100 per cent of frames.
+
+A different system in every way that could matter: kinase not receptor, water
+not bilayer, 46,721 atoms not 187,848, a ligand of different shape and
+symmetry. The fix holds on all of it, and without it this row would have read
+zero contacts exactly as the first one did.
+
+4bh extended rather than a new section, because it is the same finding
+confirmed rather than a new one.
