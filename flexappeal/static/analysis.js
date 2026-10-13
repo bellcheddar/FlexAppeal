@@ -503,23 +503,44 @@
    * than fixed at the source. Named rather than hidden: it is a real link to
    * the project and crediting it is the point of it being there. */
   function nameTheMolstarLogo(host) {
-    /* Retried, because Mol* builds its viewport controls after the promise
-     * that loads the structure resolves: labelling it once on that resolution
-     * found no logo and left the violation in place. Bounded rather than a
-     * MutationObserver left running for the life of the page. */
+    /* Named in the same task the logo is inserted in, rather than on the next
+     * poll. Mol* builds its viewport controls during creation, and with the
+     * viewer now started after first paint, axe-core sampled the page inside
+     * the window between the logo appearing and a 100 ms poll finding it: the
+     * check reported the exact violation this function exists to prevent. The
+     * observer closes that window and stops the moment it has named the link,
+     * so it is still not left running for the life of the page; the bounded
+     * poll stays as the fallback. */
+    let done = false;
+    let observer = null;
+
+    function label() {
+      const logo = host.querySelector('.msp-logo');
+      if (!logo) return false;
+      if (!logo.getAttribute('aria-label')) {
+        logo.setAttribute('aria-label', 'Mol* molecular viewer, opens molstar.org');
+      }
+      if (!logo.getAttribute('title')) {
+        logo.setAttribute('title', 'Mol* molecular viewer');
+      }
+      return true;
+    }
+
+    function stop() {
+      done = true;
+      if (observer) { observer.disconnect(); observer = null; }
+    }
+
+    if (label()) return;
+    if (typeof MutationObserver === 'function') {
+      observer = new MutationObserver(function () { if (label()) stop(); });
+      observer.observe(host, {childList: true, subtree: true});
+    }
     let attempts = 0;
     (function attempt() {
-      const logo = host.querySelector('.msp-logo');
-      if (logo) {
-        if (!logo.getAttribute('aria-label')) {
-          logo.setAttribute('aria-label', 'Mol* molecular viewer, opens molstar.org');
-        }
-        if (!logo.getAttribute('title')) {
-          logo.setAttribute('title', 'Mol* molecular viewer');
-        }
-        return;
-      }
-      if (++attempts < 40) setTimeout(attempt, 100);
+      if (done) return;
+      if (label() || ++attempts >= 40) { stop(); return; }
+      setTimeout(attempt, 100);
     })();
   }
 
@@ -706,6 +727,11 @@
     const status = document.getElementById('viewer-status');
     if (!host || typeof molstar === 'undefined') return;
 
+    /* Started before the viewer is created, not after it resolves: the logo
+     * goes in during creation, so a labeller that waits for the promise has
+     * already lost a window where the link has no name. */
+    nameTheMolstarLogo(host);
+
     const structureUrl = host.dataset.structure;
     const trajectoryUrl = host.dataset.trajectory;
     const duration = parseFloat(host.dataset.duration || '0');
@@ -778,10 +804,33 @@
 
   /* ----------------------------------------------------------- boot */
 
+  /* The viewer waits for the first paint rather than racing it.
+   *
+   * `molstar.Viewer.create` builds a WebGL context and mounts its whole UI on
+   * the main thread, so calling it straight out of DOMContentLoaded holds the
+   * compositor until that finishes: measured in headless Chromium, every asset
+   * had arrived by 50 ms and DOMContentLoaded fired at about 0.5 s, while first
+   * contentful paint landed at 3.2 s on the runs where the context fell back to
+   * software. The page is complete and readable before any of that: section
+   * 6.3's budget is about when a reader sees something, and the plots and the
+   * viewer are explicitly allowed to arrive after it.
+   *
+   * Two frames rather than one. The first callback runs before the paint it was
+   * scheduled against is composited, so work started there is still in front of
+   * it; the second runs after. The timeout is the fallback for a backgrounded
+   * tab, where rAF never fires and the viewer would otherwise never start. */
+  function afterFirstPaint(run) {
+    if (typeof requestAnimationFrame !== 'function') { setTimeout(run, 0); return; }
+    let started = false;
+    const once = function () { if (!started) { started = true; run(); } };
+    requestAnimationFrame(function () { requestAnimationFrame(once); });
+    setTimeout(once, 1000);
+  }
+
   document.addEventListener('DOMContentLoaded', function () {
     initDropZone();
     initPlots();
-    initViewer();
+    afterFirstPaint(initViewer);
   });
 })();
 

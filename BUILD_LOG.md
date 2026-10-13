@@ -2212,8 +2212,10 @@ and the catalytic lysine, with Ala269, Ile313, Phe317 and Leu370 behind them,
 each held in 100 per cent of frames.
 
 A different system in every way that could matter: kinase not receptor, water
-not bilayer, 46,721 atoms not 187,848, a ligand of different shape and
-symmetry. The fix holds on all of it, and without it this row would have read
+not bilayer, 48,185 atoms not 187,848, a ligand of different shape and
+symmetry. (Corrected on 13 October: this line first read 46,721, which is
+`abl1_apo`'s box. `abl1_imatinib` is 48,185 atoms, and both numbers are in
+`run.json`.) The fix holds on all of it, and without it this row would have read
 zero contacts exactly as the first one did.
 
 4bh extended rather than a new section, because it is the same finding
@@ -2262,3 +2264,64 @@ the evidence beside it, everything else fails. 4bb rewritten.
 
 **1063 passed, nothing skipped**, the first fully green run of the build,
 because the two GPU-gated tests ran for the first time.
+
+### 13 October, 09:20. The hour after "finished", and four more faults
+
+Picked the build back up with Tier 2 done and every control decided, and did
+what the last entry says this build should do: re-measured the numbers in
+`GATE_OPEN.md` rather than reading them.
+
+**The gate document was wrong about P6.** It said every bilayer chunk was
+inside the expected window on both membrane rows. `b2ar_apo`'s first chunk is
+68.05 Å² against a window that ends at 68, and the row had printed it as
+"68.0". The code has always called that chunk `outside expected`, the figure
+draws the point above the band, and `refstates_run.html` carries a comment
+explaining that this very number needs two decimals or the badge looks wrong.
+The summary document, written by hand days later, reproduced the fault the page
+had been corrected for. P6 still passes on both rows and G6 stays closed, which
+is a different window. 4bn.
+
+**Four stale counts in the same table**, all corrected against the thing they
+describe: 7 figures (10), 9 pages through axe and Playwright (10), stored
+numbers verified across 2 rows (4), and one atom count that was wrong rather
+than stale.
+
+**The suite is not green, and the reason is a font.** Two full runs came back
+4 failed and then 5 failed, different tests each time, every failure
+`net::ERR_NETWORK_CHANGED` out of Chromium, plus a first paint of 4,264 ms
+against a 2 s budget. `brand.css` opens with an `@import` of Google Fonts, so
+every page in this app fetches a stylesheet from a third party before it will
+paint. Moved to a non-blocking link in `base.html`, and every browser context
+in the suite now answers off-site requests itself. 4bo.
+
+**First paint was then still bimodal**: 56, 516, 60, 3568, 3216, 3280 ms.
+Everything had loaded by 50 ms and DOMContentLoaded fired at half a second, so
+the gap was the Mol* mount, which runs on the main thread straight out of that
+handler and holds the compositor. Deferred to after the first painted frame,
+which is what the test's own docstring already claimed happened. 608, 648, 740,
+92, 840 ms since. The change moved a labelling race under axe's sample and it
+reported `link-name` on the Mol* logo: the race was always there, and it is now
+closed in the task the logo appears in. 4bp.
+
+**The Examples card showed one run's atom count as the system's**, 48,185 for
+an ABL1 card whose other row is 46,721, and 187,848 for a receptor card whose
+other row is 194,032. `systems.name` was a run id for the same reason. Both
+written by whichever row was ingested last. The column now holds a number only
+where the rows agree, is cleared where they do not, and the card shows the
+range. 4bq.
+
+README gained a section on the two worked examples with the Tier 2 matrix, at
+Marc's request, written for a reader who is not holding the spec.
+
+### 13 October, 11:10. The batch measured, and a pointer that pointed nowhere
+
+Ran the whole suite against the four fixes above rather than committing on the
+strength of the targeted tests: **1067 passed, nothing skipped**, 3 min 22 s.
+Four items more than the 1063 of the last green run, and all four are 4bq's:
+the counts gathered per row, the range shown where rows disagree, the stale
+count cleared, and a system named for itself.
+
+The `Test suite` row in `GATE_OPEN.md` ended "the count is in the row below",
+and no row below it holds a count: the rows below are axe-core, Playwright and
+first paint. Written while the suite was red and never finished. The measured
+count is in the row itself now, which is where a reader looks for it.

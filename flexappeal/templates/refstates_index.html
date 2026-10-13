@@ -51,8 +51,12 @@
     {% endif %}
     <dl class="md-stats">
       <div><dt>Environment</dt><dd>{{ card.system.environment or "unknown" }}</dd></div>
-      {% if card.system.n_atoms %}
-        <div><dt>Atoms</dt><dd>{{ "{:,}".format(card.system.n_atoms) }}</dd></div>
+      {# A range where the system's runs do not agree on one number: the two
+         beta2AR boxes differ by 6,184 atoms because carazolol displaces lipids
+         and waters, and printing either one as "the" count is wrong for the
+         other row on the same card. #}
+      {% if card.atoms %}
+        <div><dt>Atoms</dt><dd>{{ card.atoms }}</dd></div>
       {% endif %}
       <div><dt>References</dt><dd>{{ card.n_references }}</dd></div>
       <div><dt>Runs</dt><dd>{{ card.runs | length }}</dd></div>

@@ -7,6 +7,20 @@
   <meta name="description" content="{% block description %}Prepare OpenMM molecular dynamics runs and analyse the results. Build a self-contained run script, simulate locally, upload the results for interactive analysis.{% endblock %}">
   <title>{% block title %}FlexAppeal{% endblock %} | Marc C. Deller</title>
   <link rel="stylesheet" href="{{ asset('brand.css') }}">
+  {# Inter and Roboto Mono, which brand.css names and the system stack stands in
+     for. Loaded as print media and promoted to all on load, so the request sits
+     beside first paint instead of in front of it: as a remote @import inside
+     brand.css it was render blocking, and a page whose fonts were slow was a
+     page that showed nothing. The <noscript> copy keeps the faces for a reader
+     with scripting off, where blocking is the only option left. #}
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" media="print" onload="this.media='all'"
+        href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&amp;family=Roboto+Mono:wght@400;500&amp;display=swap">
+  <noscript>
+    <link rel="stylesheet"
+          href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&amp;family=Roboto+Mono:wght@400;500&amp;display=swap">
+  </noscript>
   {# The site had no icon of any kind, so every tab showed the browser's
      default document glyph. Generated from the brand mark by
      tools/build_favicons.py. The bare /favicon.ico route exists as well,

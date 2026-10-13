@@ -4459,6 +4459,189 @@ luck rather than design, and it is recorded here rather than fixed tonight
 because changing the production path with results on disk is not a four-in-the-
 morning job.
 
+## 4bn. The gate document rounded a number onto its own threshold
+
+`GATE_OPEN.md`'s P6 row, written when the last membrane row finished, read:
+
+> **PASS on both membrane rows**: `b2ar_apo` 5 chunks, APL 67.1 Å² (66.2 to
+> 68.0), 38.9 Å; `b2ar_carazolol` 5 chunks, APL 66.6 Å² (65.7 to 67.8),
+> 39.0 Å, every chunk inside the expected window rather than only the
+> acceptable one
+
+Two things are wrong there and both come from one decimal place. Section 5.8's
+expected window for area per lipid ends at **68.0 Å²**, and `b2ar_apo`'s first
+chunk measures **68.05**. Printed to one decimal it becomes "68.0", which reads
+as the boundary itself and so reads as inside. The sentence that follows, that
+every chunk is inside the expected window, is then false for that one chunk.
+
+The chunks, read back out of the store rather than remembered:
+
+| row | chunk | area per lipid | verdict | thickness | verdict |
+|---|---|---|---|---|---|
+| `b2ar_apo` | 0 ns | **68.05 Å²** | **outside expected** | 38.42 Å | expected |
+| `b2ar_apo` | 10 to 40 ns | 67.23, 67.00, 66.93, 66.23 | expected | 38.86 to 39.35 | expected |
+| `b2ar_carazolol` | 0 to 40 ns | 67.84, 67.18, 66.14, 65.71, 66.33 | expected | 38.49 to 39.38 | expected |
+
+`membrane.row_verdicts` has always called that chunk `outside expected`, the
+figure draws the point above the band, and the run page prints it with a warning
+badge beside it. Only the prose said otherwise.
+
+**The same mistake had already been found and fixed one layer down.** This
+comment sits in `refstates_run.html`, above the cell that prints the number:
+
+> Two decimals, not one, on the two values that carry a verdict. The first
+> chunk here measures 68.05 A^2 against a window that ends at 68.0, so it is
+> outside it and the badge says so. At one decimal the cell read "68.0 A^2"
+> beside "outside expected" ... which looks like the badge is wrong when it is
+> the rounding that is hiding the only digit that decides.
+
+The page was corrected for exactly this. The summary document, written days
+later by hand, reproduced the fault the page had been fixed for, and generalised
+`b2ar_carazolol`'s clean result over both rows while it was there.
+
+**What it changes in the result: nothing.** G6 is a different window, 55 to 75
+Å², and `gate_six` judges the mean rather than a single chunk: 67.09 Å² for
+`b2ar_apo` and 66.64 for `b2ar_carazolol`. P6 passes on both rows, and the first
+chunk after equilibration being a little loose is what 5.2 predicted in writing
+before the production rows existed: the builder leaves the bilayer at 71.6 Å²
+and it settles. It settles to inside the expected window by 10 ns and stays
+there. The claim that was wrong is the one about every chunk, not the pass.
+
+`README.md` had it right throughout: "4 of 5 chunks inside, the first 0.05
+Å² above it". The two documents disagreed and the one a reader trusts for the
+verdict was the wrong one. Both now carry both rows.
+
+**What this build should have done.** A number that carries a verdict is printed
+at the precision that decides the verdict, in a sentence exactly as in a cell.
+The rule existed, in a template comment, where no one writing prose would look.
+
+## 4bo. The page QC asked a third party whether the page was good
+
+Two full suite runs after Tier 2 came back **4 failed** and then **5 failed**,
+on different tests each time, with no code change between them. Every failure
+was the same string:
+
+```
+console error: Failed to load resource: net::ERR_NETWORK_CHANGED
+```
+
+and one of them was `first contentful paint 4264 ms, budget 2000 ms`.
+
+`ERR_NETWORK_CHANGED` is what Chromium reports when the host's network
+interface changes under an in-flight request. Nothing in this app is meant to
+leave the machine: the pages are served from `127.0.0.1`, Mol* and Plotly are
+vendored into `static/vendor/`, and the trajectories are local files. One line
+says otherwise, and it is the first line of `brand.css` after the comment:
+
+```css
+@import url('https://fonts.googleapis.com/css2?family=Inter...&display=swap');
+```
+
+Every page in this app, in every one of these tests, fetched a stylesheet from
+Google. A remote `@import` at the top of a stylesheet is also **render
+blocking**: the browser will not paint until it resolves or fails, which is
+where a first paint of 4,264 ms against a 2 s budget comes from.
+
+**Two separate things were wrong, and they need different fixes.**
+
+*The app.* The font request now comes from `base.html` as a stylesheet with
+`media="print"` promoted to `all` on load, behind `preconnect`, with a
+`<noscript>` copy for a reader with scripting off. The faces are unchanged when
+the network is there; when it is not, the page paints immediately in the stack
+`brand.css` already named (`-apple-system`, then the system sans and mono) and
+swaps when the fonts arrive, rather than showing nothing.
+
+*The QC.* A check whose result depends on someone else's CDN being reachable is
+not a check. Every browser context in `tests/test_pages.py` now routes through
+one handler that answers anything off `127.0.0.1` with an empty stylesheet, so
+the suite measures this app. 37 tests, no network.
+
+**What this build should have done.** The line was inherited rather than
+written here, which is exactly why it was never looked at: it predates the
+reference-states work and belongs to the app's own design system, so every
+audit of "what does this build fetch" walked past it. The security pass asked
+what leaves the machine in terms of *data* and answered correctly. It did not
+ask what the machine *fetches*, and the answer to that was a request to a third
+party on every page view of a public site.
+
+## 4bp. First paint was being charged for the 3D viewer
+
+With the fonts out of the way the paint measurement was still bimodal across
+six runs: 56, 516, 60, 3568, 3216, 3280 ms. A budget that fails half the time
+tells you nothing, so the page was instrumented rather than guessed at.
+
+| | |
+|---|---|
+| every resource arrived by | 50 ms |
+| DOMContentLoaded | 478 to 685 ms |
+| first contentful paint, good runs | 56 to 624 ms |
+| first contentful paint, bad runs | 3,216 to 3,568 ms |
+
+Everything had loaded and parsed, and the browser still painted nothing for
+three seconds. What runs in that gap is `initViewer`, called straight out of
+the `DOMContentLoaded` handler: `molstar.Viewer.create` builds a WebGL context
+and mounts the whole viewer UI on the main thread, and where headless Chromium
+falls back to a software context that takes seconds. The compositor never got a
+frame, so the paint waited for the viewer.
+
+The test's own docstring says what was supposed to happen: "The viewer and the
+plots load after first paint by design, so a slow Mol\* does not count against
+this." It was not true. The viewer now starts after the first painted frame,
+through two nested `requestAnimationFrame` callbacks with a one second timeout
+behind them for a backgrounded tab where rAF never fires. Five runs since:
+608, 648, 740, 92, 840 ms, every one inside the budget.
+
+**That change broke an accessibility check, which is the useful part.** The
+next axe run reported `link-name`, serious, on `.msp-logo`: Mol\* inserts its
+own logo as a link with no text, and this build labels it. The labelling polled
+every 100 ms *after* `Viewer.create` resolved, so there had always been a window
+where the logo existed with no name, and moving the mount later moved that
+window under axe's sample. The race was real before and invisible; the fix is
+to start labelling before the viewer is created and to name the link in the
+same task it appears in, with the bounded poll kept as the fallback.
+
+A timing change surfaced it. It would have surfaced on a slow machine, in front
+of a reader using a screen reader, with nobody there to notice.
+
+## 4bq. An atom count that belonged to one row was stored as the system's
+
+Section 6.2 asks the Examples card for an atom count, and section 7 gives
+`systems` one `n_atoms` column to put it in. The card read:
+
+| system | card said | the rows are |
+|---|---|---|
+| ABL1 | 48,185 | `abl1_apo` 46,721, `abl1_imatinib` 48,185 |
+| beta2AR | 187,848 | `b2ar_apo` 194,032, `b2ar_carazolol` 187,848 |
+
+Each card covers two runs and showed one run's box as the system's, because
+`ingest_analysis` wrote the column from whichever row was ingested last. An
+atom count belongs to a built box rather than to a protein: imatinib adds 1,464
+atoms to the kinase and carazolol removes 6,184 from the receptor, since a
+bound ligand changes how many waters and lipids fit around it.
+
+The same call wrote `systems.name` from `analysis["name"]`, which is a run id,
+so the two systems were named `abl1_imatinib` and `b2ar_carazolol`. Nothing on
+the card showed it, because `SYSTEM_TITLES` has a title for both of this
+build's systems, but the card falls back to that column for a system it does
+not know, which is every system the reuse path brings in, and the verifier
+prints it beside each system it checks.
+
+**What it is now.** The ingest reads every row of a system and writes
+`n_atoms` only where they agree. Where they do not there is no such number, so
+the column is **cleared** rather than left holding the last one: an upsert
+leaves out what it is not given, and omitting the key kept the stale 48,185 in
+place, which reads exactly like a measurement. The per-run counts go in
+`notes`, which section 7 already leaves free, and the card shows the range,
+"46,721 to 48,185". `name` comes from the ingest's own table of systems.
+
+**What this build should have done.** The rule it already follows, that a key
+it cannot produce is omitted rather than filled with a stand-in, was written
+for a value that is missing. This was a value that is ambiguous, which is a
+different thing and had no rule: there were two true numbers and the schema had
+one column, and the code quietly resolved it by order of ingest. The fixtures
+could not catch it either, because no test had ever put two runs of one system
+in a database.
+
 ## 5. Production runs
 
 Tier 2 started at 17:04 on 10 October, in section 5.3's priority order: β2AR

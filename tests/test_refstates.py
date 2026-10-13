@@ -3256,6 +3256,110 @@ def test_bilayer_qc_refuses_audibly_when_a_membrane_row_lacks_its_topology(
     assert "REFUSING" in said and "solvated.pdb" in said
 
 
+# --- an atom count belongs to a box, not to a protein -----------------------
+#
+# Section 7 gives `systems` one `n_atoms` column and section 6.2 asks the
+# Examples card to show an atom count. A system here has two runs, and their
+# boxes are not the same size: imatinib adds 1,464 atoms to ABL1 and carazolol
+# removes 6,184 from the receptor, because a bound ligand changes how many
+# waters and lipids fit. The column used to be filled by whichever row was
+# ingested last, and the card printed that one row's box as the system's.
+
+def test_the_atom_count_of_every_row_of_a_system_is_gathered(tmp_path: Path):
+    """Both rows, from their own manifests, rather than the one being ingested."""
+    module = _ingest_module()
+    for name, atoms in (("abl1_apo", 46721), ("abl1_imatinib", 48185)):
+        run = tmp_path / name
+        run.mkdir()
+        (run / "run.json").write_text(json.dumps({"atoms": atoms}))
+
+    assert module.system_atom_counts(tmp_path, "abl1") == {
+        "abl1_apo": 46721, "abl1_imatinib": 48185}
+
+
+def test_a_system_whose_rows_disagree_shows_the_range_and_stores_no_count(
+        tmp_path: Path):
+    """And one whose rows agree keeps the single number in the column."""
+    from flexappeal.refstates import web
+
+    database = tmp_path / "t.db"
+    store.create(database)
+
+    store.ingest_analysis(database, _analysis_payload(), system_id="abl1",
+                          run_id="abl1_apo", family="kinase",
+                          environment="water",
+                          system_fields={"name": "ABL1 kinase domain",
+                                         "n_atoms": None},
+                          atoms_by_run={"abl1_apo": 46721,
+                                        "abl1_imatinib": 48185})
+    with store.connect(database) as connection:
+        row = dict(connection.execute(
+            "SELECT * FROM systems WHERE system_id = 'abl1'").fetchone())
+
+    assert row["n_atoms"] is None, (
+        "no single number is true of a system whose rows differ, and the "
+        "column should say so rather than carry one of them")
+    assert web.atom_count(row) == "46,721 to 48,185"
+
+    store.ingest_analysis(database, _analysis_payload(), system_id="b2ar",
+                          run_id="b2ar_apo", family="gpcr",
+                          environment="membrane",
+                          system_fields={"n_atoms": 194032},
+                          atoms_by_run={"b2ar_apo": 194032,
+                                        "b2ar_replica": 194032})
+    with store.connect(database) as connection:
+        agreed = dict(connection.execute(
+            "SELECT * FROM systems WHERE system_id = 'b2ar'").fetchone())
+    assert agreed["n_atoms"] == 194032
+    assert web.atom_count(agreed) == "194,032"
+
+
+def test_a_stale_atom_count_is_cleared_rather_than_left_behind(tmp_path: Path):
+    """The regression: an upsert leaves out what it is not given.
+
+    Omitting the key where the rows disagree left the column holding the number
+    from when they agreed, which reads exactly like a measurement.
+    """
+    database = tmp_path / "t.db"
+    store.create(database)
+    store.ingest_analysis(database, _analysis_payload(), system_id="abl1",
+                          run_id="abl1_apo", family="kinase",
+                          environment="water",
+                          system_fields={"n_atoms": 46721},
+                          atoms_by_run={"abl1_apo": 46721})
+    store.ingest_analysis(database, _analysis_payload(), system_id="abl1",
+                          run_id="abl1_imatinib", family="kinase",
+                          environment="water",
+                          system_fields={"n_atoms": None},
+                          atoms_by_run={"abl1_apo": 46721,
+                                        "abl1_imatinib": 48185})
+    with store.connect(database) as connection:
+        count = connection.execute(
+            "SELECT n_atoms FROM systems WHERE system_id = 'abl1'").fetchone()[0]
+    assert count is None
+
+
+def test_a_system_is_named_for_itself_rather_than_for_its_last_run(
+        tmp_path: Path):
+    """`systems.name` used to be the analysis payload's name, which is a run id.
+
+    Nothing on the Examples card showed it, because `SYSTEM_TITLES` has a title
+    for both of this build's systems, but the card falls back to this column
+    for a system it does not know, which is every system the reuse path brings
+    in, and the verifier prints it beside each system it checks.
+    """
+    database = tmp_path / "t.db"
+    store.create(database)
+    store.ingest_analysis(database, _analysis_payload(), system_id="abl1",
+                          run_id="abl1_imatinib", family="kinase",
+                          environment="water",
+                          system_fields={"name": "ABL1 kinase domain"})
+    with store.connect(database) as connection:
+        name = connection.execute(
+            "SELECT name FROM systems WHERE system_id = 'abl1'").fetchone()[0]
+    assert name == "ABL1 kinase domain"
+
+
 def test_bilayer_qc_stays_quiet_for_a_water_row(tmp_path: Path, capsys):
     """And the same absence in a water run is not worth a word.
 

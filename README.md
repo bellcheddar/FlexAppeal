@@ -268,6 +268,35 @@ criterion says. Where they disagree the motif is marked `conflict` rather than
 averaged, because a disagreement between geometry and rule is the interesting
 case rather than noise.
 
+### The two worked examples
+
+Two proteins, each simulated twice: once from a structure solved in its **active**
+state, and once from an **inactive** one with the drug that holds it there. All of
+it ran on a single Mac Studio.
+
+| Run | Protein and start | In the box | Produced | Speed | GPU time |
+|---|---|---|---|---|---|
+| `abl1_apo` | ABL1 kinase, active (DFG-in) | 46,721 atoms in water | 50 ns | 224 ns/day | 4.9 h |
+| `abl1_imatinib` | ABL1 kinase, inactive (DFG-out), imatinib bound | 48,185 atoms in water | 50 ns | 211 ns/day | 5.7 h |
+| `b2ar_apo` | β2AR, active | 194,032 atoms in a POPC bilayer | 50 ns | 60 ns/day | 13.3 h |
+| `b2ar_carazolol` | β2AR, inactive, carazolol bound | 187,848 atoms in a POPC bilayer | 50 ns | 62 ns/day | 19.5 h |
+
+200 ns of production in **43.4 GPU-hours**, with a nanosecond of settling in front
+of each water run and ten in front of each membrane run.
+
+**What they show.** Every run finished on the side it started. Averaged over the
+final 20 ns, the whole-protein score is +0.17 and -0.26 for the two kinase runs
+and +0.22 and -0.22 for the two receptor runs, where positive means active and
+negative inactive. Both drugs stayed where they were put: imatinib ends 0.66 Å
+from its crystal pose with 21 persistent contacts, among them the Thr315
+gatekeeper and the Met318 hinge that the published structures name, and
+carazolol ends 1.08 Å out, holding Asp113 at 2.4 Å. The bilayer under the
+receptor behaved: its area per lipid settled inside the expected 60 to 68 Å²
+window after the first 10 ns and its thickness never left 36 to 41 Å.
+
+Each row is a page in the app: scrub the trajectory, toggle the membrane, overlay
+the nearest reference structure, and read the per motif table underneath.
+
 ### Where the published thresholds did not hold
 
 Two were recalibrated, both because the published number was fitted on crystal
@@ -288,7 +317,7 @@ at 300 K.
 | TM3–TM6 state separation, leave-one-out | 100 / 100 at 11.39 Å |
 | R-spine label after recalibration | 5 / 5 active, 14 / 14 inactive |
 | Each start structure scores as its own state | 4 / 4 |
-| Bilayer inside its published windows | mean 67.09 Å² per lipid and 38.92 Å thick over the finished 50 ns, both inside the expected windows; 4 of 5 chunks inside, the first 0.05 Å² above it and inside the acceptable one. G6 closed |
+| Bilayer inside its published windows | `b2ar_apo` 67.09 Å² per lipid and 38.92 Å thick, `b2ar_carazolol` 66.64 Å² and 39.02 Å, every mean inside the expected windows. So is every 10 ns chunk bar one, `b2ar_apo`'s first at 68.05 Å², which is 0.05 above the expected window and inside the acceptable one. G6 closed |
 | An inactive start stays inactive | **PASS on both bound rows**: `abl1_imatinib` mean s -0.263 and `b2ar_carazolol` mean s -0.223, each 201 frames of its final 20 ns and every frame below zero |
 
 That last row was listed as pending for most of the build rather than left

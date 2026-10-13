@@ -25,6 +25,12 @@ DEFAULT_DB = ROOT / "data" / "refstates.db"
 
 # Which system each run belongs to, and how to describe it. The run names are
 # the queue's, so this is the one place the two vocabularies meet.
+# The system's own name, for section 7's `systems.name`. It used to be
+# whichever run was ingested last, because the only name the store was given
+# was the analysis payload's and that is a run id.
+SYSTEM_NAMES = {"abl1": "ABL1 kinase domain",
+                "b2ar": "beta2 adrenergic receptor"}
+
 SYSTEMS = {
     "abl1_apo": {"system_id": "abl1", "family": "kinase", "environment": "water",
                  "start_state": "DFG-in", "start_model": "2GQG"},
@@ -93,6 +99,26 @@ def system_facts(run_dir: Path, system_id: str) -> dict:
                     1 for line in handle
                     if line.startswith(("ATOM  ", "HETATM")))
     return facts
+
+
+def system_atom_counts(md_root: Path, system_id: str) -> dict[str, int]:
+    """Every built row of one system, by run name.
+
+    An atom count belongs to a built box rather than to a protein. The two
+    ABL1 rows differ by 1,464 atoms and the two beta2AR rows by 6,184, because
+    a bound ligand changes how many waters and lipids fit around it, so a
+    single number written into `systems.n_atoms` is true of one row and wrong
+    for the other. This reads every row of the system so the caller can write
+    that column only when they agree, and show the range when they do not.
+    """
+    counts: dict[str, int] = {}
+    for name, meta in SYSTEMS.items():
+        if meta["system_id"] != system_id:
+            continue
+        facts = system_facts(md_root / name, system_id)
+        if "n_atoms" in facts:
+            counts[name] = facts["n_atoms"]
+    return counts
 
 
 # The phase 1 manifests, which carry each reference's catalogue state beside the
@@ -276,14 +302,24 @@ def main() -> int:
 
         manifest = reference_rows(meta["system_id"])
         facts = system_facts(run_dir, meta["system_id"])
+        if meta["system_id"] in SYSTEM_NAMES:
+            facts["name"] = SYSTEM_NAMES[meta["system_id"]]
+        # One number for the system only where its rows agree on one. Omitted
+        # rather than filled from this row, which is the rule the rest of this
+        # function follows for anything it cannot produce.
+        atoms = system_atom_counts(Path(args.md), meta["system_id"])
+        facts["n_atoms"] = (next(iter(atoms.values()))
+                            if len(set(atoms.values())) == 1 else None)
         counts = store.ingest_analysis(
             Path(args.db), analysis, system_id=meta["system_id"], run_id=name,
             family=meta["family"], environment=meta["environment"],
-            run_fields=fields, system_fields=facts)
-        if facts.get("n_atoms"):
-            log(f"  system {meta['system_id']}: {facts['n_atoms']:,} atoms"
-                + (f", {facts['forcefield']}" if facts.get("forcefield") else "")
-                + (f", UniProt {facts['uniprot']}" if facts.get("uniprot") else ""))
+            run_fields=fields, system_fields=facts, atoms_by_run=atoms)
+        if atoms:
+            log(f"  system {meta['system_id']}: "
+                + ", ".join(f"{run} {n:,} atoms"
+                            for run, n in sorted(atoms.items()))
+                + (f"; {facts['forcefield']}" if facts.get("forcefield") else "")
+                + (f"; UniProt {facts['uniprot']}" if facts.get("uniprot") else ""))
         log(f"{name}: {counts['motifs']} motifs, {counts['references']} "
             f"references, {counts['frames']} frame rows ({fields['status']})")
 

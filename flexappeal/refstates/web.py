@@ -139,6 +139,33 @@ def finding(run_id: str) -> str:
             f"{start:+.2f} to {end:+.2f}, {direction}.")
 
 
+def atom_count(system: dict) -> str | None:
+    """What the Examples card's Atoms cell says, or nothing.
+
+    An atom count belongs to the built box rather than to the protein: the two
+    ABL1 rows differ by 1,464 atoms and the two beta2AR rows by 6,184, because
+    a bound ligand changes how many waters and lipids fit around it. Section 7
+    gives `systems` one `n_atoms` column, which the ingest fills only where
+    every row of the system agrees, so the per-run counts in `notes` are what
+    gives a card covering two rows an honest cell: a range rather than one
+    row's box printed as the system's. Returns nothing when neither is there,
+    and the cell is left out rather than showing a zero.
+    """
+    counts = {}
+    try:
+        counts = (json.loads(system.get("notes") or "{}") or {}).get("atoms") or {}
+    except (TypeError, ValueError):
+        counts = {}
+    values = sorted({int(v) for v in counts.values()})
+    if len(values) > 1:
+        return f"{values[0]:,} to {values[-1]:,}"
+    if values:
+        return f"{values[0]:,}"
+    if system.get("n_atoms"):
+        return f"{int(system['n_atoms']):,}"
+    return None
+
+
 @refstates_bp.get("/")
 def index():
     """Section 6.2's Examples tab: one card per system."""
@@ -184,6 +211,7 @@ def index():
 
         cards.append({
             "system": system, "runs": runs, "title": title, "subtitle": subtitle,
+            "atoms": atom_count(system),
             "scores": scores, "pair": pair,
             "findings": {run["run_id"]: finding(run["run_id"]) for run in runs},
             "n_references": (_rows(

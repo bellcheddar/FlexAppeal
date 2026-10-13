@@ -224,7 +224,8 @@ def ingest_analysis(path: Path, analysis: dict[str, Any], *,
                     system_id: str, run_id: str,
                     family: str, environment: str,
                     run_fields: dict[str, Any] | None = None,
-                    system_fields: dict[str, Any] | None = None) -> dict[str, int]:
+                    system_fields: dict[str, Any] | None = None,
+                    atoms_by_run: dict[str, int] | None = None) -> dict[str, int]:
     """Load one `tools/analyse_run.py` payload into the store.
 
     Returns the row counts, which is what the caller reports: an ingest that
@@ -243,13 +244,32 @@ def ingest_analysis(path: Path, analysis: dict[str, Any], *,
         # keys the caller could actually produce are passed, so a system whose
         # build manifest is missing leaves the column null rather than carrying
         # a zero that reads like a measurement.
+        # `name` is the system's name and not the run's. It used to be
+        # `analysis["name"]`, which is a run id, so whichever row was ingested
+        # last stamped its own name on the system: the ABL1 row read
+        # `abl1_imatinib` and the receptor `b2ar_carazolol`. The run name
+        # stays as the fallback for a caller with nothing better, which is the
+        # reuse path, where the only name anyone has given is the run's.
+        # A key the caller gave is written as given, `None` included: an
+        # upsert leaves out what it is not given, so a system whose rows stop
+        # agreeing on an atom count would otherwise keep the number from when
+        # they did. Absence of the key means "leave the column alone"; `None`
+        # means "there is no such value", which is what NULL is for and is not
+        # the stand-in zero the omit rule forbids.
+        system_columns = {"name": analysis.get("name", ""),
+                          **(system_fields or {})}
+        # Section 7 gives `systems` eight columns and no room for a per-run
+        # fact, so what differs between the rows of one system goes in `notes`
+        # beside the core: `atoms` is {run_id: count}, and the card reads the
+        # range from it rather than printing one row's box as the system's.
+        system_notes = {"core": analysis.get("core", {}),
+                        "notes": analysis.get("notes", [])}
+        if atoms_by_run:
+            system_notes["atoms"] = {str(k): int(v)
+                                     for k, v in atoms_by_run.items()}
         put_system(connection, system_id, family=family,
-                   name=analysis.get("name", ""),
-                   environment=environment,
-                   **{k: v for k, v in (system_fields or {}).items()
-                      if v is not None},
-                   notes=json.dumps({"core": analysis.get("core", {}),
-                                     "notes": analysis.get("notes", [])}))
+                   environment=environment, **system_columns,
+                   notes=json.dumps(system_notes))
         # The caller's fields win, so a run still in flight keeps its own
         # status rather than being overwritten with "complete" by the default.
         fields = {"status": "complete",

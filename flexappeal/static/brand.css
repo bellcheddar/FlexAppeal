@@ -3,7 +3,12 @@
    colours and the generated bundle's console output, so the whole toolchain
    looks like one thing. */
 
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Roboto+Mono:wght@400;500&display=swap');
+/* The brand faces are requested from base.html rather than imported here. A
+   remote @import at the top of a stylesheet blocks rendering until that
+   third party answers: section 6.3 budgets first contentful paint at 2 s and
+   a host whose network changed mid-load measured 4,264 ms. The stack below
+   falls back to the system faces, so a page that never gets the fonts is
+   still the right page. */
 
 :root {
   --md-primary:        #1e73be;

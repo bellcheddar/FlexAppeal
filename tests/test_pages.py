@@ -20,6 +20,7 @@ import json
 import socket
 import threading
 from pathlib import Path
+from urllib.parse import urlsplit
 
 import pytest
 
@@ -83,6 +84,32 @@ def _assert_console_clean(problems, where: str) -> None:
             if not any(ignore in p for ignore in IGNORED_CONSOLE)
             and MOLSTAR_FIXTURE_ARTEFACT not in p]
     assert not real, f"{where}: {real}"
+
+
+# Nothing in this suite is allowed off the machine. `brand.css` used to pull
+# Inter and Roboto Mono from fonts.googleapis.com, so every page in every test
+# here made a request to a third party: when the host's network changed during
+# a run, Chromium logged `Failed to load resource: net::ERR_NETWORK_CHANGED`
+# and between three and five of these tests failed on an app that had not
+# changed, with a first paint of 4,264 ms against a 2,000 ms budget. The font
+# request now comes from the template and no longer blocks paint, but a QC
+# result that depends on someone else's CDN being reachable is not a QC result,
+# so every off-site request is answered here with an empty stylesheet and the
+# pages render in the fallback stack.
+def _answer_offsite(route, request) -> None:
+    host = urlsplit(request.url).hostname
+    if request.url.startswith(("http://", "https://")) and host not in (
+            "127.0.0.1", "localhost", "::1"):
+        route.fulfill(status=200, content_type="text/css", body="")
+    else:
+        route.continue_()
+
+
+def _context(browser, viewport: dict):
+    """A browser context that cannot reach the internet."""
+    context = browser.new_context(viewport=viewport)
+    context.route("**/*", _answer_offsite)
+    return context
 
 
 def _free_port() -> int:
@@ -419,7 +446,7 @@ def _warm_webgl(chromium, site):
     on an unrelated process made the check disappear exactly when the machine
     was busy, and told a confident story about why.
     """
-    context = chromium.new_context(viewport=VIEWPORTS["desktop"])
+    context = _context(chromium, VIEWPORTS["desktop"])
     page = context.new_page()
     try:
         page.goto(f"{site}/refstates/run/abl1_apo", wait_until="networkidle")
@@ -447,7 +474,7 @@ PAGES = [
 
 def _open(browser, site: str, path: str, viewport: dict):
     """One page, with every console error and page error collected."""
-    context = browser.new_context(viewport=viewport)
+    context = _context(browser, viewport)
     page = context.new_page()
     problems: list[str] = []
     page.on("console", lambda message: problems.append(
@@ -600,7 +627,7 @@ def test_the_explorer_paints_within_its_budget(chromium, site):
     when the last asset finished arriving. The viewer and the plots load after
     first paint by design, so a slow Mol* does not count against this.
     """
-    context = chromium.new_context(viewport=VIEWPORTS["desktop"])
+    context = _context(chromium, VIEWPORTS["desktop"])
     page = context.new_page()
     try:
         page.goto(f"{site}/refstates/run/abl1_apo", wait_until="domcontentloaded")
@@ -620,6 +647,11 @@ def test_the_explorer_paints_within_its_budget(chromium, site):
                 return fcp ? fcp.startTime : null;
             }""")
         assert paint is not None, "the browser reported no paint timing"
+        # Printed as well as asserted, so `-s` reports the measurement rather
+        # than only the verdict: GATE_OPEN quotes this number and a pass tells
+        # it nothing about how much room is left.
+        print(f"\nfirst contentful paint {paint:.0f} ms "
+              f"against {FIRST_PAINT_BUDGET_MS} ms")
         assert paint < FIRST_PAINT_BUDGET_MS, (
             f"first contentful paint {paint:.0f} ms, budget "
             f"{FIRST_PAINT_BUDGET_MS} ms")
@@ -635,7 +667,7 @@ def test_scrubbing_a_frame_stays_within_its_budget(chromium, site):
     scrub that had to go back to the server could not meet 100 ms and the
     design is that it does not have to.
     """
-    context = chromium.new_context(viewport=VIEWPORTS["desktop"])
+    context = _context(chromium, VIEWPORTS["desktop"])
     page = context.new_page()
     try:
         page.goto(f"{site}/refstates/run/abl1_apo", wait_until="networkidle")
@@ -690,7 +722,7 @@ def test_clicking_the_state_map_moves_the_viewer_to_that_frame(chromium, site):
     a duration of n rather than (n - 1) strides, which made a frame at 4.2 ns
     read as 5.0.
     """
-    context = chromium.new_context(viewport=VIEWPORTS["desktop"])
+    context = _context(chromium, VIEWPORTS["desktop"])
     page = context.new_page()
     try:
         page.goto(f"{site}/refstates/run/abl1_apo", wait_until="networkidle")
