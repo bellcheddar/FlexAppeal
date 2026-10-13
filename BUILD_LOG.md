@@ -2406,3 +2406,35 @@ no verdict, such as the queue's elapsed minutes.
 **1,070 passed, nothing skipped.** The README badge and the gate table both say
 1,070 now, measured by collecting the suite rather than by adding three to the
 number that was there.
+
+### 13 October, 15:35. G3 opens, and the deploy script's first run
+
+Marc approved the full deploy: code, `data/refstates.db` and `data/analysis`.
+G3 is open and the explorer is live at `flexappeal.mdeller.com/refstates/`.
+
+**The first run of `deploy/deploy.sh` failed, and the failure is 4bs.** The
+file had been written, reviewed and committed without ever being run, which is
+what section 5.3 asks for. Its remote half is an unquoted heredoc, so the local
+shell expanded it before sending it, and expansion includes backticks: forty
+lines of comment naming `data/md/`, `data/refstates.db` and
+`--filter=':- .gitignore'` in the house style, every one executed on this Mac.
+The rsync had already succeeded, so the files landed and nothing after them
+did: no chown, no pip, no restart. The service went on serving the build from
+July. `/healthz` answered 200 the whole time, and `/refstates/` answered 404.
+
+Fixed with `<<'REMOTE'` and the path passed as `bash -s -- "$DROPLET_PATH"`, so
+nothing in that block is expanded locally whatever the comments contain. The
+verification step now checks seven routes across every tab and exits non-zero,
+because a check that passes whether or not the deploy worked is not a check.
+Re-run twice since, both clean.
+
+**Verified in production.** Sixteen page loads in headless Chromium against the
+live site, eight pages at both viewports: zero console errors, the Mol* viewer
+starting on all four run pages, first paint 172 to 440 ms over the network
+against a 2 s budget. Every served file answers 200, including the lipid bundle
+and both reference overlays. The Examples cards show 46,721 to 48,185 and
+187,848 to 194,032, so 4bq's fix is on a public page. The other four tabs are
+unaffected and the nav shows five.
+
+G5 recorded while the figure was in hand: 1.3 TiB free of 3.6 TiB, so it will
+not open. No gate is now waiting on Marc.

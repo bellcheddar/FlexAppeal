@@ -4739,6 +4739,61 @@ headings, tables, and the author footer are all present and correct, and every
 `target="_blank"` carries `rel="noopener noreferrer"`. The deviation is the
 mechanism rather than the result, and it is D034.
 
+## 4bs. The deploy script's comments ran on my machine
+
+G3 opened and `deploy/deploy.sh` ran for the first time. Section 5.3 and
+section 11 both say this file is written and not executed, so it had been
+written, reviewed, committed and never once run. It got as far as the rsync and
+then printed this:
+
+```
+deploy/deploy.sh: line 60: data/md/: is a directory
+deploy/deploy.sh: line 60: data/refstates.db: Permission denied
+deploy/deploy.sh: line 60: --filter=:- .gitignore: command not found
+bash: line 21: 1848: command not found
+```
+
+**The remote half is a heredoc, and the heredoc was unquoted.** `<<REMOTE`
+rather than `<<'REMOTE'`, because the script interpolates `${DROPLET_PATH}`
+into it. An unquoted heredoc is expanded by the local shell before it is sent,
+and expansion includes backtick command substitution. The block carries about
+forty lines of comment explaining what is excluded and why, written in the same
+style as every other comment in this build, which means every file and function
+it names is in backticks: `` `data/md/` ``, `` `data/refstates.db` ``,
+`` `--filter=':- .gitignore'` ``. Each one was executed on the Mac. None of
+them is a command, so each failed, and bash substituted the empty output into
+the script it then sent to the droplet.
+
+**What that cost.** The rsync had already succeeded, so the 23 MB were on the
+server. What never ran was everything after it: `chown` to the service user,
+`pip install -r requirements.txt`, and `systemctl restart`. The service went on
+serving the code it had loaded in July. `/healthz` answered 200 throughout,
+because the old code is healthy, and the script's own verification step never
+ran to be fooled by that. I checked the thing the deploy was for instead:
+`/refstates/` answered **404**, which is what a Flask app with no such
+blueprint does.
+
+**The fix is to stop interpolating.** The heredoc is `<<'REMOTE'` now and the
+path arrives as an argument, `bash -s -- "$DROPLET_PATH"`, read back as `$1` on
+the first line. Nothing in the remote block is expanded locally any more, so
+the comments are inert whatever they contain, which is the property a block of
+shell written for a reader needs to have.
+
+**What this build should have done.** A script that is written and not run is
+not a script that works, and this one had the full treatment short of running
+it: careful comments, `set -euo pipefail`, idempotent rsync flags, a
+verification step. Section 5.3's "written but not executed" is a safety rule
+about not touching a live service during a build, and it is a good one; it is
+not evidence about the file. `bash -n` would not have caught this either, since
+the heredoc is syntactically fine. What catches it is running it, which is what
+a gate is for.
+
+**And the verification step is still too weak**, in a way the first run
+exposed. `/healthz` is served by the old code as happily as the new, so a
+deploy that lands nothing still passes it. It now checks a route that only this
+deploy could have added, and the deploy is not called deployed until that
+answers 200.
+
 ## 5. Production runs
 
 Tier 2 started at 17:04 on 10 October, in section 5.3's priority order: β2AR

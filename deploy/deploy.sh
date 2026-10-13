@@ -57,8 +57,17 @@ rsync -az --delete --chmod=D755,F644 ${SSH_OPTS[@]+"${SSH_OPTS[@]}"} \
 echo "==> Installing dependencies and restarting on the droplet"
 SSH_CMD=(ssh)
 [[ -n "$SSH_KEY" ]] && SSH_CMD=(ssh -i "${SSH_KEY/#\~/$HOME}")
-"${SSH_CMD[@]}" "$DROPLET_SSH" bash -s <<REMOTE
+# `<<'REMOTE'`, quoted, and the path passed as an argument instead of
+# interpolated. Unquoted, the local shell expands this heredoc before sending
+# it, so every backtick in the comments below was command substitution run on
+# the Mac: the first real run of this script printed `data/md/: is a directory`
+# and `data/refstates.db: Permission denied`, sent a remote script with those
+# substitutions blanked out, and died without installing, chowning or
+# restarting anything. The rsync above had already succeeded, so the deploy
+# looked like it had worked while the service went on running the old code.
+"${SSH_CMD[@]}" "$DROPLET_SSH" bash -s -- "$DROPLET_PATH" <<'REMOTE'
 set -euo pipefail
+DROPLET_PATH="$1"
 cd "${DROPLET_PATH}"
 
 if [[ ! -x .venv/bin/python ]]; then
@@ -115,8 +124,24 @@ sleep 1
 sudo systemctl --no-pager --lines=3 status flexappeal-web.service || true
 REMOTE
 
+# Verified on more than /healthz, because the old code is healthy too. The
+# first real run of this script synced the files and then died before the
+# restart, so the service went on serving a build from July: /healthz answered
+# 200 the whole time while /refstates/ answered 404. A check that passes
+# whether or not the deploy worked is not a check. Each route below is one a
+# different part of this app owns, so a page tree that half loaded says so.
 echo "==> Verifying"
 SERVER_NAME="${SERVER_NAME:-flexappeal.mdeller.com}"
-CODE=$(curl -s -o /dev/null -w '%{http_code}' "https://${SERVER_NAME}/healthz" || echo "000")
-echo "    https://${SERVER_NAME}/healthz -> ${CODE}"
-[[ "${CODE}" == "200" ]] && echo "==> Deployed." || echo "!! Not healthy; check: journalctl -u flexappeal-web -n 50"
+FAILED=0
+for ROUTE in /healthz / /analysis /example /runs /refstates/ /refstates/about; do
+    CODE=$(curl -s -o /dev/null -w '%{http_code}' \
+           "https://${SERVER_NAME}${ROUTE}" || echo "000")
+    printf '    %-22s -> %s\n' "${ROUTE}" "${CODE}"
+    [[ "${CODE}" == "200" ]] || FAILED=1
+done
+if [[ "${FAILED}" == "0" ]]; then
+    echo "==> Deployed."
+else
+    echo "!! Not healthy; check: journalctl -u flexappeal-web -n 50"
+    exit 1
+fi

@@ -1,9 +1,11 @@
-# Gates waiting on Marc
+# Gates
 
-Written per section 0.2's gate protocol. G4 is now open and pushed. G3 is the
-only gate still waiting and it blocks nothing, because **Tier 2 is finished**.
-The queue wrote `queue done` at 04:01 on 13 October with all four rows `ok`:
-200 ns in 43.4 GPU-hours against D009's projection of about 46.
+Written per section 0.2's gate protocol. **No gate is waiting on Marc.** G4 was
+opened and pushed on 10 October and G3 on 13 October, G1 and G2 will not open on
+the measured figures, G5 has 1.3 TiB of headroom, and G6 is closed on both
+membrane rows. **Tier 2 is finished**: the queue wrote `queue done` at 04:01 on
+13 October with all four rows `ok`, 200 ns in 43.4 GPU-hours against D009's
+projection of about 46.
 
 | row | produced | ns/day | wall |
 |---|---|---|---|
@@ -117,55 +119,38 @@ detail, and that is public now. It was deliberate.
 
 ---
 
-## G3 Deploy: waiting, and not urgent
+## G3 Deploy: OPEN, deployed 13 October 15:35
 
-**What it blocks.** rsync to flexappeal.mdeller.com.
+Marc approved the full deploy: the code, `data/refstates.db` and
+`data/analysis`. `bash deploy/deploy.sh` sent 23 MB, installed, restarted the
+service and verified. The explorer is live at
+`flexappeal.mdeller.com/refstates/`.
 
-**What is done.** A fifth tab, three pages and four JSON endpoints, all reading
-one SQLite file. The feature is additive: with no database present the section
-renders empty rather than erroring, so deploying the code before the data is
-safe.
+**Verified in production rather than health-checked**, which the first attempt
+made the case for. Sixteen page loads in headless Chromium against the live
+site, eight pages at both viewports: zero console errors, the Mol* viewer
+actually starting on all four run pages, and first contentful paint 172 to
+440 ms over the network against section 6.3's 2 s budget. Every route and every
+served file answers 200: the three pages, `frames.json`, `map.json`,
+`dssp.json`, the thumbnails, and all six viewer members including the lipid
+bundle and both reference overlays. The other four tabs are unaffected and the
+nav shows five.
 
-**What unblocks it.** Approval to run the existing deploy path, and one thing
-to decide with it: how much data goes across. Two directories are gitignored,
-so they travel by rsync or not at all, and both are measured rather than
-guessed.
+The Examples cards show the atom ranges rather than one row's box, which is
+4bq's fix arriving on a public page: 46,721 to 48,185 for ABL1 and 187,848 to
+194,032 for the receptor.
 
-| What | Size | Without it |
-|---|---|---|
-| `data/refstates.db` | 4.2 MB | the tab is an empty section |
-| `data/analysis` | 16 MB in 27 files | every page works, and no run offers its 3D viewer |
-
-The database is 4 rows, 11 motifs and the two reference ensembles, and every
-page and endpoint reads it. `data/analysis` holds each row's analysis JSON
-beside the viewer bundle the 3D panel loads: a topology, an XTC, the two
-reference overlays and, for the receptor rows, the lipid bundle. The page
-offers the viewer only when both its files are there, so the database on its
-own degrades honestly rather than showing an empty canvas. 20 MB together,
-which is why this is a question about what the site should show rather than
-about bandwidth. The production trajectories, 3.0 GB under `data/md`, stay
-here: nothing the site serves reads them.
-
-There were two questions here and Tier 2 answered the first one. It asked
-whether to ship with the partial ABL1 run or wait, and there is no partial run
-any more: all four rows closed `ok` at 04:01 on 13 October with a full 50 ns
-each. The question is struck rather than left to be read as still open, which
-is how a waiting gate goes stale.
-
-**What happens next either way.** Nothing blocks. The pages are tested locally
-at every route.
-
-**The QC that was outstanding is now done.** Marc approved installing
-Playwright, so section 10's checks ran properly rather than being approximated.
-Eight pages at both viewports with no console errors, eight through axe-core
-with zero serious or critical violations, 25 tests, which were the counts
-that day; two more pages have been added since and the table above is the
-current one. It found eleven real
-problems, one critical, including four contrast failures that all came from the
-same mistake: `opacity` on small text, which makes the rendered colour something
-no token states. All fixed. FINDINGS section 4b has the detail.
-
----
+**The first run of the deploy script failed, and it is worth recording why.**
+The file had been written, reviewed and committed without ever being executed,
+because section 5.3 says written and not run. Its remote half is an unquoted
+heredoc, so the local shell expanded it before sending: every backtick in forty
+lines of explanatory comment was command substitution run on this Mac. The
+rsync had already succeeded, so the files landed and nothing after them did,
+and the service went on serving the July build. `/healthz` answered 200
+throughout. `/refstates/` answered 404, which is the only reason I noticed.
+Fixed with a quoted heredoc and the path passed as an argument, and the
+verification step now checks seven routes across every tab rather than the one
+route that passes whether or not the deploy worked. 4bs.
 
 ## G1 Compute: will not open
 
@@ -208,3 +193,11 @@ still gets written and not executed, as section 5.3 requires.
 
 No credential is required for anything in Tier 2. G2 would only open if Tier 3
 were wanted, and on the figures above it is not.
+
+## G5 Disk: will not open
+
+Recorded for the same reason G1 is: the projection rather than silence. Section
+0.2 opens G5 below 50 GB free on the project volume. Measured on 13 October:
+**1.3 TiB free** of 3.6 TiB. The whole build's working data is 3.0 GB of
+trajectories under `data/md`, 16 MB of analysis and a 4.2 MB database, so G5
+would need something other than this build to open it.
