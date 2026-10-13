@@ -1187,3 +1187,33 @@ section 1.1 with the recalibration shown, and the geometric distance to the
 KLIFS-labelled reference ensembles. Those already separate ABL1's DFG-in and
 DFG-out references 17 of 17, which is what the dihedral label would have been
 asked to corroborate.
+
+## D034: the README is audited against the template, because `readme_forge.py` does not exist
+
+Section 11 asks for the README "to Marc's house standard (via
+`readme_forge.py`)". That file is not in this repository, is not in `tools/`,
+and is nowhere under `~/.claude`. The vibe-coding skill names it as a final
+polish step and ships the thing it would be polishing towards:
+`references/readme_template.md`, which calls itself the authoritative standard.
+
+So the standard was applied by reading it and auditing the README against it,
+clause by clause, rather than by running a tool that is not here. Present and
+correct: the H1 with its emoji, the bold strap line, the badge row ending with
+the author badge, the contact table directly under it, the divider, the
+existing first paragraph followed by one expansion opening "Why it matters:"
+and closing on an "It is useful for:" clause, emoji on the section headings,
+tables where a list would scan worse, the author footer, British English, no em
+dashes, and `rel="noopener noreferrer"` on every `target="_blank"`.
+
+**What the audit found was content rather than frame**, which is the half of
+the README a polish tool was never going to fix: a tab count one short of the
+application, a test badge four builds stale, two sub-counts in the validation
+section that were close enough to look measured, and no roadmap entry for the
+largest feature in the repository. 4br has the detail and the measurements.
+
+**Recorded rather than silently substituted**, because the spec names a tool and
+the build did something else. If `readme_forge.py` turns up it should be run
+over this README and the result compared against what the audit produced: a
+difference is either a fault in the audit or a fault in the tool, and both are
+worth knowing. It is not a candidate upstream change to BoltzMaker; it belongs
+to the vibe-coding skill, whose `SKILL.md` references the script at two places.

@@ -4642,6 +4642,60 @@ one column, and the code quietly resolved it by order of ingest. The fixtures
 could not catch it either, because no test had ever put two runs of one system
 in a database.
 
+## 4br. The README's front page described the application before this build
+
+The gate table was re-measured and corrected, and `FINDINGS.md` and
+`BUILD_LOG.md` are written as the work happens, so neither drifts far. The
+README is the one document a reader meets first and the one nothing in the
+suite reads, and it had three facts on its front page that this build had made
+untrue.
+
+**The tab count.** Its first sentence said "a four-tab web application" and then
+named the four. `base.html` serves five tabs, and the fifth is this entire
+build: `Reference states`, numbered 5 in the nav with its own hint text. A
+reader arriving at the repository for the reference-state work was told in the
+first line that it did not exist, and then found a section about it two thirds
+of the way down. Corrected to five with a sentence for the tab, which also
+points at the section rather than repeating it.
+
+**The test badge said 417.** Measured by collecting the suite: 1,067. The badge
+is the most prominent number on the page and nothing recomputes it, so it reads
+as whatever it was when someone last typed it. 417 is roughly the suite before
+phase 0 of this build.
+
+**Two sub-counts in the validation section**, "a further 30 tests" and "8 more".
+The 8 is right. The 30 is not: `tests/test_openmm_symbols.py` holds 39 items, 8
+of which solvate, so the symbol checks are 31, and 23 of those are the
+parametrised one-symbol-each test the sentence describes. Written as 31 with the
+split stated, because "30" was close enough to look measured and was not.
+
+**The roadmap had no entry for the feature.** Every shipped thing in the To Do
+list has a `[x]` entry describing it: the worked example, the membranes, the
+ligands, the Analysis tab, the option registry. The reference states, the
+largest addition since the worked example, had none, so the list read as though
+development stopped before this build started. Added at the top of the
+completed entries with the measured figures.
+
+**What this build should have done.** Phase 7 lists the README as a deliverable
+and it was written in that phase, which is the problem: it was written once,
+from the state of the application that day, and then four more days of work
+happened to the application. The gate table has been re-measured twice; the
+README front page never was until now. Nothing in the suite can catch this,
+because no test reads prose, and the one check that exists for the kind
+(section 10's rule that no page writes a threshold out in prose) covers the app
+and not the repository's own documentation.
+
+**The named tool does not exist.** Section 11 asks for the README "to Marc's
+house standard (via `readme_forge.py`)". There is no `readme_forge.py` in this
+repository, in `tools/`, or anywhere under `~/.claude`; the vibe-coding skill
+names it as a polish step and ships `references/readme_template.md`, which is
+the actual standard. The README was audited against that template instead:
+H1 with emoji, bold strap line, badge row ending with the author badge, contact
+table, divider, intro with its "Why it matters" expansion, emoji section
+headings, tables, and the author footer are all present and correct, and every
+`target="_blank"` carries `rel="noopener noreferrer"`. The deviation is the
+mechanism rather than the result, and it is D034.
+
 ## 5. Production runs
 
 Tier 2 started at 17:04 on 10 October, in section 5.3's priority order: β2AR

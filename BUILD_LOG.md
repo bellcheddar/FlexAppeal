@@ -2325,3 +2325,25 @@ The `Test suite` row in `GATE_OPEN.md` ended "the count is in the row below",
 and no row below it holds a count: the rows below are axe-core, Playwright and
 first paint. Written while the suite was red and never finished. The measured
 count is in the row itself now, which is where a reader looks for it.
+
+### 13 October, 11:30. The one document nothing in the suite reads
+
+Audited `README.md` against the vibe-coding skill's `readme_template.md`, which
+is section 11's "house standard". The frame is right in every clause: H1 emoji,
+strap line, badge row ending with the author badge, contact table, the "Why it
+matters" expansion, emoji headings, tables, author footer, British English, no
+em dashes, `rel="noopener noreferrer"` on every `target="_blank"`.
+
+The content was four days out of date, and it is the first thing a reader meets.
+Its opening sentence said "four-tab web application" and named four tabs;
+`base.html` has served five since this build added `Reference states`, so the
+repository's front page denied the existence of its own newest feature in line
+one. The test badge said 417 against a collected 1,067. The validation section's
+"a further 30 tests" is 31, with 23 of them the parametrised one-symbol test it
+describes, measured in `tests/test_openmm_symbols.py` rather than recalled. And
+the To Do roadmap, which carries a `[x]` entry for every shipped feature down to
+the option registry, had none for the reference states.
+
+All four corrected, 4br. `readme_forge.py`, which section 11 names for this job,
+does not exist in this repository or anywhere under `~/.claude`: D034 records
+the audit standing in for it, and what it found that a polish pass would not.
