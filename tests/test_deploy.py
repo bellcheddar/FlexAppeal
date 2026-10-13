@@ -309,30 +309,30 @@ def test_the_example_directory_case_matches_what_the_code_expects():
     assert EXAMPLE_DIR.parent.name == "examples"
 
 
-def test_the_deploy_reports_the_explorer_payload_rather_than_claiming_it():
+def test_the_deploy_reports_its_payload_rather_than_claiming_it():
     """The comment said "under 5 MB" and it passed 5 MB during the build.
 
-    `data/analysis/` carries a viewer bundle per row and those grow with the
-    trajectory, so any figure written into a comment is a figure that will be
-    wrong later. There is plenty of room, section 6.3 capping a per-system web
-    bundle at 150 MB, which is exactly why nobody would notice the comment
-    going stale.
+    A results file carries a trajectory and those grow with the run, so any
+    figure written into a comment is a figure that will be wrong later. There
+    is plenty of room, section 6.3 capping a per-system web bundle at 150 MB,
+    which is exactly why nobody would notice the comment going stale.
     """
     script = _read("deploy.sh")
-    assert "du -ch data/refstates.db data/analysis data/systems" in script
-    assert "Explorer data to send" in script
+    assert "du -ch web_runs" in script
+    assert "to send" in script
     # The comment still quotes the old wording, which is the point of it.
     # What must be gone is the claim.
     assert "are under 5 MB" not in script, "the claim should be gone"
 
 
-def test_the_deploy_still_sends_what_the_explorer_reads():
-    """The three paths the app reads must not join the exclude list.
+def test_the_deploy_still_sends_what_the_pages_read():
+    """What the app serves must not join the exclude list.
 
-    `data/refstates.db` is gitignored, so a tidier `--filter=':- .gitignore'`
-    would ship a droplet whose reference-states tab is silently empty: the app
-    treats an absent database as an empty section by design, so the page would
-    come up looking fine.
+    `web_runs/` is gitignored, so a tidier `--filter=':- .gitignore'` would
+    ship a droplet whose Runs tab holds the committed example and nothing else.
+    The reference-state runs are four results files in there, and D035 made
+    them the only thing the pages read: the explorer database is written and
+    kept, and no longer served.
     """
     script = _read("deploy.sh")
     # Code, not comments: the script explains at length why the gitignore
@@ -340,10 +340,26 @@ def test_the_deploy_still_sends_what_the_explorer_reads():
     code = [line for line in script.splitlines()
             if not line.lstrip().startswith("#")]
     joined = " ".join(code)
-    for served in ("data/refstates.db", "data/analysis/", "data/systems/"):
+    for served in ("web_runs/", "examples/"):
         assert f"--exclude '{served}'" not in joined, (
             f"{served} must still be sent")
     assert "--filter=':- .gitignore'" not in joined, (
-        "it would ship a droplet with no explorer database")
+        "it would ship a droplet with an empty run library")
     for excluded in ("data/md/", "data/cache/", "data/refs/"):
         assert f"--exclude '{excluded}'" in joined, f"{excluded} should not be sent"
+
+
+def test_the_deploy_cannot_delete_a_run_somebody_kept():
+    """`web_runs/` has two writers and `--delete` only knew about one.
+
+    The four reference-state runs are packed here and travel with the code;
+    anything a visitor keeps from the Analysis tab is written there by the
+    server. Without a protect filter the next deploy would remove the second
+    kind, and both sides were empty until the day the four arrived, so nothing
+    would have noticed.
+    """
+    script = _read("deploy.sh")
+    code = " ".join(line for line in script.splitlines()
+                    if not line.lstrip().startswith("#"))
+    assert "--delete" in code, "the sync is still meant to prune the tree"
+    assert "--filter='protect web_runs/**'" in code

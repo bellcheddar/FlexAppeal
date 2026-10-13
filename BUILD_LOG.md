@@ -2438,3 +2438,58 @@ unaffected and the nav shows five.
 
 G5 recorded while the figure was in hand: 1.3 TiB free of 3.6 TiB, so it will
 not open. No gate is now waiting on Marc.
+
+### 13 October, 13:10. The fifth tab is gone and its runs are rows in the library
+
+Marc asked for the whole shape to change: remove the Reference states tab, put
+the four runs on the Runs tab with the lysozyme-benzene example's panels and
+layouts, append the reference-state panels at the end in the same style, and fix
+the viewers, which were jerky and playing in slow motion. D035 records the
+override of section 6.2 and why the new shape is the better one.
+
+**The runs became results files, built by the bundle's own analysis script.**
+`tools/pack_run_fxa.py` assembles a configuration describing how each row was
+actually run, renders a real self-extracting bundle from it, unpacks it, puts
+the row's finished output where `analyse.py` looks, and runs it. So the nine
+standard panels, the tiles, the convergence multiples and the viewer are not
+styled to match the committed example: they are the output of the same script
+over these trajectories. Four files, 9.8 to 13.4 MB each.
+
+Three things that had to be put right on the way, each logged where it belongs:
+the DCD's time axis says one picosecond per frame where the frames are 100 ps
+apart, so the first file packed reported a 0.5 ns run; the ligand rows need the
+bundle's vendored `fxalib`, which isolated mode hides from the script; and the
+topology the standard pass writes is renumbered from 1 while the motifs are in
+the construct's own numbering, so the first attempt at colouring the cartoon
+painted 92 atoms of 4,255 instead of 845.
+
+**The reference-state measurements ride in the same file** as one extra member
+and become nine or ten panels at the end of the page, built by
+`flexappeal/refstates/panels.py` in `plots.py`'s house style: the state score,
+the motif timelines, the motif table with both half means, the published
+criteria, the ligand facts the standard panels do not carry, the DSSP ribbon
+with its motif lanes and reference consensus, the state map, the bilayer QC, the
+superposition core and the reference structures. The viewer keeps all three of
+its reference-state controls, which `analysis.js` has always driven from markup.
+
+**The viewer faults were two, multiplying, and a third behind them.** 4bt: a
+comment that miscounted by ten gave the bundles 50 frames instead of 500, and
+playback paced a fixed 50 second pass over however many frames it had, so those
+50 frames played at one a second. Measured in Chromium afterwards, the slider
+now advances 26.5 frames a second on a page carrying 31 panels.
+
+**The suite followed the work.** 4bu: 50 tests of the removed pages deleted, 40
+written against the panel builders, and the general ones kept where they were.
+Four of them immediately found faults in the new code: a state map with no
+trajectory path on it, both reference clusters drawn in the same grey, axis
+labels in ASCII where the rest of the page uses the symbol, and a viewer toggle
+whose class had no rule in the stylesheet.
+
+One of those four is worth its own line. The axis-label guard did not fail, it
+**skipped**: it iterated over an endpoint that no longer answers, found nothing
+to check and said so quietly. Three tests were skipping for that kind of reason
+by the end of the move, and each was a check that had stopped working at the
+moment its subject changed. They are a unit test, a deletion and a refreshed
+artefact now, and the suite skips nothing it can run.
+
+**1,046 passed, nothing skipped**, in 3 min 13 s.

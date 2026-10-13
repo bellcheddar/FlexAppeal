@@ -865,16 +865,22 @@ def _example_built():
 
 
 def test_every_tab_is_in_the_navigation(client):
-    """Five now: prepare, analyse, the example, the runs library, reference states.
+    """Four: prepare, analyse, the example and the runs library.
 
     Counted rather than listed, because a tab added without a number is a tab
     that looks like part of the previous one.
+
+    Five for three days. The fifth was Reference states, and the four runs it
+    served are rows in the Runs library now, with their own measurements as
+    panels at the end of their pages. D035.
     """
     html = client.get("/").get_data(as_text=True)
-    assert html.count("md-tab-num") == 5
+    assert html.count("md-tab-num") == 4
     # Prepare is the site root, not /prepare.
-    for path in ("/", "/analysis", "/example", "/runs", "/refstates/"):
+    for path in ("/", "/analysis", "/example", "/runs"):
         assert f'href="{path}"' in html, path
+    assert "/refstates" not in html, (
+        "the fifth tab is gone and nothing should still link to it")
 
 
 def test_the_example_page_answers_either_way(client):
@@ -1056,12 +1062,19 @@ def test_the_example_survives_its_session_being_swept(client, app):
     assert client.get("/example").status_code == 200, "did not recover from a sweep"
 
 
-def test_the_viewer_autoplays_the_trajectory_for_fifty_seconds():
-    """The structure panel starts playing on load, one pass in 50 s.
+def test_the_viewer_plays_at_a_frame_rate_rather_than_a_fixed_pass():
+    """The structure panel starts playing on load, at 25 frames a second.
 
-    Mol*'s parameter is durationInS and it clamps to 1-120, so this is seconds
-    rather than milliseconds -- passing 50000 would silently clamp to 120 and
-    the loop would take two minutes.
+    It was a flat fifty seconds however many frames the file held, which
+    divides out to the interval between frames: 100 ms for the 500-frame
+    example and 1,000 ms for the 50-frame bundles the reference-state viewer
+    carried. One frame a second is not slow playback, it is a slideshow, and it
+    was reported as jerky and in slow motion because that is what it was. 4bt.
+
+    So the rate is the constant and the pass follows from it, clamped at both
+    ends: a short file would otherwise be over in two seconds and a very long
+    one would take minutes. Mol*'s parameter is durationInS and it clamps to
+    1-120, so the clamp here has to sit inside that.
 
     The animation is looked up by name rather than imported: the viewer bundle
     does not export AnimateModelIndex on the global, and a version that renames
@@ -1071,10 +1084,25 @@ def test_the_viewer_autoplays_the_trajectory_for_fifty_seconds():
     from flexappeal.webapp import PACKAGE_ROOT
 
     js = (PACKAGE_ROOT / "static" / "analysis.js").read_text()
-    assert "PLAYBACK_SECONDS = 50" in js
+    assert "PLAYBACK_FPS = 25" in js
+    assert "PLAYBACK_MIN_SECONDS = 8" in js
+    assert "PLAYBACK_MAX_SECONDS = 40" in js, (
+        "Mol* clamps durationInS to 1-120, so the pass has to stay inside it")
+    assert "PLAYBACK_SECONDS" not in js, "the fixed pass is gone"
     assert "built-in.animate-model-index" in js
-    assert "durationInS: PLAYBACK_SECONDS" in js, "the duration must be in seconds"
+    assert "durationInS: playbackSeconds(frames)" in js, (
+        "the duration must be in seconds and derived from the frame count")
     assert "durationInMs" not in js, "durationInMs is the wrong parameter and clamps"
+
+    # A frame clock rather than a timer: setInterval fires on its own schedule
+    # while the browser composites on its own, keeps firing in a backgrounded
+    # tab and then delivers a burst, and cannot express a fractional interval
+    # at all.
+    assert "requestAnimationFrame(function tick" in js
+    # The call, not the word: the comment above the frame clock names
+    # setInterval three times explaining why it is not used, and a test that
+    # cannot tell a call from the prose about it would forbid the explanation.
+    assert "setInterval(" not in js, "playback must not be driven by a timer"
 
     body = js[js.index("function autoplay"):]
     body = body[: body.index("\n  function ")]

@@ -1217,3 +1217,46 @@ over this README and the result compared against what the audit produced: a
 difference is either a fault in the audit or a fault in the tool, and both are
 worth knowing. It is not a candidate upstream change to BoltzMaker; it belongs
 to the vibe-coding skill, whose `SKILL.md` references the script at two places.
+
+## D035: the reference-state tab is removed and its runs join the Runs library
+
+The user asked for it on 13 October, in these terms: remove the Reference states
+tab, add the four runs to the Runs tab, use the same panel designs and layouts as
+the lysozyme-benzene example, put the reference-state panels at the end, restyle
+them to match, and fix the viewers, which were jerky and playing in slow motion.
+
+Section 6.2 of the spec asks for the tab, so this overrides the spec, and the
+spec is authoritative except where the user overrules it. Recorded here with the
+reasoning, because a later reader will find section 6.2 describing five pages
+that do not exist.
+
+**It is a better shape, and the spec's own words say why.** Section 6.2 asked for
+an Examples tab "rendered through the same path" as an upload. It was not: the
+explorer had its own templates, its own four JSON endpoints, its own SQLite
+schema and its own charts built in the browser, none of which the Analysis tab
+shares. Two code paths rendering two sets of panels for the same kind of object
+is what section 0's own "one builder, three callers" rule exists to prevent, and
+the reference-state pages were the exception to it.
+
+**What moved.** Each row is now a `.fxa` results file in `web_runs/`, packed by
+`tools/pack_run_fxa.py`, which builds a real bundle from a configuration
+describing how the row was actually run and then executes that bundle's own
+`analyse.py` over the trajectory. So the nine standard panels, the tiles, the
+convergence multiples and the viewer are not "the same as" the committed
+example's: they are the output of the same script. The reference-state
+measurements ride in the same file as one extra member and become nine or ten
+more panels at the end of the page, built by `flexappeal/refstates/panels.py` in
+`plots.py`'s house style.
+
+**What went.** The Examples cards, the per-system reference browser, the About
+page, the four JSON endpoints, `flexappeal/refstates/web.py` and four templates.
+The reference browser folded into a panel covering the run's own system; the
+About page's content was already in `FINDINGS.md`, the README and the panel
+blurbs. 50 tests of those pages were deleted and 40 written against the panels,
+which is 4bu.
+
+**What did not change.** `flexappeal/refstates/` is still the analysis library:
+the CLI, `annotate`, `controls`, the store and every measurement are untouched,
+and `report --verify` still agrees with every stored number. The explorer
+database is still written by the ingest and is still what the controls read; it
+is no longer what a page reads.

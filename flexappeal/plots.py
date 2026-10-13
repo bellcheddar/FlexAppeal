@@ -1387,3 +1387,24 @@ def build_binding(measured) -> list[dict[str, Any]]:
         "igb=2, single trajectory, no entropy term: good for ranking ligands "
         "against each other, not an affinity.")
     return panels
+
+
+# ===========================================================================
+#  The house style, for a sibling module that builds a panel
+# ===========================================================================
+#
+# `flexappeal/refstates/panels.py` builds the reference-state panels that sit at
+# the end of a run page. They have to look like every panel above them: the same
+# recessive axes, the same unified hover, the same ink, the same decimation
+# limits. These aliases are how it gets them.
+#
+# Public names for things this module has always had, rather than a second copy
+# of the layout over there. A panel built from a different `_layout` is a panel
+# that drifts the first time this one is touched, which is the thing section 6.1
+# exists to prevent.
+layout = _layout
+line = _line
+figure = _figure
+finite = _finite
+wire_stride = _wire_stride
+dssp_states = _DSSP_STATES

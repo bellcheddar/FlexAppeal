@@ -1,0 +1,88 @@
+{#
+  The reference-state panels, at the end of a run page.
+
+  One include for both pages that can show them, for the reason `_results_context`
+  is one function: the Analysis tab and a run in the library showed the same
+  measurements from two copies of the markup once before and the copies drifted
+  within a release.
+
+  `prose` is the difference between the two pages and it is the only one. The
+  Example and Analysis tabs print each description above its panel because they
+  are teaching the product; a run in the library tucks it into a closed
+  `<details>` because a reader there already knows and wants the chart. Same
+  blurb either way, from the panel itself, so there is never a second
+  description to keep in step.
+
+  A cell may carry a colour. It is always beside its own text and never instead
+  of it: section 6.1's state and motif colours are decoration on a label a
+  reader can also read, which is the rule the contrast failures in 4b came from
+  breaking.
+#}
+{% macro refstates_section(panels, prose=false) %}
+  {% if panels %}
+    <section class="md-card md-section-head">
+      <h2>Reference states</h2>
+      <p class="md-panel-blurb">
+        The same trajectory measured against the experimental structures of this
+        same protein in both of its known states, motif by motif, rather than
+        against itself. Every threshold below is either published and cited or
+        refitted and reported as refitted, and every reference structure was
+        resolved from KLIFS or GPCRdb at run time.
+      </p>
+    </section>
+    {% for panel in panels %}
+      <section class="md-card md-panel {% if panel.wide %}is-wide{% endif %}">
+        <h3>{{ panel.title }}</h3>
+        {% if prose and panel.blurb %}
+          <p class="md-panel-blurb">{{ panel.blurb }}</p>
+        {% endif %}
+        {% if panel.kind == 'table' %}
+          <div class="md-table-scroll">
+            <table class="md-table">
+              <thead>
+                <tr>
+                  {% for column in panel.table.columns %}
+                    <th scope="col">{{ column }}</th>
+                  {% endfor %}
+                </tr>
+              </thead>
+              <tbody>
+                {% for row in panel.table.rows %}
+                  <tr>
+                    {% for cell in row.cells %}
+                      {% if loop.first %}
+                        <th scope="row">
+                          {% if cell.colour %}<i class="md-swatch"
+                            style="background: {{ cell.colour }}" aria-hidden="true"></i>{% endif %}
+                          {{ cell.text }}
+                        </th>
+                      {% else %}
+                        <td>
+                          {% if cell.colour %}<i class="md-swatch"
+                            style="background: {{ cell.colour }}" aria-hidden="true"></i>{% endif %}
+                          {{ cell.text }}
+                        </td>
+                      {% endif %}
+                    {% endfor %}
+                  </tr>
+                {% endfor %}
+              </tbody>
+            </table>
+          </div>
+          {% if panel.table.note %}
+            <p class="md-note">{{ panel.table.note }}</p>
+          {% endif %}
+        {% else %}
+          <div class="md-plot" id="plot-{{ panel.id }}"
+               data-figure='{{ panel.figure | tojson }}'></div>
+        {% endif %}
+        {% if not prose and panel.blurb %}
+          <details class="md-panel-more">
+            <summary>What this shows</summary>
+            <p>{{ panel.blurb }}</p>
+          </details>
+        {% endif %}
+      </section>
+    {% endfor %}
+  {% endif %}
+{% endmacro %}

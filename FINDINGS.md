@@ -4794,6 +4794,121 @@ deploy that lands nothing still passes it. It now checks a route that only this
 deploy could have added, and the deploy is not called deployed until that
 answers 200.
 
+## 4bt. The viewer was jerky because a comment miscounted by ten
+
+Reported by the user as "jerky and showing slow motion loads", which is two
+faults multiplying, and the second one explains why nobody had noticed the
+first.
+
+**The bundles held fifty frames.** `tools/analyse_run.py` writes the viewer's
+coordinates at `VIEWER_STRIDE_NS`, and the comment above that constant read:
+
+> Section 6.3: coordinates for the web at a 1 ns stride, full resolution kept
+> in data/md. A 50 ns run is then 500 frames of protein and ligand only, which
+> is a few megabytes rather than the gigabyte the solvated DCD is.
+
+A 1 ns stride over a 50 ns run is fifty frames. The sentence justifying the
+number was out by a factor of ten, the number was chosen to satisfy the
+sentence, and nothing downstream recomputed it: the budget it was protecting is
+section 6.3's 150 MB web bundle, and at every frame the kinase bundle is 8 MB.
+Fifty frames over 50 ns is a frame per nanosecond, which is a jerky viewer by
+construction.
+
+**The playback then paced itself over however many frames it had.**
+`analysis.js` held `PLAYBACK_SECONDS = 50` and divided it by the frame count:
+
+```js
+const every = Math.max(40, Math.round((PLAYBACK_SECONDS * 1000) / frames));
+```
+
+500 frames gives 100 ms, which is the 10 fps the committed example plays at.
+Fifty frames gives **1,000 ms**. One frame per second is not slow playback, it
+is a slideshow, and that is exactly what "slow motion" describes.
+
+**The two together are why it looked wrong in a way neither alone would.** A
+fifty-frame trajectory played at 25 fps is over in two seconds and reads as
+fast and coarse. Fifty frames at one a second reads as a broken animation. The
+same constant that made the trajectory coarse also made it slow, so the fault
+presented as one thing.
+
+**The third cause, found while fixing the second.** The frame step also redrew
+the cursor on every time panel, every frame:
+
+```js
+timePlots().forEach(function (node) { ... Plotly.relayout(node, {shapes: shapes}); });
+```
+
+Ten time panels at 25 fps is 250 relayouts a second on the main thread, which
+is the thread the compositor needs. It was survivable at 10 fps on the example's
+six panels and would not have been at the new rate on these pages' ten.
+
+**All three fixed.** The stride is the trajectory's own frame interval, so the
+viewer gets every frame that was written. Playback is a frame rate with the
+pass clamped between eight and forty seconds, rather than a fixed pass with the
+rate falling out of it. The step runs on `requestAnimationFrame` with a time
+accumulator rather than `setInterval`, which also stops it queueing work in a
+backgrounded tab. The cursor is coalesced to eight updates a second and skips
+panels that are off screen.
+
+Measured in Chromium against the real files afterwards: the slider advances 53
+frames in two seconds, which is 26.5 a second, on a page carrying 31 panels.
+
+**What this build should have done.** The comment was the specification for the
+constant and it was wrong, so the constant was right by its own lights and
+wrong by arithmetic. Nothing checks a comment. What would have caught it is the
+thing that eventually did: opening the page and watching it.
+
+## 4bu. Fifty tests of four pages that no longer exist
+
+The reference-state tab had 49 tests of its own and the move onto the Runs tab
+broke all of them at once, which is the moment where a suite either follows the
+work or is quietly thinned.
+
+**Six were kept where they were**, because their claim was never about the
+pages: the store clearing an atom count its rows disagree about, the threshold
+having one definition, the tools' imports all resolving, every class a template
+uses being defined in the stylesheet.
+
+That last one earned its place immediately. The new viewer toggles went in with
+a `md-viewer-toggles` class and no rule to go with it, and the test said so
+before the markup reached a browser.
+
+**Forty were rewritten** against `flexappeal/refstates/panels.py` in
+`tests/test_refstate_panels.py`. Every claim that still holds is still asserted,
+in several cases more directly than before: the threshold test now patches
+`DECISIVE_S` and checks that the band, the annotation and both blurbs move with
+it, where it used to scan the source for a literal.
+
+**Fifty were deleted**, and they fall into three groups. Tests of the
+Examples cards, the index listing and the About page, none of which exists.
+Tests of the four JSON endpoints, which no page fetches. And tests of the four
+templates' markup, whose panels are now figures built on the server and
+asserted on as data rather than as HTML.
+
+**Four faults the rewritten tests found in the new code**, which is the argument
+for porting them rather than starting clean:
+
+* the state map drew a reference cloud with no trajectory across it. A frame's
+  measurements are nested (`dfg_plane.d_alphac_a`) and the reference manifest's
+  are flat (`dfg_d_alphac`), and the first version read the flat keys out of a
+  frame. The panel looked complete, which is the kind of wrong a page test
+  cannot see.
+* both reference clusters came out the same grey. KLIFS says "in" and "out" of
+  the DFG motif, GPCRdb says "active" and "inactive", and only the second pair
+  are token names in section 6.1, so `--state-in` resolved to nothing and both
+  clusters fell back to the muted ink. On the one panel whose entire point is
+  that the two clusters separate.
+* the state map's axis labels were written `(angstrom)` with `alphaC` and
+  `Calpha` spelled out, while every other label on the page uses the symbol and
+  the Greek letters. There was a guard for exactly this, written when the same
+  thing happened to the page this replaces, and it had gone quiet rather than
+  red: it iterated over an endpoint that no longer answers, so it skipped. A
+  check that skips when its subject moves is a check that stops working at the
+  moment it is most needed, and this one is now a unit test on the figure.
+* `md-viewer-toggles` was used in the new markup and defined in no stylesheet.
+  The toggles rendered unstyled and the page looked close enough to right that
+  a screenshot would not have shown it.
+
 ## 5. Production runs
 
 Tier 2 started at 17:04 on 10 October, in section 5.3's priority order: β2AR

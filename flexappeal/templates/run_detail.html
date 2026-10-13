@@ -14,6 +14,8 @@
   in step.
 #}
 
+{% from "_refstates_panels.html" import refstates_section %}
+
 {% block content %}
 {% include "_banner.html" %}
 
@@ -54,6 +56,10 @@
            data-structure="{{ url_for('analysis.structure_file', token=token) }}"
            data-trajectory="{{ url_for('analysis.trajectory_file', token=token) }}"
            data-frames="{{ summary.frames_packed or 0 }}"
+           {# Whether the B-factor column carries a motif number. A results
+              file packed without one keeps the default theme rather than being
+              painted from a column of zeroes. #}
+           data-motif-painted="{{ "1" if refstates_viewer and refstates_viewer.motif_painted else "0" }}"
            data-duration="{{ summary.duration_ns or 0 }}"></div>
       {% if binding and binding.depiction %}
         <figure class="md-depiction">
@@ -75,6 +81,44 @@
         </figure>
       {% endif %}
     </div>
+    {# The viewer's reference-state controls, for a run that carries the
+       analysis they need. `analysis.js` has driven all three of these from
+       markup since before this page showed them, so there is no viewer code
+       here, only the facts each control is made of. #}
+    {% if refstates_viewer and refstates_viewer.overlay %}
+      {# One toggle per state rather than one for both, because the question a
+         reader has is usually about one of them. Each names its structure and
+         how far this run sits from it, so a ghost is labelled rather than being
+         an anonymous second protein. #}
+      <div class="md-checkgroup md-viewer-toggles">
+        {% for state, ref in refstates_viewer.overlay | dictsort %}
+          <label class="md-check">
+            <input type="checkbox" class="overlay-toggle"
+                   id="overlay-toggle-{{ state }}"
+                   data-state="{{ state }}"
+                   data-structure="{{ url_for('analysis.viewer_member', token=token, member=ref.member) }}">
+            <span>Ghost the nearest {{ state }}
+              {% if ref.code %}<em>{{ ref.code }}{% if ref.mean_motif_rmsd_a is not none %},
+                {{ "%.1f"|format(ref.mean_motif_rmsd_a) }} &#8491; mean over the motifs{% endif %}</em>{% endif %}
+            </span>
+          </label>
+        {% endfor %}
+      </div>
+    {% endif %}
+    {% if refstates_viewer and refstates_viewer.lipids %}
+      {# Off by default: the receptor is what the page is about, and 476
+         spheres around it is a lot to meet first. #}
+      <div class="md-checkgroup md-viewer-toggles">
+        <label class="md-check">
+          <input type="checkbox" id="lipid-toggle"
+                 data-structure="{{ url_for('analysis.viewer_member', token=token, member=refstates_viewer.lipids.topology) }}"
+                 data-trajectory="{{ url_for('analysis.viewer_member', token=token, member=refstates_viewer.lipids.trajectory) }}">
+          <span>Show the bilayer
+            {% if refstates_viewer.lipids.n_atoms %}<em>{{ refstates_viewer.lipids.n_atoms }} lipid phosphorus atoms</em>{% endif %}
+          </span>
+        </label>
+      </div>
+    {% endif %}
     {% if (summary.frames_packed or 0) > 1 %}
       <div class="md-scrubber">
         <label for="scrub">Trajectory</label>
@@ -118,7 +162,7 @@
 {% for panel in panels %}{{ panel_card(panel) }}{% endfor %}
 
 {% if convergence %}
-  <section class="md-card md-panel is-wide">
+  <section class="md-card md-panel is-wide" id="convergence">
     <h3>Convergence</h3>
     <div class="md-multiples">
       {% for c in convergence %}
@@ -136,6 +180,10 @@
     </details>
   </section>
 {% endif %}
+
+{# Last, because they are the question this run was set up to answer and they
+   only make sense once a reader has seen that the run itself is sound. #}
+{{ refstates_section(refstates) }}
 {% endblock %}
 
 {% block scripts %}

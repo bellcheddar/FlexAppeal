@@ -26,9 +26,8 @@ SSH_OPTS=()
 # Measured, not claimed. These three are what the explorer reads, and a deploy
 # that is suddenly much bigger than the last one is worth seeing before it runs
 # rather than wondering about afterwards.
-SERVED=$(du -ch data/refstates.db data/analysis data/systems 2>/dev/null \
-         | tail -1 | cut -f1)
-echo "==> Explorer data to send: ${SERVED:-none found}"
+SERVED=$(du -ch web_runs data/refstates.db 2>/dev/null | tail -1 | cut -f1)
+echo "==> Run library and explorer data to send: ${SERVED:-none found}"
 
 echo "==> Syncing to ${DROPLET_SSH}:${DROPLET_PATH}"
 # The vendored JavaScript is ~10 MB and rsync will only send it once, but it is
@@ -45,7 +44,15 @@ echo "==> Syncing to ${DROPLET_SSH}:${DROPLET_PATH}"
 # owned by the syncing user, and the service user then cannot traverse its own
 # directory: the first symptom is pip "Permission denied" two lines later, which
 # names neither the directory nor the mode.
-rsync -az --delete --chmod=D755,F644 ${SSH_OPTS[@]+"${SSH_OPTS[@]}"} \
+# `protect web_runs/**`, because that directory has two writers. The four
+# reference-state runs are packed here and travel with the code, and anything a
+# visitor keeps from the Analysis tab is written there by the server. With a
+# bare --delete the next deploy would silently remove every run a user had kept,
+# and the directory was empty on both sides until now, so nothing would have
+# noticed. Protect stops the receiver deleting what the sender does not have; it
+# does not stop the sender replacing a file it does have.
+rsync -az --delete --filter='protect web_runs/**' --chmod=D755,F644 \
+    ${SSH_OPTS[@]+"${SSH_OPTS[@]}"} \
     --exclude '.venv/' --exclude '.venv-dev/' --exclude '.pixi/' \
     --exclude '__pycache__/' --exclude '*.pyc' --exclude '.git/' \
     --exclude '.env' --exclude 'web_scratch/' --exclude '.pytest_cache/' \

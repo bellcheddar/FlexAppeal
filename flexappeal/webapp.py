@@ -37,6 +37,7 @@ from flask import (
 from . import options as opts
 from . import analysis, bundle, fxa, measure, plots, schema, sources, structure
 from .options import FLEXAPPEAL_VERSION
+from .refstates import panels as refstates_panels
 
 # MUST stay in sync with `client_max_body_size` in deploy/nginx-flexappeal.conf.
 # The two limits protect different things -- nginx rejects the body before it
@@ -610,6 +611,17 @@ def _results_context(results, content: bytes, token: str) -> dict[str, Any]:
         "has_viewer": bool(results.topology_pdb),
         "warnings": results.warnings,
         "reanalysis_metrics": analysis.METRICS,
+        # The reference-state panels, for a results file that carries the
+        # analysis they are built from. Empty for every other run, so a page
+        # that has nothing extra to show simply does not show a section. In
+        # here rather than in the two routes for the reason the docstring
+        # above gives: three callers, one builder.
+        "refstates": refstates_panels.from_results(results),
+        # What the viewer's own extra controls are built from: the motif
+        # colouring, one ghost per reference state, and the bilayer. Empty for
+        # every run that carries no reference-state analysis, which is how the
+        # viewer card stays one piece of markup for all of them.
+        "refstates_viewer": refstates_panels.viewer_controls(results),
     }
 
 
@@ -861,6 +873,39 @@ def trajectory_file(token: str):
                      download_name="traj.xtc")
 
 
+# The only other members the viewer may fetch, and the type each is served as.
+# A fixed allowlist rather than a pattern, which is the discipline the page this
+# replaced used and for the same reason: the route takes a name from a URL, and
+# a pattern is how the protection gets lost later. Nothing here can name
+# `refstates.json`, the manifest, or the metrics.
+VIEWER_MEMBERS = {
+    "refstates_active.pdb": "chemical/x-pdb",
+    "refstates_inactive.pdb": "chemical/x-pdb",
+    "lipids.pdb": "chemical/x-pdb",
+    "lipids.xtc": "application/octet-stream",
+}
+
+
+@analysis_bp.route("/analysis/<token>/member/<member>", methods=["GET"])
+def viewer_member(token: str, member: str):
+    """A reference overlay or the bilayer, for the viewer's own toggles.
+
+    These ride inside the results file rather than beside it, so a run in the
+    library is one file and a deploy is that file. The overlay was checked
+    against the analysis when it was built, to 0.005 angstrom, and withheld
+    where the two disagreed, so a ghost that is here is one the measurements
+    endorse.
+    """
+    if member not in VIEWER_MEMBERS:
+        abort(404)
+    results = _load_results(token)
+    payload = (results.members or {}).get(member)
+    if not payload:
+        abort(404)
+    return send_file(io.BytesIO(payload), mimetype=VIEWER_MEMBERS[member],
+                     download_name=member)
+
+
 # ===========================================================================
 #  Factory
 # ===========================================================================
@@ -915,12 +960,13 @@ def create_app() -> Flask:
     app.register_blueprint(prepare_bp)
     app.register_blueprint(api_bp)
     app.register_blueprint(analysis_bp)
-    # Additive and self-contained: it reads one SQLite file written during the
-    # reference-states build and renders an empty section when that file is not
-    # present, so the app runs unchanged on a deployment that has no database.
-    from flexappeal.refstates.web import refstates_bp
-
-    app.register_blueprint(refstates_bp)
+    # There was a fifth blueprint here, `refstates`, serving a tab of its own:
+    # an Examples card, a trajectory explorer, a reference browser and a method
+    # page, all reading one SQLite file. The four runs it existed for are rows
+    # in the Runs library now, with their reference-state measurements as panels
+    # at the end of their own pages, so the tab, the blueprint, its four
+    # templates and its four JSON endpoints are gone and the analysis library
+    # they all read stays. D035.
 
     @app.after_request
     def _no_html_caching(response):

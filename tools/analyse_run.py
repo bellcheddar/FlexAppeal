@@ -439,10 +439,23 @@ def gpcr_setup(start_pdb: Path, protein: str = "adrb2_human",
              "core_for": core_for})
 
 
-# Section 6.3: coordinates for the web at a 1 ns stride, full resolution kept
-# in data/md. A 50 ns run is then 500 frames of protein and ligand only, which
-# is a few megabytes rather than the gigabyte the solvated DCD is.
-VIEWER_STRIDE_NS = 1.0
+# Section 6.3: coordinates for the web, full resolution kept in data/md. The
+# stride is the trajectory's own frame interval, so the viewer gets every frame
+# that was written.
+#
+# It was 1.0 ns, and the comment above it said "a 50 ns run is then 500 frames".
+# A 1 ns stride over 50 ns is fifty frames, not five hundred: the sentence
+# justifying the number was out by a factor of ten, and nothing downstream
+# recomputed it. Fifty frames is a frame per nanosecond, which is a jerky
+# viewer by construction, and with playback pacing a fixed-length pass over
+# however many frames it had, it also ran at one frame per second. Reported as
+# "jerky and showing slow motion", which is exactly what those two faults
+# multiply out to. 4bt.
+#
+# At 0.1 ns the kinase bundle is about 8 MB and the receptor 10 MB against
+# section 6.3's 150 MB ceiling, so the budget the old number was protecting was
+# never at risk.
+VIEWER_STRIDE_NS = 0.1
 
 
 def ca_from_frame(frame):

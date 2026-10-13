@@ -331,49 +331,6 @@ def test_summarise_reports_the_final_tenth(tmp_path: Path):
 # ===========================================================================
 
 
-def test_the_pages_render_without_a_database(tmp_path: Path):
-    """The feature is additive: a deployment without the file must not 500."""
-    from flexappeal.webapp import create_app
-
-    app = create_app()
-    app.config["REFSTATES_DB"] = str(tmp_path / "absent.db")
-    client = app.test_client()
-    assert client.get("/refstates/").status_code == 200
-    assert client.get("/refstates/run/nothing").status_code == 404
-
-
-def test_the_finding_is_generated_from_the_data(tmp_path: Path):
-    from flexappeal.webapp import create_app
-
-    path = tmp_path / "t.db"
-    store.ingest_analysis(path, _analysis_payload(), system_id="s", run_id="r",
-                          family="kinase", environment="water")
-    app = create_app()
-    app.config["REFSTATES_DB"] = str(path)
-    with app.test_request_context():
-        from flexappeal.refstates.web import finding
-
-        text = finding("r")
-    assert "xDFG" in text
-    assert "towards active" in text
-
-
-def test_the_run_page_shows_every_motif(tmp_path: Path):
-    from flexappeal.webapp import create_app
-
-    path = tmp_path / "t.db"
-    store.ingest_analysis(path, _analysis_payload(), system_id="s", run_id="r",
-                          family="kinase", environment="water")
-    app = create_app()
-    app.config["REFSTATES_DB"] = str(path)
-    client = app.test_client()
-    page = client.get("/refstates/run/r").get_data(as_text=True)
-    assert "xDFG" in page and "hinge" in page
-    series = client.get("/refstates/run/r/frames.json").get_json()
-    assert set(series["motifs"]) == {"s:xDFG", "s:hinge"}
-    assert series["motifs"]["s:xDFG"]["s"] == [0.6, 0.8]
-
-
 # ===========================================================================
 #  The reuse hook
 # ===========================================================================
@@ -412,102 +369,6 @@ def test_the_subcommand_is_reachable():
     assert result.returncode == 0, result.stderr[-400:]
     assert "--trajectory" in result.stdout
     assert "--family" in result.stdout
-
-
-def test_the_dssp_ribbon_is_decimated_and_keeps_its_gaps(tmp_path: Path):
-    """An undecimated per-frame heatmap is what made one page 24 MB before.
-
-    The gap check matters as much: an unassigned residue has to arrive as null
-    so the ribbon leaves it blank, rather than as coil, which would read as a
-    measurement that was never taken.
-    """
-    import json as _json
-
-    from flexappeal.refstates.web import MAX_RIBBON_COLUMNS
-    from flexappeal.webapp import create_app
-
-    analysis = tmp_path / "analysis"
-    analysis.mkdir()
-    frames = ["HHH-E"] * (MAX_RIBBON_COLUMNS * 3)
-    (analysis / "r.json").write_text(_json.dumps({
-        "dssp": {"n_frames": len(frames), "residues": [10, 11, 12, 13, 14],
-                 "frames": frames, "motifs": {}}}))
-
-    app = create_app()
-    client = app.test_client()
-    with app.app_context():
-        import flexappeal.refstates.web as web
-
-        original = web.analysis_file
-        web.analysis_file = lambda run_id: analysis / f"{run_id}.json"
-        try:
-            payload = client.get("/refstates/run/r/dssp.json").get_json()
-        finally:
-            web.analysis_file = original
-
-    assert len(payload["frames"]) <= MAX_RIBBON_COLUMNS
-    assert payload["n_frames_total"] == len(frames)
-    assert payload["stride"] >= 3
-    # The unassigned residue survives as the blank marker, not as coil.
-    assert payload["frames"][0][3] == "-"
-
-
-def test_the_viewer_route_serves_only_its_two_suffixes(tmp_path: Path):
-    """The route must not be talked into returning anything else in there.
-
-    The analysis directory also holds each run's JSON, and a route that served
-    by filename would hand it over. Served by suffix from a fixed allowlist
-    instead, with the run id checked against the app's own pattern.
-    """
-    from flexappeal.webapp import create_app
-
-    analysis = tmp_path / "analysis"
-    analysis.mkdir()
-    (analysis / "r.pdb").write_text("ATOM\nEND\n")
-    (analysis / "r.xtc").write_bytes(b"\x00\x01")
-    (analysis / "r.json").write_text('{"secret": 1}')
-
-    app = create_app()
-    client = app.test_client()
-    import flexappeal.refstates.web as web
-
-    original_root = app.root_path
-    app.root_path = str(tmp_path / "flexappeal")
-    (tmp_path / "flexappeal").mkdir(exist_ok=True)
-    (tmp_path / "data").mkdir(exist_ok=True)
-    try:
-        # The route resolves data/analysis relative to the app root's parent.
-        import shutil
-
-        shutil.copytree(analysis, tmp_path / "data" / "analysis",
-                        dirs_exist_ok=True)
-        assert client.get("/refstates/run/r/viewer.pdb").status_code == 200
-        assert client.get("/refstates/run/r/viewer.xtc").status_code == 200
-        # Not in the allowlist, so not served even though the file is there.
-        assert client.get("/refstates/run/r/viewer.json").status_code == 404
-        # And an id that is not an id.
-        assert client.get("/refstates/run/..%2F..%2Fetc/viewer.pdb").status_code == 404
-    finally:
-        app.root_path = original_root
-
-
-def test_the_viewer_panel_is_hidden_without_its_files(tmp_path: Path):
-    """A viewer that fails to load is worse than one that is not offered."""
-    from flexappeal.webapp import create_app
-
-    path = tmp_path / "t.db"
-    store.ingest_analysis(path, _analysis_payload(), system_id="s", run_id="r",
-                          family="kinase", environment="water")
-    app = create_app()
-    app.config["REFSTATES_DB"] = str(path)
-    page = app.test_client().get("/refstates/run/r").get_data(as_text=True)
-    # The element, not the string: the click handler references the id by name
-    # in JavaScript whether or not the panel renders, and a substring check
-    # matched that instead of the panel.
-    assert 'id="molstar-viewer"' not in page
-    assert "<h3>The structure</h3>" not in page
-    # The rest of the page still renders.
-    assert "xDFG" in page
 
 
 def test_a_bilayer_across_the_periodic_boundary_measures_correctly():
@@ -976,70 +837,6 @@ def test_a_checkpoint_reports_a_barostat_it_does_not_have():
 # practice, a referenced asset that is not there, and the subset of axe-core's
 # rules that are properties of the markup rather than of the rendered page.
 
-REFSTATES_PAGES = ["/refstates/", "/refstates/about"]
-
-
-def _page_client(tmp_path: Path):
-    from flexappeal.webapp import create_app
-
-    path = tmp_path / "t.db"
-    store.ingest_analysis(path, _analysis_payload(), system_id="s", run_id="r",
-                          family="kinase", environment="water")
-    app = create_app()
-    app.config["REFSTATES_DB"] = str(path)
-    return app.test_client()
-
-
-def test_every_referenced_asset_resolves(tmp_path: Path):
-    """A 404 on a script or stylesheet is the usual cause of a console error."""
-    import re
-
-    client = _page_client(tmp_path)
-    missing = []
-    for url in REFSTATES_PAGES + ["/refstates/run/r", "/refstates/references/s"]:
-        response = client.get(url)
-        if response.status_code != 200:
-            continue
-        html = response.get_data(as_text=True)
-        for ref in set(re.findall(r'(?:src|href)="(/static/[^"]+)"', html)):
-            if client.get(ref).status_code != 200:
-                missing.append(f"{url} -> {ref}")
-    assert not missing, f"referenced but not served: {missing}"
-
-
-def test_the_pages_meet_the_markup_rules_axe_would_check(tmp_path: Path):
-    """The subset of axe-core's serious rules that live in the markup.
-
-    Not a substitute for axe-core, and FINDINGS says so. These are the ones a
-    template can get wrong and a server can see: a table without header scope,
-    an image without alt text, a page without a language.
-    """
-    import re
-
-    client = _page_client(tmp_path)
-    problems = []
-    for url in REFSTATES_PAGES + ["/refstates/run/r", "/refstates/references/s"]:
-        response = client.get(url)
-        if response.status_code != 200:
-            continue
-        html = response.get_data(as_text=True)
-        if not re.search(r'<html[^>]+lang=', html):
-            problems.append(f"{url}: <html> has no lang")
-        for image in re.findall(r"<img[^>]*>", html):
-            if "alt=" not in image:
-                problems.append(f"{url}: an img has no alt")
-        # Every th in these pages is a header for a row or a column, and
-        # axe-core flags one without a scope in a table that has both.
-        # `<th(?=[\s>])` so the pattern does not also match `<thead>`, which
-        # it did on the first run.
-        for header in re.findall(r"<th(?=[\s>])[^>]*>", html):
-            if "scope=" not in header:
-                problems.append(f"{url}: a th has no scope: {header}")
-        if "<table" in html and "<thead" not in html and "scope=\"row\"" not in html:
-            problems.append(f"{url}: a table has neither a thead nor row headers")
-    assert not problems, problems
-
-
 def test_the_site_has_an_icon_at_every_place_a_browser_looks():
     """The site had none, so every tab showed the default document glyph.
 
@@ -1139,37 +936,6 @@ def test_degrees_of_freedom_subtracts_constraints(tmp_path: Path):
     assert drift.degrees_of_freedom(tmp_path / "absent.xml") is None
 
 
-def test_the_state_map_never_sends_a_point_it_cannot_plot(tmp_path: Path):
-    """A point with no y renders as nothing while the endpoint returns 200.
-
-    The receptor map had 100 points with `y: None`, so the panel would have
-    appeared empty on a page that reported success. Points missing either axis
-    are left out instead, and a map with none left is a 404 so the panel is
-    hidden rather than blank.
-    """
-    from flexappeal.webapp import create_app
-
-    path = tmp_path / "t.db"
-    store.ingest_analysis(path, _analysis_payload(), system_id="b2ar", run_id="r",
-                          family="gpcr", environment="POPC")
-    with store.connect(path) as connection:
-        # One complete, one missing the second axis.
-        store.put_reference(connection, "b2ar:3SN6", "b2ar", pdb="3SN6",
-                            source_state="active", our_state="active",
-                            metrics={"tm3_tm6": 15.4, "npxxy_to_inactive": 2.8})
-        store.put_reference(connection, "b2ar:2RH1", "b2ar", pdb="2RH1",
-                            source_state="inactive", our_state="inactive",
-                            metrics={"tm3_tm6": 8.4})
-
-    app = create_app()
-    app.config["REFSTATES_DB"] = str(path)
-    payload = app.test_client().get("/refstates/map/b2ar.json").get_json()
-
-    assert [p["pdb"] for p in payload["points"]] == ["3SN6"]
-    assert all(p["y"] is not None for p in payload["points"])
-    assert payload["axes"][1], "the receptor map must name its second axis"
-
-
 def test_rmsd_to_nearest_never_compares_a_reference_with_itself():
     """Otherwise one state's column is all zeros and the map is two lines."""
     import numpy as np
@@ -1226,64 +992,6 @@ def _lopsided_payload() -> dict:
              "s": 0.6, "label": "active"}]} for t in range(8)],
         "notes": [],
     }
-
-
-def test_a_two_hundred_never_carries_arrays_nothing_can_draw(tmp_path: Path):
-    """Every series an endpoint returns must be plottable or absent."""
-    from flexappeal.webapp import create_app
-
-    path = tmp_path / "t.db"
-    store.ingest_analysis(path, _lopsided_payload(), system_id="s", run_id="r",
-                          family="kinase", environment="water")
-    app = create_app()
-    app.config["REFSTATES_DB"] = str(path)
-    client = app.test_client()
-
-    payload = client.get("/refstates/run/r/frames.json").get_json()
-    assert payload["motifs"], "a 200 with no motifs at all"
-    for motif_id, series in payload["motifs"].items():
-        length = len(series["time_ns"])
-        assert length > 0, f"{motif_id} has metric rows but no time axis"
-        assert len(series["s"]) == length, f"{motif_id} s is a different length"
-        assert len(series["label"]) == length, f"{motif_id} label length"
-        for name, values in series["metrics"].items():
-            assert len(values) == length, (
-                f"{motif_id} metric {name} is {len(values)} against a "
-                f"{length}-point time axis")
-
-
-def test_a_motif_that_resolved_one_side_still_has_a_time_axis(tmp_path: Path):
-    """The specific case: eight metric rows, and before the fix, no points."""
-    from flexappeal.webapp import create_app
-
-    path = tmp_path / "t.db"
-    store.ingest_analysis(path, _lopsided_payload(), system_id="s", run_id="r",
-                          family="kinase", environment="water")
-    app = create_app()
-    app.config["REFSTATES_DB"] = str(path)
-    series = client_series = app.test_client().get(
-        "/refstates/run/r/frames.json").get_json()["motifs"]["s:one_sided"]
-    assert len(series["time_ns"]) == 8
-    assert series["metrics"]["d_inact_a"][0] == pytest.approx(5.0)
-    # It has no s score, and that is reported as a gap rather than as a zero.
-    assert all(v is None for v in series["s"])
-
-
-def test_an_endpoint_with_nothing_to_show_returns_404_not_an_empty_body(tmp_path: Path):
-    """A panel may be absent. It may not be present and blank."""
-    from flexappeal.webapp import create_app
-
-    path = tmp_path / "t.db"
-    store.create(path)
-    app = create_app()
-    app.config["REFSTATES_DB"] = str(path)
-    client = app.test_client()
-    for url in ("/refstates/run/nothing/frames.json",
-                "/refstates/run/nothing/dssp.json",
-                "/refstates/map/nothing.json",
-                "/refstates/references/nothing",
-                "/refstates/run/nothing/viewer.pdb"):
-        assert client.get(url).status_code == 404, url
 
 
 # ===========================================================================
@@ -1349,47 +1057,6 @@ def test_the_whole_score_is_weighted_by_the_motifs_own_residue_counts(tmp_path: 
     assert score["n_motifs"] == 2
 
 
-@pytest.mark.parametrize("active_s,inactive_s,held,ordered", [
-    (0.60, -0.85, True, True),      # both hold their state
-    (0.10, -0.85, False, True),     # one drifted into the band
-    (-0.40, 0.30, False, False),    # the two crossed
-])
-def test_the_pair_panel_says_which_of_the_three_things_happened(
-        tmp_path: Path, active_s, inactive_s, held, ordered):
-    """Each outcome is reported as itself, not rounded towards the hoped-for one."""
-    from flexappeal.webapp import create_app
-
-    path = tmp_path / "t.db"
-    _pair_db(path, active_s, inactive_s)
-    app = create_app()
-    app.config["REFSTATES_DB"] = str(path)
-    page = app.test_client().get("/refstates/").get_data(as_text=True)
-
-    assert "The two start states" in page
-    if held:
-        assert "stayed on the side they started" in page
-    elif ordered:
-        assert "drifted into the intermediate band" in page
-    else:
-        assert "have crossed" in page
-    # The separation is always stated, whichever way it went.
-    assert f"{active_s - inactive_s:.3f}" in page
-
-
-def test_no_pair_panel_without_both_halves(tmp_path: Path):
-    """One run is not a comparison, and the page must not imply it is."""
-    from flexappeal.webapp import create_app
-
-    path = tmp_path / "t.db"
-    store.ingest_analysis(path, _analysis_payload(), system_id="s", run_id="r",
-                          family="kinase", environment="water",
-                          run_fields={"start_state": "DFG-in"})
-    app = create_app()
-    app.config["REFSTATES_DB"] = str(path)
-    page = app.test_client().get("/refstates/").get_data(as_text=True)
-    assert "The two start states" not in page
-
-
 def test_every_name_the_tools_import_from_the_package_exists():
     """A deletion in a module the unit tests touch lightly is invisible.
 
@@ -1410,7 +1077,7 @@ def test_every_name_the_tools_import_from_the_package_exists():
     root = Path(__file__).resolve().parents[1]
     scripts = sorted((root / "tools").glob("*.py")) + [
         root / "flexappeal" / "refstates" / "cli.py",
-        root / "flexappeal" / "refstates" / "web.py",
+        root / "flexappeal" / "refstates" / "panels.py",
     ]
 
     missing: list[str] = []
@@ -1781,26 +1448,6 @@ def test_a_dead_row_is_recorded_as_failed_and_not_left_running(tmp_path: Path):
     assert json.loads((good / "run.json").read_text())["status"] == "complete"
 
 
-def test_a_failed_row_still_renders(tmp_path: Path):
-    """A failed row has to show up as failed, not 500 and not vanish."""
-    from flexappeal.webapp import create_app
-
-    database = tmp_path / "t.db"
-    store.ingest_analysis(database, _analysis_payload(), system_id="b2ar",
-                          run_id="b2ar_apo", family="gpcr", environment="POPC",
-                          run_fields={"status": "failed:Particle coordinate is NaN",
-                                      "start_state": "active",
-                                      "start_model": "4LDE"})
-    app = create_app()
-    app.config["REFSTATES_DB"] = str(database)
-    client = app.test_client()
-    for url in ("/refstates/", "/refstates/run/b2ar_apo"):
-        response = client.get(url)
-        assert response.status_code == 200, f"{url} returned {response.status_code}"
-    page = client.get("/refstates/run/b2ar_apo").get_data(as_text=True)
-    assert "failed" in page, "the failure is not shown on the run page"
-
-
 def _tiny_bilayer(tmp_path: Path, n_frames: int = 4, lipids: bool = True):
     """A POPC slab and a couple of protein residues, written as pdb plus dcd.
 
@@ -1878,20 +1525,6 @@ def test_a_water_run_gets_no_lipid_bundle(tmp_path: Path):
     assert not list(out.glob("*.lipids.*"))
 
 
-def test_the_viewer_route_serves_the_lipid_pair_and_nothing_else():
-    """The allowlist is what stops this route serving the database.
-
-    The lipid suffixes are added explicitly rather than by relaxing the match,
-    because the protection is the list.
-    """
-    from flexappeal.refstates import web
-
-    assert "lipids.pdb" in web.VIEWER_SUFFIXES
-    assert "lipids.xtc" in web.VIEWER_SUFFIXES
-    for forbidden in ("db", "json", "sqlite", "lipids.json", "pdb.db"):
-        assert forbidden not in web.VIEWER_SUFFIXES
-
-
 def test_the_run_record_only_names_things_that_exist_where_it_is_written():
     """`run.json` is written at the end of `main`, not inside `build`.
 
@@ -1951,34 +1584,6 @@ def test_the_run_record_only_names_things_that_exist_where_it_is_written():
     assert "FORCEFIELD_FILES" in module_level
 
 
-def test_the_thumbnail_route_serves_only_the_two_systems():
-    """Section 6.2 asks the cards for a thumbnail; the figures are not static.
-
-    They are generated output, so they live in `data/figures` and need a route,
-    and the route uses a fixed set of names for the same reason `viewer_file`
-    does: the protection is the list, not the pattern.
-    """
-    from flexappeal.refstates import web
-
-    assert web.THUMBNAILS == {"abl1", "b2ar"}
-
-
-def test_a_card_offers_no_thumbnail_when_the_file_is_absent(tmp_path: Path):
-    """An <img> whose source 404s is a console error on a real page."""
-    from flexappeal.webapp import create_app
-
-    database = tmp_path / "t.db"
-    store.ingest_analysis(database, _analysis_payload(), system_id="b2ar",
-                          run_id="b2ar_apo", family="gpcr", environment="POPC")
-    app = create_app()
-    app.config["REFSTATES_DB"] = str(database)
-    # The real figures directory is beside the app, so this asserts on the
-    # route rather than on the card: an unknown system is refused outright.
-    client = app.test_client()
-    assert client.get("/refstates/thumbnail/nope.png").status_code == 404
-    assert client.get("/refstates/thumbnail/b2ar.png").status_code in (200, 404)
-
-
 def test_the_thumbnail_centres_the_bilayer_before_drawing_it(tmp_path: Path):
     """Wrapped coordinates put the two leaflets at opposite ends of the box.
 
@@ -1994,58 +1599,6 @@ def test_the_thumbnail_centres_the_bilayer_before_drawing_it(tmp_path: Path):
     assert "centre_bilayer" in thumb, (
         "the thumbnail draws wrapped coordinates without centring them")
     assert "unitcell_lengths" in thumb
-
-
-def test_the_dssp_ribbon_carries_the_reference_consensus(tmp_path: Path):
-    """Section 6.2 asks for "active/inactive reference consensus rows".
-
-    The data was already in the analysis payload as a count of DSSP codes per
-    state, per motif, per position within that motif. What was missing was
-    picking the modal code and resolving the motif position to a residue
-    number, which is what puts it on the ribbon's own axis.
-    """
-    from flexappeal.refstates import web
-
-    payload = {
-        "motif_residues": {"TM6": [270, 271, 272]},
-        "report": {"sse_profiles": {
-            "active": {"TM6": {"0": {"H": 70, "T": 2},
-                               "1": {"H": 36, "T": 36},
-                               "2": {}}},
-            "inactive": {"TM6": {"0": {"T": 20, "H": 8}}},
-        }},
-    }
-    found = web.sse_consensus(payload, [269, 270, 271, 272])
-
-    # Residue 269 is in no motif, so it has no consensus and says so.
-    assert found["active"][0] is None
-    assert found["active"][1] == {"code": "H", "agreement": 0.972}
-    # A residue the references disagree on still reports, with the number that
-    # says they disagree: a 50/50 split is a result, not a missing value.
-    assert found["active"][2]["agreement"] == 0.5
-    # An empty histogram is not a consensus of anything.
-    assert found["active"][3] is None
-    assert found["inactive"][1] == {"code": "T", "agreement": 0.714}
-    # The rows line up with the ribbon's residues, so the browser does not
-    # have to join them.
-    assert len(found["active"]) == 4
-
-
-def test_the_dssp_endpoint_serves_the_consensus_beside_the_frames(tmp_path: Path):
-    """And it reaches the page, not just the helper."""
-    from flexappeal.webapp import create_app
-
-    app = create_app()
-    client = app.test_client()
-    response = client.get("/refstates/run/b2ar_apo/dssp.json")
-    if response.status_code == 404:
-        pytest.skip("no analysed b2ar_apo on this machine")
-    body = response.get_json()
-    assert "consensus" in body, sorted(body)
-    assert set(body["consensus"]) == {"active", "inactive"}
-    for state, row in body["consensus"].items():
-        assert len(row) == len(body["residues"]), state
-        assert any(cell for cell in row), f"{state} consensus is entirely empty"
 
 
 def test_the_state_strip_starts_on_the_frame_the_slider_starts_on(tmp_path: Path):
@@ -2064,30 +1617,6 @@ def test_the_state_strip_starts_on_the_frame_the_slider_starts_on(tmp_path: Path
     for key, row in summary["motifs"].items():
         assert "start_label" in row, key
         assert row["start_label"] is not None, key
-
-
-def test_every_state_the_strip_can_show_has_a_shape(tmp_path: Path):
-    """Section 6.1: never by colour alone.
-
-    The label always carried that, which is why nothing ever broke, but there
-    was no `.md-state` rule in the stylesheet at all: the `data-shape`
-    attribute the template wrote was read by nothing. The shape follows from
-    the state, so it is drawn from the state class and the separate map that
-    produced the attribute is gone.
-    """
-    root = Path(__file__).resolve().parents[1]
-    css = (root / "flexappeal" / "static" / "brand.css").read_text()
-    for state in ("active", "inactive", "intermediate", "conflict"):
-        assert f".md-state-{state}::before" in css, state
-    assert ".md-state::before" in css
-
-    # And the fact lives in one place now.
-    web_py = (root / "flexappeal" / "refstates" / "web.py").read_text()
-    assert "STATE_SHAPES" not in web_py, (
-        "the shapes map is back, and nothing reads the attribute it produces")
-    run_html = (root / "flexappeal" / "templates"
-                / "refstates_run.html").read_text()
-    assert "data-shape" not in run_html
 
 
 def test_every_motif_that_becomes_a_row_has_a_colour_token(tmp_path: Path):
@@ -2186,25 +1715,6 @@ def test_the_figures_use_the_same_palette_as_the_pages():
     css = (root / "flexappeal" / "static" / "brand.css").read_text()
     for token, colour in palette.items():
         assert f"{token}:           {colour};" in css or f"{token}:" in css
-
-
-def test_the_run_view_gives_each_motif_its_residue_endpoints(tmp_path: Path):
-    """The ribbon's motif bands need numbers, not the span sentence."""
-    from flexappeal.webapp import create_app
-
-    database = tmp_path / "t.db"
-    store.ingest_analysis(database, _analysis_payload(), system_id="abl1",
-                          run_id="abl1_apo", family="kinase",
-                          environment="water")
-    app = create_app()
-    app.config["REFSTATES_DB"] = str(database)
-    page = app.test_client().get("/refstates/run/abl1_apo").get_data(as_text=True)
-    assert 'id="motif-meta"' in page
-    found = json.loads(page.split('id="motif-meta">')[1].split("</script>")[0])
-    assert found, "the motif metadata is empty, so no band can be drawn"
-    for entry in found:
-        assert entry["first"] <= entry["last"]
-        assert entry["token"], f"{entry['name']} has no colour token"
 
 
 def _hwprobe():
@@ -2895,51 +2405,6 @@ def test_the_core_fit_is_required_for_a_helix_measurement_to_mean_anything():
     assert T.axis_angle(T.helix_axis(moved_helix), T.helix_axis(helix)) > 30.0
 
 
-def test_the_measurement_table_shows_what_moved_and_omits_what_was_not_measured(tmp_path: Path):
-    """Driven by a table, so adding a measurement does not mean editing a page.
-
-    And a reading absent from both ends is left out rather than rendered blank,
-    so the panel is what was measured rather than a list of what might have
-    been.
-    """
-    import json as _json
-
-    from flexappeal.refstates import web
-    from flexappeal.webapp import create_app
-
-    analysis = tmp_path / "analysis"
-    analysis.mkdir()
-    (analysis / "r.json").write_text(_json.dumps({"frames": [
-        {"time_ns": 0.0, "measurements": {
-            "alphac_salt_bridge": {"distance_a": 3.40, "state": "in"},
-            "p_loop": {"tip_to_hinge_a": 16.0}}},
-        {"time_ns": 5.0, "measurements": {
-            "alphac_salt_bridge": {"distance_a": 2.60, "state": "in"},
-            "p_loop": {"tip_to_hinge_a": 15.0}}},
-    ]}))
-
-    app = create_app()
-    original = web.analysis_file
-    web.analysis_file = lambda run_id: analysis / f"{run_id}.json"
-    try:
-        with app.app_context():
-            rows = web.frame_measurements("r")
-    finally:
-        web.analysis_file = original
-
-    by_label = {r["label"]: r for r in rows}
-    assert "alphaC salt bridge" in by_label
-    bridge = by_label["alphaC salt bridge"]
-    assert bridge["start"] == pytest.approx(3.40)
-    assert bridge["end"] == pytest.approx(2.60)
-    assert bridge["change"] == pytest.approx(-0.80)
-    assert bridge["state"] == "in"
-
-    # Nothing in this run measured TM6, so it is absent rather than blank.
-    assert "TM6 axis rotation" not in by_label
-    assert "Ionic lock" not in by_label
-
-
 def test_smoothing_is_skipped_when_the_window_is_wider_than_the_run():
     """A 2 ns centred window on a 1 ns run is one value repeated.
 
@@ -2988,99 +2453,6 @@ def test_an_sse_lean_on_a_tiny_margin_is_not_called():
     decided = sse.summarise(sse.agreement(frame, active, inactive_far))
     assert decided["decisive"] is True
     assert decided["leans"] == "active"
-
-
-def test_the_sse_panel_shows_the_margin_and_withholds_an_undecided_lean(tmp_path: Path):
-    """A lean on a small margin must not appear as a finding on the page."""
-    import json as _json
-
-    from flexappeal.refstates import web
-    from flexappeal.webapp import create_app
-
-    analysis = tmp_path / "analysis"
-    analysis.mkdir()
-    (analysis / "r.json").write_text(_json.dumps({"dssp": {"motifs": {
-        "decides": {"helix_fraction_last": 0.9, "reference_agreement": {
-            "n_residues": 20, "mean_active_agreement": 0.90,
-            "mean_inactive_agreement": 0.70, "margin": 0.20,
-            "decisive": True, "leans": "active"}},
-        "undecided": {"helix_fraction_last": 0.8, "reference_agreement": {
-            "n_residues": 12, "mean_active_agreement": 0.864,
-            "mean_inactive_agreement": 0.888, "margin": 0.024,
-            "decisive": False, "leans": "neither"}},
-        "unscored": {"helix_fraction_last": 0.5, "reference_agreement": {
-            "n_residues": 0}},
-    }}}))
-
-    app = create_app()
-    original = web.analysis_file
-    web.analysis_file = lambda run_id: analysis / f"{run_id}.json"
-    try:
-        with app.app_context():
-            rows = web.sse_agreement("r")
-    finally:
-        web.analysis_file = original
-
-    by_motif = {r["motif"]: r for r in rows}
-    assert set(by_motif) == {"decides", "undecided"}, "an unscored motif leaked in"
-    assert by_motif["decides"]["decisive"] is True
-    assert by_motif["decides"]["leans"] == "active"
-    assert by_motif["undecided"]["decisive"] is False
-    assert by_motif["undecided"]["margin"] == pytest.approx(0.024)
-
-
-def test_the_whole_protein_series_reaches_the_plot_with_both_versions(tmp_path: Path):
-    """Section 5.6 wants the smoothed line for display and the raw stored.
-
-    Both are served, and the time axis has to be the same length as the series
-    or the plot silently drops points off one end.
-    """
-    import json as _json
-
-    from flexappeal.refstates import web
-    from flexappeal.webapp import create_app
-
-    path = tmp_path / "t.db"
-    store.ingest_analysis(path, _analysis_payload(), system_id="s", run_id="r",
-                          family="kinase", environment="water")
-    analysis = tmp_path / "analysis"
-    analysis.mkdir()
-    (analysis / "r.json").write_text(_json.dumps({
-        "frames": [{"time_ns": t / 10.0} for t in range(40)],
-        "whole_s_raw": [0.1 + t * 0.001 for t in range(40)],
-        "whole_s_smoothed": [0.12 + t * 0.001 for t in range(40)],
-        "smoothing_window_ns": 2.0,
-    }))
-
-    app = create_app()
-    app.config["REFSTATES_DB"] = str(path)
-    original = web.analysis_file
-    web.analysis_file = lambda run_id: analysis / f"{run_id}.json"
-    try:
-        payload = app.test_client().get("/refstates/run/r/frames.json").get_json()
-    finally:
-        web.analysis_file = original
-
-    whole = payload["whole"]
-    assert len(whole["raw"]) == 40
-    assert len(whole["smoothed"]) == 40
-    assert len(whole["time_ns"]) == len(whole["raw"]), (
-        "the time axis and the series must be the same length")
-    assert whole["window_ns"] == pytest.approx(2.0)
-
-
-def test_a_run_with_no_analysis_file_still_serves_its_motifs(tmp_path: Path):
-    """The whole series is additive: without it the motif lines still plot."""
-    from flexappeal.webapp import create_app
-
-    path = tmp_path / "t.db"
-    store.ingest_analysis(path, _analysis_payload(), system_id="s", run_id="r",
-                          family="kinase", environment="water")
-    app = create_app()
-    app.config["REFSTATES_DB"] = str(path)
-    payload = app.test_client().get("/refstates/run/r/frames.json").get_json()
-    assert payload["motifs"], "the motif series must survive a missing analysis file"
-    assert payload["whole"] == {}
 
 
 def test_sse_is_scored_only_where_the_reference_sets_disagree():
@@ -3331,8 +2703,6 @@ def test_the_atom_count_of_every_row_of_a_system_is_gathered(tmp_path: Path):
 def test_a_system_whose_rows_disagree_shows_the_range_and_stores_no_count(
         tmp_path: Path):
     """And one whose rows agree keeps the single number in the column."""
-    from flexappeal.refstates import web
-
     database = tmp_path / "t.db"
     store.create(database)
 
@@ -3350,7 +2720,11 @@ def test_a_system_whose_rows_disagree_shows_the_range_and_stores_no_count(
     assert row["n_atoms"] is None, (
         "no single number is true of a system whose rows differ, and the "
         "column should say so rather than carry one of them")
-    assert web.atom_count(row) == "46,721 to 48,185"
+    # The card that printed the range is gone with the fifth tab. What the
+    # store does with two disagreeing rows is still the claim worth holding:
+    # the per-run counts stay in `notes` and the column says nothing.
+    assert json.loads(row["notes"])["atoms"] == {"abl1_apo": 46721,
+                                                 "abl1_imatinib": 48185}
 
     store.ingest_analysis(database, _analysis_payload(), system_id="b2ar",
                           run_id="b2ar_apo", family="gpcr",
@@ -3362,7 +2736,8 @@ def test_a_system_whose_rows_disagree_shows_the_range_and_stores_no_count(
         agreed = dict(connection.execute(
             "SELECT * FROM systems WHERE system_id = 'b2ar'").fetchone())
     assert agreed["n_atoms"] == 194032
-    assert web.atom_count(agreed) == "194,032"
+    assert json.loads(agreed["notes"])["atoms"] == {"b2ar_apo": 194032,
+                                                    "b2ar_replica": 194032}
 
 
 def test_a_stale_atom_count_is_cleared_rather_than_left_behind(tmp_path: Path):
@@ -4184,30 +3559,6 @@ def test_the_allowed_undefined_classes_are_all_still_used():
     assert not stale, f"no longer used in any template: {stale}"
 
 
-def test_a_short_or_failed_run_is_marked_on_the_index(tmp_path: Path):
-    """A caveat on every number below it should not look like a stage.
-
-    `running` is a stage and stays quiet. `failed:` and `short:` are not: they
-    say the row does not describe what the page says it describes.
-    """
-    import re
-
-    root = Path(__file__).resolve().parents[1]
-    body = (root / "flexappeal" / "templates"
-            / "refstates_index.html").read_text()
-    marker = re.search(r'<span class="md-tag.*?</span>', body, re.S)
-    assert marker, "the status marker should still be there"
-    assert "md-tag-bad" in marker.group(0)
-    assert "short:" in marker.group(0) and "failed:" in marker.group(0), (
-        "both of the statuses that are caveats rather than stages")
-    css = (root / "flexappeal" / "static" / "brand.css").read_text()
-    assert ".md-tag-bad" in css
-    # One definition of the colour, shared with the verdict badge, rather than
-    # a second copy of the same two hex values.
-    assert css.count("#fbd5d6") == 1, (
-        "the bad-status red should have one definition")
-
-
 def test_requiring_a_platform_refuses_rather_than_falling_back():
     """The fallback ladder is right on a machine you own and wrong on a rented one.
 
@@ -4422,14 +3773,18 @@ def test_the_state_threshold_has_one_definition():
     chances for the summary label to disagree with the per-frame label it
     summarises, silently, with nothing on the page to say which one had moved.
     """
+    from flexappeal.refstates import panels as panels_module
     from flexappeal.refstates import state as state_module
-    from flexappeal.refstates import web as web_module
 
     assert store.DECISIVE_S == state_module.DECISIVE_S
-    assert web_module.DECISIVE_S == state_module.DECISIVE_S
+    # `web.py` was the third reader of this constant and is gone with the tab.
+    # The panels at the end of a run page are the fourth, and they draw the
+    # bands and write the sentence beside them from the same name.
+    assert panels_module.DECISIVE_S == state_module.DECISIVE_S
 
     root = Path(__file__).resolve().parents[1]
-    for name in ("flexappeal/refstates/store.py", "flexappeal/refstates/web.py",
+    for name in ("flexappeal/refstates/store.py",
+                 "flexappeal/refstates/panels.py",
                  "tools/make_figures.py"):
         body = (root / name).read_text()
         assert "DECISIVE_S" in body, f"{name} should use the constant"
@@ -4483,25 +3838,6 @@ def test_the_whole_protein_label_flips_exactly_at_the_threshold(tmp_path: Path):
         whole = store.whole_score(database, "abl1_apo")
         assert whole.get("label") == expected, (value, whole)
         assert abs(whole["final_s"] - value) < 1e-9, whole
-
-
-def test_the_score_plot_draws_and_labels_its_threshold():
-    """Section 10: threshold lines labelled on every plot.
-
-    The shaded regions were named "active-like" and "inactive-like" and the
-    edge between them carried no number, so a reader could see which half a
-    motif was in and not what it took to get there.
-    """
-    root = Path(__file__).resolve().parents[1]
-    body = (root / "flexappeal" / "templates" / "refstates_run.html").read_text()
-    assert "const DECISIVE = {{ decisive_s | tojson }};" in body, (
-        "the band edge should come from the server, not a literal in the page")
-    assert body.count('y0: DECISIVE, y1: DECISIVE') == 1, "the positive line"
-    assert body.count('y0: -DECISIVE, y1: -DECISIVE') == 1, "the negative line"
-    assert 'DECISIVE.toFixed(2)' in body, "the line should carry its value"
-    # And the view has to supply it, or the page renders `undefined`.
-    view = (root / "flexappeal" / "refstates" / "web.py").read_text()
-    assert "decisive_s=DECISIVE_S," in view
 
 
 def _jumping_trajectory(n_frames: int = 6, box=(12.5, 13.1, 11.4)):
@@ -4842,56 +4178,6 @@ def test_every_decision_referred_to_in_the_findings_exists():
     assert not missing, f"FINDINGS cites decisions that do not exist: {missing}"
 
 
-def test_the_bilayer_windows_on_the_page_come_from_the_constants():
-    """The note said "60 to 68" and the badge read `APL_EXPECTED_A2`.
-
-    Two statements of one window, one of them prose, so they could part without
-    either looking wrong, and a reader checking a badge against the note would
-    have been checking it against a number nothing uses.
-    """
-    import re
-
-    root = Path(__file__).resolve().parents[1]
-    body = (root / "flexappeal" / "templates" / "refstates_run.html").read_text()
-    for name in ("apl_expected", "apl_acceptable", "thickness_expected"):
-        assert name in body, f"the note should read {name} from the context"
-    note = body[body.index("What these should be"):]
-    note = note[:note.index("</details>")]
-    assert not re.search(r"\b(60|68|55|75|36|41) (to|&#8491;)", note), (
-        "a window is still written out in the prose")
-
-    view = (root / "flexappeal" / "refstates" / "web.py").read_text()
-    for name in ("APL_EXPECTED_A2", "APL_ACCEPTABLE_A2",
-                 "THICKNESS_EXPECTED_A"):
-        assert name in view, f"the view should pass {name}"
-
-
-def test_a_verdict_cell_shows_the_digit_that_decided_it():
-    """68.05 against a window ending at 68.0 is outside it, and read as inside.
-
-    At one decimal the cell said "68.0 A^2" beside a badge saying "outside
-    expected" and a note saying the window is 60 to 68. The badge was right and
-    the rounding hid the only digit that decides, which makes a correct verdict
-    look like a bug, on a panel whose whole job is to be believed.
-    """
-    from flexappeal.refstates import membrane
-
-    root = Path(__file__).resolve().parents[1]
-    body = (root / "flexappeal" / "templates" / "refstates_run.html").read_text()
-    cells = body[body.index("{% for chunk in membrane %}"):]
-    cells = cells[:cells.index("{% endfor %}")]
-    assert '"%.2f"|format(chunk.apl)' in cells
-    assert '"%.2f"|format(chunk.thickness)' in cells
-
-    # And the live case is genuinely outside, so the badge is not the thing
-    # that needed changing.
-    chunk = membrane.MembraneChunk(
-        start_ns=0.0, end_ns=10.0, apl_a2=68.05, thickness_a=38.42,
-        tilt_deg=13.6, core_waters=54.43)
-    assert chunk.apl_verdict != "expected", chunk.apl_verdict
-    assert round(68.05, 1) == 68.0, "which is what made it read as inside"
-
-
 def test_the_motif_figure_draws_each_half_mean():
     """The figure without them misled its own author.
 
@@ -4963,36 +4249,6 @@ def test_the_half_means_agree_with_the_stored_summary(tmp_path: Path):
         assert abs(second - stored["second_half_mean_s"]) < 1e-9, motif
         checked += 1
     assert checked >= 2, "both motifs should have been compared"
-
-
-def test_the_page_chart_draws_the_same_half_means_as_the_figure():
-    """The page is the deliverable; the figure was only where it was noticed.
-
-    Both split at `len // 2` of the plotted series, which is where `summarise`
-    splits, so the segment a reader sees is the number the table beside it
-    prints. Three renderings of one pair of numbers that must not disagree.
-    """
-    root = Path(__file__).resolve().parents[1]
-    page = (root / "flexappeal" / "templates" / "refstates_run.html").read_text()
-    assert "Math.floor(n / 2)" in page, "split where summarise splits"
-    assert "half mean" in page
-    assert "showlegend: false" in page, (
-        "the legend is already five motifs and the whole protein")
-    assert "thick flat segment" in page, (
-        "a reader needs to be told what the segments are")
-
-    figure = (root / "tools" / "make_figures.py").read_text()
-    assert "midpoint = len(points) // 2" in figure
-
-
-def test_the_chart_explanation_reads_the_threshold_from_the_context():
-    """It said "+0.2" in prose beside bands drawn from `DECISIVE_S`."""
-    root = Path(__file__).resolve().parents[1]
-    page = (root / "flexappeal" / "templates" / "refstates_run.html").read_text()
-    note = page[page.index("<summary>How to read this</summary>"):]
-    note = note[:note.index("</details>")]
-    assert 'format(decisive_s)' in note
-    assert "+0.2 " not in note, "the threshold should not be written out"
 
 
 # The constants a page might be tempted to write out, and where they live.
@@ -5111,79 +4367,6 @@ def _app_with(database: Path):
     return app
 
 
-def test_the_about_page_counts_its_reference_sets(tmp_path: Path):
-    """It said 72 active and 28 inactive where the ensembles hold 84 and 32.
-
-    A count written into a sentence cannot be checked by anything, which is how
-    it had been wrong for long enough that nobody knows when it stopped being
-    right. The page's whole claim there is that one evidence base is larger
-    than the other, so it should count them.
-
-    The rule is the one `sources` builds the ensembles with and not the
-    catalogue's own column: ABL1's active set is DFG-in **and** alphaC-in,
-    which is 5 of the 6 entries KLIFS calls DFG-in.
-    """
-    import json as _json
-
-    from flexappeal.refstates import web
-
-    database = tmp_path / "t.db"
-    store.create(database)
-    with store.connect(database) as connection:
-        store.put_system(connection, "abl1", name="ABL1", family="kinase",
-                         environment="water")
-        store.put_system(connection, "b2ar", name="beta2AR", family="gpcr",
-                         environment="membrane")
-        # Two DFG-in, one of which has alphaC out, so the active set is one.
-        for code, dfg, alphac in (("2GQG", "in", "in"), ("2V7A", "in", "out"),
-                                  ("2HYY", "out", "in")):
-            store.put_reference(connection, f"abl1:{code}", "abl1", pdb=code,
-                                chain="A", source="KLIFS", source_state=dfg,
-                                our_state=dfg,
-                                metrics={"their_dfg": dfg,
-                                         "their_alphac": alphac})
-        for code, which in (("4LDE", "active"), ("3P0G", "active"),
-                            ("2RH1", "inactive")):
-            store.put_reference(connection, f"b2ar:{code}", "b2ar", pdb=code,
-                                chain="A", source="GPCRdb", source_state=which,
-                                our_state=which, metrics={})
-
-    app = _app_with(database)
-    with app.app_context():
-        counts = web.ensemble_counts()
-    assert counts["abl1"] == {"active": 1, "inactive": 1}, counts
-    assert counts["b2ar"] == {"active": 2, "inactive": 1}, counts
-
-
-def test_the_about_page_leaves_the_sentence_out_with_no_database(tmp_path: Path):
-    """Section 0.3 again: nothing to report is not a report of zero."""
-    from flexappeal.refstates import web
-
-    app = _app_with(tmp_path / "missing.db")
-    with app.app_context():
-        assert web.ensemble_counts() == {}
-    body = app.test_client().get("/refstates/about").get_data(as_text=True)
-    assert "The receptor is better served" not in body, (
-        "the comparison should be dropped rather than printed with zeroes")
-
-
-def test_the_published_dfg_cut_has_one_definition():
-    """It was 11.0 in the comparison rule and 11.0 again in the state map.
-
-    The map draws a line where somebody else's criterion sits, so the line it
-    draws should be that criterion rather than a second copy of the number.
-    """
-    from flexappeal.refstates import kinase
-
-    root = Path(__file__).resolve().parents[1] / "flexappeal" / "refstates"
-    assert kinase.DFG_PUBLISHED_A == 11.0
-    view = (root / "web.py").read_text()
-    assert "kinase_mod.DFG_PUBLISHED_A" in view
-    assert '"published_threshold": 11.0' not in view
-    body = (root / "kinase.py").read_text()
-    assert "cutoff = DFG_PUBLISHED_A" in body
-
-
 def test_the_committed_figures_are_not_older_than_the_code_that_draws_them():
     """They were, by nine hours and three changes to the drawing.
 
@@ -5292,16 +4475,6 @@ def test_nothing_to_colour_by_leaves_the_cartoon_alone():
     # leaves nothing at all the answer is None rather than a zeroed column.
     assert module.motif_bfactors(topology, {"not-a-motif": [250]},
                                  "kinase") is None
-
-
-def test_the_page_only_colours_a_bundle_that_was_painted():
-    """A bundle written before this existed has no such column."""
-    root = Path(__file__).resolve().parents[1]
-    page = (root / "flexappeal" / "templates" / "refstates_run.html").read_text()
-    assert 'data-motif-painted="{{ "1" if viewer.get("motif_painted")' in page
-    script = (root / "flexappeal" / "static" / "analysis.js").read_text()
-    assert "host.dataset.motifPainted !== '1'" in script, (
-        "the viewer should withhold the theme rather than paint zeroes")
 
 
 def test_the_motif_palette_is_reversed_for_the_uncertainty_theme():
@@ -5525,16 +4698,6 @@ def test_the_overlay_prefers_a_reference_it_can_actually_check(
         motif_records={"m1": {"nearest_active": "NEAR", "d_act_a": 0.0}},
         built=_built_many({"NEAR": near, "FAR": far}, core))
     assert written["active"]["code"] == "NEAR", written
-
-
-def test_the_overlay_route_serves_the_ghosts_and_nothing_else():
-    """The allowlist is the protection, so the two names are added explicitly."""
-    from flexappeal.refstates import web
-
-    assert "ref_active.pdb" in web.VIEWER_SUFFIXES
-    assert "ref_inactive.pdb" in web.VIEWER_SUFFIXES
-    for forbidden in ("db", "sqlite", "json"):
-        assert forbidden not in web.VIEWER_SUFFIXES
 
 
 def test_the_ghost_is_coloured_after_loading_not_by_the_preset():
@@ -5821,30 +4984,6 @@ def test_a_ligand_written_as_two_residues_still_gets_a_graph():
     assert out[2] == "TER", "a record that is not an atom is left alone"
 
 
-def test_the_ligand_panel_is_not_inside_the_membrane_block():
-    """It was, and a water row with a ligand would never have shown it.
-
-    `abl1_imatinib` is a water run with imatinib bound, so nesting the panel
-    inside `{% if membrane %}` hid it on exactly one of the two rows it exists
-    for. Caught by rendering the page rather than by reading the diff.
-    """
-    body = (Path(__file__).resolve().parents[1] / "flexappeal" / "templates"
-            / "refstates_run.html").read_text()
-    assert body.index("{% if ligand %}") < body.index("{% if membrane %}"), (
-        "the ligand panel must not depend on the run having a bilayer")
-
-
-def test_the_ligand_panel_says_whether_the_pose_was_symmetry_corrected():
-    """An uncorrected RMSD overstates drift, so a reader has to be told which."""
-    body = (Path(__file__).resolve().parents[1] / "flexappeal" / "templates"
-            / "refstates_run.html").read_text()
-    panel = body[body.index("{% if ligand %}"):body.index("{% if membrane %}")]
-    assert "ligand.symmetry_corrected" in panel
-    assert "overstate the drift" in panel
-    assert "superposing the frame on the same" in panel, (
-        "the page should say what the pose is measured against")
-
-
 def test_the_analysis_trajectory_still_has_no_ions_in_it():
     """The ions are loaded beside it, not put into it.
 
@@ -5917,20 +5056,6 @@ def test_a_system_with_no_sodium_loads_nothing(tmp_path: Path):
     assert traj_mod.ion_positions(pdb, dcd) is None
 
 
-def test_the_page_offers_the_sodium_rows():
-    """Including the nearest approach, which is the honest form of a negative.
-
-    No sodium reached beta2AR's pocket in 45 ns, nearest approach 25.5 A, which
-    is the expected answer: the ion has to diffuse in from bulk. Reporting the
-    distance says that; omitting the row would not.
-    """
-    from flexappeal.refstates import web
-
-    labels = [row[0] for row in web.MEASUREMENT_ROWS]
-    assert "Nearest sodium to D2.50" in labels
-    assert "D2.50 to S3.39" in labels and "D2.50 to N7.49" in labels
-
-
 def _spread_ensembles(active: int, inactive: int):
     """Ensembles whose one motif's references sit at known spacings."""
     import types
@@ -5992,44 +5117,6 @@ def test_a_motif_no_reference_resolves_gets_no_entry():
     module = _analyse_run_module()
     built = _spread_ensembles(active=5, inactive=5)
     assert module.reference_spread(built, {"absent": [9]}) == {}
-
-
-def test_the_motif_timelines_let_the_container_set_the_size():
-    """Setting a height in the layout as well pinned it before the grid ran.
-
-    Each panel drew its content into the top half of its box, with the axis
-    titles clipped and no x axis at all, because `newPlot` reads the container
-    in the same tick the div is appended and the row had not been laid out. The
-    container carries the height in CSS and the plots are resized once the
-    browser has placed them.
-    """
-    root = Path(__file__).resolve().parents[1]
-    page = (root / "flexappeal" / "templates" / "refstates_run.html").read_text()
-    block = page[page.index("motif-timelines"):]
-    block = block[:block.index("})();")]
-    assert "height: 200," not in block, (
-        "the layout must not pin a height the container also sets")
-    assert "Plotly.Plots.resize" in block
-    assert "requestAnimationFrame" in block
-
-    css = (root / "flexappeal" / "static" / "brand.css").read_text()
-    assert ".md-smallmultiples" in css
-    assert "height: 200px" in css[css.index(".md-smallmultiples"):]
-
-
-def test_the_timeline_panels_are_drawn_per_motif():
-    """One panel per motif, not one chart with every motif on it.
-
-    The distances run from a tenth of an angstrom to ten, so a shared axis
-    flattens five of the six motifs into the floor.
-    """
-    page = (Path(__file__).resolve().parents[1] / "flexappeal" / "templates"
-            / "refstates_run.html").read_text()
-    block = page[page.index("const host = document.getElementById(\"motif-timelines\")"):]
-    block = block[:block.index("})();")]
-    assert "Object.keys(payload.motifs).sort().forEach" in block
-    assert "metrics.d_act_a" in block and "metrics.d_inact_a" in block, (
-        "the panels plot the two distances the state score is built from")
 
 
 def test_the_overlay_uses_the_row_the_ensemble_kept(tmp_path: Path):
@@ -6158,50 +5245,6 @@ def test_the_real_finished_row_reads_as_finished():
 # ===========================================================================
 #  Section 10's "units everywhere"
 # ===========================================================================
-
-
-def test_the_state_map_axes_are_labelled_in_angstrom(tmp_path: Path):
-    """Section 10: "Units everywhere: A, ns, degrees, A^2", in Angstrom.
-
-    The axis labels the state map serves were written `(A)` with `Calpha` and
-    `alphaC` spelled out, while the same page wrote `\\u00c5` everywhere else,
-    so one plot carried a different convention from the panel beside it. This
-    is the guard, because a unit is the kind of thing that drifts back when a
-    label is next edited and nothing notices.
-    """
-    from flexappeal.webapp import create_app
-
-    application = create_app()
-    application.config.update(TESTING=True)
-    client = application.test_client()
-
-    seen = 0
-    for system in ("abl1", "b2ar"):
-        response = client.get(f"/refstates/map/{system}.json")
-        if response.status_code == 404:
-            continue            # no references for this system in this checkout
-        axes = json.loads(response.data).get("axes") or []
-        assert axes, f"{system}: a state map with no axis labels"
-        for label in axes:
-            seen += 1
-            assert "Å" in label, f"{system}: {label!r} carries no Angstrom"
-            assert "(A)" not in label, f"{system}: {label!r} uses ASCII A"
-            assert "Calpha" not in label and "alphaC" not in label, \
-                f"{system}: {label!r} spells out a Greek letter"
-    if not seen:
-        pytest.skip("no state map in this checkout")
-
-
-def test_the_published_threshold_is_annotated_in_angstrom():
-    """The threshold line on the state map names its own unit.
-
-    Section 10 asks for threshold lines labelled on every plot, and a
-    threshold without a unit is half a label.
-    """
-    template = (Path(__file__).resolve().parents[1] / "flexappeal"
-                / "templates" / "refstates_run.html").read_text()
-    assert "published ${v} \\u00c5" in template, \
-        "the state map threshold annotation lost its Angstrom"
 
 
 def test_the_g6_reason_names_its_unit_in_angstrom():
@@ -6454,138 +5497,6 @@ def test_a_real_ligand_gets_its_symmetry_mapping():
     assert min(row["closest_a"] for row in contacts) < 3.5
 
 
-def test_a_contact_at_the_cutoff_does_not_print_as_the_cutoff():
-    """The ligand panel's contact tags carry two decimals.
-
-    The panel says these residues are within 4.0 Å of the ligand and then
-    prints each one's closest approach. At one decimal a contact at 3.97 Å
-    printed as "4.0 Å", which reads as sitting exactly on the line it is meant
-    to be inside. Two of the sixteen contacts in the real imatinib pocket do
-    this, Leu248 at 3.97 and Val289 at 3.98.
-
-    The same fault was already fixed once, for the bilayer cell that read
-    "68.0 Å²" beside a badge saying it was outside a window ending at 68.0.
-    Rounding that hides the only digit deciding a verdict makes the page look
-    wrong when it is right.
-    """
-    from flask import render_template_string
-
-    from flexappeal.webapp import create_app
-
-    template = (Path(__file__).resolve().parents[1] / "flexappeal"
-                / "templates" / "refstates_run.html").read_text()
-    start = template.index("{% for contact in ligand.persistent_contacts %}")
-    end = template.index("{% endfor %}", start)
-    fragment = template[start:end] + "{% endfor %}"
-
-    application = create_app()
-    with application.app_context():
-        out = render_template_string(
-            fragment,
-            ligand={"persistent_contacts": [
-                {"name": "LEU", "residue": 248, "closest_a": 3.97},
-                {"name": "VAL", "residue": 289, "closest_a": 3.98}]})
-    assert "3.97" in out and "3.98" in out, out
-    assert "4.0 " not in out.replace("4.00", ""), (
-        "a contact inside the 4.0 A cutoff is printing as 4.0 A", out)
-
-
-def _overlay_page(tmp_path: Path, *, write_ghosts: tuple[str, ...]) -> str:
-    """A run page whose analysis offers both ghosts, writing only some files."""
-    import json as _json
-
-    import mdtraj as md
-    import numpy as np
-
-    from flexappeal.refstates import store
-    from flexappeal.webapp import create_app
-
-    database = tmp_path / "refstates.db"
-    store.ingest_analysis(
-        database,
-        {"name": "f", "kind": "kinase",
-         "core": {"n_residues": 10, "source": "fixture"},
-         "motif_residues": {"xDFG": [380]},
-         "ensembles": {"active": {"codes": ["2F4J"]},
-                       "inactive": {"codes": ["3PYY"]}},
-         "frames": [{"time_ns": 0.0, "n_conflicts": 0, "motifs": [
-             {"motif": "xDFG", "d_act_a": 1.0, "d_inact_a": 4.0,
-              "s": 0.6, "label": "active"}]}],
-         "notes": []},
-        system_id="abl1", run_id="abl1_apo", family="kinase",
-        environment="water",
-        run_fields={"start_state": "DFG-in", "status": "complete"})
-
-    analysis = tmp_path / "analysis"
-    analysis.mkdir()
-    topology = md.Topology()
-    chain = topology.add_chain()
-    for index in range(6):
-        residue = topology.add_residue("ALA", chain, resSeq=380 + index)
-        topology.add_atom("CA", md.element.carbon, residue)
-    xyz = np.zeros((2, 6, 3), dtype=np.float32)
-    xyz[:, :, 2] = np.arange(6) * 0.15
-    traj = md.Trajectory(xyz, topology)
-    traj[0].save_pdb(str(analysis / "abl1_apo.pdb"))
-    traj.save_xtc(str(analysis / "abl1_apo.xtc"))
-    for state in write_ghosts:
-        traj[0].save_pdb(str(analysis / f"abl1_apo.ref_{state}.pdb"))
-
-    (analysis / "abl1_apo.json").write_text(_json.dumps({
-        "dssp": {"n_frames": 1, "residues": [380], "frames": ["H"],
-                 "motifs": {}},
-        "viewer": {"topology": "abl1_apo.pdb", "trajectory": "abl1_apo.xtc",
-                   "n_frames": 2, "stride": 1, "frame_ns": 1.0, "bytes": 10,
-                   # All four keys, as `analyse_run` writes them: the dict is
-                   # built in one literal, so an overlay entry that exists
-                   # always carries its score. A fixture missing it was wrong
-                   # about the payload rather than finding a template fault.
-                   "overlay": {
-                       "active": {"pdb": "abl1_apo.ref_active.pdb",
-                                  "code": "2HZ4", "mean_motif_rmsd_a": 4.06,
-                                  "motifs_checked": 1, "bytes": 1024},
-                       "inactive": {"pdb": "abl1_apo.ref_inactive.pdb",
-                                    "code": "2HZ0", "mean_motif_rmsd_a": 6.05,
-                                    "motifs_checked": 1, "bytes": 1024}}},
-        "frames": [{"time_ns": 0.0, "measurements": {}}]}))
-
-    application = create_app()
-    application.config.update(TESTING=True)
-    application.config["REFSTATES_DB"] = str(database)
-    application.config["REFSTATES_ANALYSIS_DIR"] = str(analysis)
-    return application.test_client().get(
-        "/refstates/run/abl1_apo").data.decode()
-
-
-def test_both_reference_ghosts_draw_when_their_files_are_there(tmp_path: Path):
-    page = _overlay_page(tmp_path, write_ghosts=("active", "inactive"))
-    assert page.count('id="overlay-toggle-') == 2, "both ghosts should be offered"
-    assert "2HZ4" in page and "2HZ0" in page
-
-
-def test_a_ghost_without_its_file_is_not_offered(tmp_path: Path):
-    """The guard the bilayer toggle had and the overlay did not.
-
-    `viewer.lipids` is dropped unless both its files are on disk, with a
-    comment saying the point is that the toggle cannot produce a failed
-    request. The overlay was built later, read the same analysis payload, and
-    had no such check: a run whose `ref_active.pdb` had not been copied would
-    still have drawn the toggle and 404'd when somebody ticked it.
-
-    Withheld per state, because losing one ghost is not a reason to hide the
-    other.
-    """
-    page = _overlay_page(tmp_path, write_ghosts=("inactive",))
-    assert "2HZ0" in page, "the ghost that is on disk should still be offered"
-    assert "2HZ4" not in page, "the missing ghost should not be offered"
-    assert page.count('id="overlay-toggle-') == 1, page
-
-
-def test_no_ghosts_at_all_draws_no_overlay_control(tmp_path: Path):
-    page = _overlay_page(tmp_path, write_ghosts=())
-    assert 'id="overlay-toggle-' not in page
-
-
 def _wrapped_complex(wrap: bool):
     """A two-residue protein with a ligand beside it, optionally wrapped.
 
@@ -6773,55 +5684,6 @@ def test_a_protein_split_across_the_box_is_reported(capsys):
     assert "broken" in said and "periodic boundary" in said, said
 
 
-def test_receptor_rows_use_the_label_the_analysis_resolved():
-    """Section 5.5's label form, on the page and not only in the payload.
-
-    The clause is explicit: "labels in Ballesteros-Weinstein form with the
-    beta2AR residue number beside them (for example `R3.50 (R131)`), the
-    beta2AR numbers coming from the GPCRdb residue table, never typed".
-
-    `GenericNumbering.label` has always produced exactly that, and the payload
-    has always carried `R3.50 (R131) - E6.30 (E268)` for the ionic lock. The
-    page wrote "Ionic lock" beside it and showed that instead, so the
-    requirement was met in the data and not in the thing anybody reads, and
-    what was displayed was the hand-typed kind the clause forbids.
-    """
-    from flexappeal.refstates.web import MEASUREMENT_ROWS, frame_measurements
-
-    frames = [{"measurements": {"micro_switches": {
-        "tm3_tm6_a": 12.4,
-        "tm3_tm6_pair": "R3.50 (R131) - L6.34 (L272)",
-        "ionic_lock": {"distance_a": 9.1, "state": "broken",
-                       "pair": "R3.50 (R131) - E6.30 (E268)"},
-        "toggle_w6x48": {"position": "W6.48 (W286)", "chi1_deg": -65.2,
-                         "chi2_deg": 113.4},
-        "npxxy_y7x53": {"position": "Y7.53 (Y326)", "chi1_deg": -62.3,
-                        "chi2_deg": -76.5}}}}]
-    labels = [row["label"] for row in frame_measurements.__wrapped__(frames)] \
-        if hasattr(frame_measurements, "__wrapped__") else None
-    if labels is None:
-        # `frame_measurements` reads a run id; exercise the row table directly.
-        from flexappeal.refstates.web import _dig
-        labels = []
-        last = frames[-1]["measurements"]
-        for entry in MEASUREMENT_ROWS:
-            label, value_path = entry[0], entry[1]
-            if _dig(last, value_path) is None:
-                continue
-            label_path = entry[4] if len(entry) > 4 else None
-            suffix = entry[5] if len(entry) > 5 else ""
-            resolved = _dig(last, label_path) if label_path else None
-            labels.append((resolved or label) + suffix)
-
-    assert "R3.50 (R131) - E6.30 (E268)" in labels, labels
-    assert "R3.50 (R131) - L6.34 (L272)" in labels, labels
-    assert "W6.48 (W286) χ₁" in labels, labels
-    assert "Y7.53 (Y326) χ₂" in labels, labels
-    # And nothing still shows the written stand-in where a label was resolved.
-    assert "Ionic lock" not in labels, labels
-    assert "TM3–TM6 cleft" not in labels, labels
-
-
 def _p5_database(tmp_path: Path, *, status: str, length_ns: float,
                  scores: list[tuple[float, float]]):
     """A one-motif inactive-start run with the given per-frame scores."""
@@ -6881,60 +5743,3 @@ def test_p5_judges_a_finished_run(tmp_path: Path):
     assert rows[0]["frames_in_window"] < 500, rows[0]["frames_in_window"]
 
 
-def _run_page(tmp_path: Path, status: str) -> str:
-    """The run page for a one-motif row with the given status."""
-    import json as _json
-
-    from flexappeal.refstates import store
-    from flexappeal.webapp import create_app
-
-    database = tmp_path / "refstates.db"
-    store.ingest_analysis(
-        database,
-        {"name": "f", "kind": "kinase",
-         "core": {"n_residues": 10, "source": "fixture"},
-         "motif_residues": {"xDFG": [380, 381]},
-         "ensembles": {"active": {"codes": ["2F4J"]},
-                       "inactive": {"codes": ["3PYY"]}},
-         "frames": [{"time_ns": t / 10.0, "n_conflicts": 0, "motifs": [
-             {"motif": "xDFG", "d_act_a": 1.0, "d_inact_a": 4.0, "s": 0.6,
-              "label": "active"}]} for t in range(20)],
-         "notes": []},
-        system_id="abl1", run_id="abl1_apo", family="kinase",
-        environment="water",
-        run_fields={"start_state": "DFG-in", "status": status,
-                    "length_ns": 2.0})
-    analysis = tmp_path / "analysis"
-    analysis.mkdir(exist_ok=True)
-    (analysis / "abl1_apo.json").write_text(_json.dumps({
-        "dssp": {"n_frames": 1, "residues": [380], "frames": ["H"],
-                 "motifs": {}},
-        "viewer": {}, "frames": [{"time_ns": 0.0, "measurements": {}}]}))
-    application = create_app()
-    application.config.update(TESTING=True)
-    application.config["REFSTATES_DB"] = str(database)
-    application.config["REFSTATES_ANALYSIS_DIR"] = str(analysis)
-    return application.test_client().get(
-        "/refstates/run/abl1_apo").data.decode()
-
-
-def test_a_running_row_does_not_call_its_latest_frame_final(tmp_path: Path):
-    """The same slip P5 made, in the column a reader looks at.
-
-    On a producing row the motif table's numbers are the latest frame and the
-    latest tenth of what exists. Calling them final is what let P5 pass a run
-    eight nanoseconds into fifty. The page states the status and the analysed
-    length above the table, so it was not misleading, but a column header
-    should not depend on those being read first.
-    """
-    page = _run_page(tmp_path, "running")
-    assert "Latest s" in page and "Latest tenth mean" in page, page[:0]
-    assert "Final s" not in page
-    assert "Motifs so far" in page
-
-
-def test_a_finished_row_does_call_it_final(tmp_path: Path):
-    page = _run_page(tmp_path, "complete")
-    assert "Final s" in page and "Final tenth mean" in page
-    assert "Latest s" not in page
-    assert "Motifs at the end of the run" in page

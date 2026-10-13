@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% from "_refstates_panels.html" import refstates_section %}
 {% block title %}{% if results %}{{ summary.job_name }}{% else %}Analysis{% endif %}{% endblock %}
 
 {% block head %}
@@ -228,6 +229,11 @@
       </div>
     </section>
   {% endif %}
+
+  {# Before "Ask something else", which is a control rather than a result, and
+     after the convergence small multiples. On this page the descriptions are
+     printed above each panel: the Example tab is teaching, so `prose` is on. #}
+  {{ refstates_section(refstates, prose=true) }}
 
   <section class="md-card md-reanalyse" id="reanalyse-card"
            data-endpoint="{{ url_for('analysis.reanalyse', token=token) }}"

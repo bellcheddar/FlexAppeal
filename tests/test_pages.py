@@ -196,6 +196,95 @@ def _write_bundle(directory, stem: str, n_residues: int, n_frames: int,
         traj.save_xtc(str(directory / f"{stem}.xtc"))
 
 
+def _fxa(path: Path, *, job_name: str, payload: dict, members: dict,
+         frames: int, atoms: int, duration_ns: float,
+         metrics: dict | None = None, config: dict | None = None) -> None:
+    """One results file, assembled here rather than by the analysis pass.
+
+    The real files are packed by `tools/pack_run_fxa.py`, which runs a bundle's
+    own `analyse.py` over a 50 ns trajectory: minutes of work and a gigabyte of
+    input, which is not a fixture. This writes the same archive by hand, which
+    is what the security rules ask for anyway, since a fixture is generated in
+    the test and never committed.
+
+    The manifest carries a size and a checksum per member because `fxa.load`
+    checks them, and a fixture that skipped them would not be exercising the
+    reader the pages use.
+    """
+    import hashlib
+    import zipfile
+
+    body = {
+        "metrics.json": json.dumps(metrics or {}).encode(),
+        "refstates.json": json.dumps(payload).encode(),
+        **members,
+    }
+    manifest = {
+        "fxa_version": 1,
+        "flexappeal_version": "test",
+        "job_name": job_name,
+        "created_at": "2026-10-13T00:00:00+00:00",
+        "payload_tier": "standard",
+        "metrics_computed": sorted(metrics or {}),
+        "trajectory": {"frames_packed": frames, "frames_analysed": frames,
+                       "atoms_packed": atoms, "stride": 1,
+                       "duration_ns": duration_ns},
+        "run": {"platform": "OpenCL", "achieved_ns_per_day": 213.0,
+                "wall_seconds": 17748.0},
+        "config": config or {},
+        "structure": {"filename": f"{job_name}.pdb"},
+        "files": {name: {"bytes": len(blob),
+                         "sha256": hashlib.sha256(blob).hexdigest()}
+                  for name, blob in sorted(body.items())},
+    }
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with zipfile.ZipFile(path, "w", zipfile.ZIP_DEFLATED) as archive:
+        archive.writestr("manifest.json", json.dumps(manifest, indent=2))
+        for name, blob in sorted(body.items()):
+            archive.writestr(name, blob)
+
+
+def _reference_rows(system: str) -> list[dict]:
+    """Reference geometry, so the state map has points and actually renders.
+
+    Without it the panel is correctly hidden, and a test that then asserts the
+    map drew is testing the fixture rather than the page. The kinase plots two
+    DFG distances and the receptor the TM3-TM6 cleft against the NPxxY RMSD, so
+    both families are given their own axes: the panel is built per family and
+    only the kinase half had ever been in a browser.
+    """
+    if system == "abl1":
+        rows = [
+            {"pdb": code, "chain": "A", "resolution": 2.0, "source": "KLIFS",
+             "source_state": state, "our_state": state,
+             "metrics": {"dfg_d_alphac": alphac, "dfg_d_lys": lys,
+                         "their_dfg": state, "our_dfg": state,
+                         "dfg_agrees": True}}
+            for code, state, alphac, lys in (("2F4J", "in", 6.83, 13.63),
+                                             ("2GQG", "in", 6.64, 14.04),
+                                             ("2HYY", "out", 13.82, 11.14),
+                                             ("3PYY", "out", 13.10, 9.64))
+        ]
+        # One reference the catalogue labels and this build could not, which is
+        # the "no opinion" branch of the table. It fires on real data, where
+        # ABL1 has three, and fired on no fixture.
+        rows.append({"pdb": "2V7A", "chain": "B", "resolution": 2.2,
+                     "source": "KLIFS", "source_state": "in", "our_state": None,
+                     "metrics": {"dfg_d_alphac": 6.71, "dfg_d_lys": 13.9,
+                                 "their_dfg": "in", "our_dfg": None,
+                                 "dfg_agrees": None}})
+        return rows
+    return [
+        {"pdb": code, "chain": "A", "resolution": 2.4, "source": "GPCRdb",
+         "source_state": state, "our_state": state,
+         "metrics": {"tm3_tm6": cleft, "npxxy_to_inactive": npxxy}}
+        for code, state, cleft, npxxy in (("3P0G", "active", 14.2, 2.95),
+                                          ("3SN6", "active", 14.9, 2.79),
+                                          ("2RH1", "inactive", 9.1, 0.42),
+                                          ("5D5A", "inactive", 9.4, 0.51))
+    ]
+
+
 @pytest.fixture(scope="module")
 def site(tmp_path_factory):
     """The real app on a real port, in a thread.
@@ -203,216 +292,197 @@ def site(tmp_path_factory):
     A live server rather than Flask's test client, because the whole point of
     these tests is the part that runs in a browser, and the test client never
     serves a page to one.
+
+    Two runs in a temporary library, each a results file carrying a
+    reference-state payload: a kinase in water and a receptor in a bilayer.
+    These were four pages of their own until the fifth tab was removed, and the
+    coverage follows the panels rather than being dropped with the tab. The
+    receptor is here for the reason it always was: the bilayer panel, the lipid
+    toggle and the ligand panels exist only on a membrane row with a ligand, so
+    on a kinase-only fixture none of them is ever loaded in a browser or seen
+    by axe.
     """
     from werkzeug.serving import make_server
 
-    from flexappeal.refstates import store
     from flexappeal.webapp import create_app
 
     root = tmp_path_factory.mktemp("site")
-    database = root / "refstates.db"
-    payload = {
-        "name": "fixture", "kind": "kinase",
-        "core": {"n_residues": 43, "source": "fixture core"},
-        "motif_residues": {"xDFG": [380, 381, 382, 383],
-                           "hinge": [316, 317, 318]},
-        "ensembles": {"active": {"codes": ["2F4J"]},
-                      "inactive": {"codes": ["3PYY"]}},
-        "frames": [
-            {"time_ns": t / 10.0, "n_conflicts": 0, "motifs": [
-                {"motif": "xDFG", "d_act_a": 1.0, "d_inact_a": 4.0,
-                 "s": 0.6, "label": "active"},
-                {"motif": "hinge", "d_act_a": 2.0, "d_inact_a": 2.0,
-                 "s": 0.0, "label": "intermediate"}]}
-            for t in range(12)],
-        "notes": [],
-    }
-    store.ingest_analysis(database, payload, system_id="abl1", run_id="abl1_apo",
-                          family="kinase", environment="water",
-                          run_fields={"start_state": "DFG-in", "status": "complete",
-                                      "ns_per_day": 213.0})
+    runs = root / "web_runs"
+    bundles = root / "bundles"
+    bundles.mkdir()
 
-    # A membrane row as well as the water one. Section 10 asks for every page
-    # at both viewports with no console errors and no serious axe violation,
-    # and until this fixture had a receptor the only run page ever opened in a
-    # browser was a kinase in water. The bilayer table, its three verdict
-    # badges and the lipid toggle are markup and script that exist only on a
-    # membrane row, so none of them had been through either check.
-    receptor = {
-        "name": "fixture-gpcr", "kind": "gpcr",
-        "core": {"n_residues": 180, "source": "fixture core"},
-        "motif_residues": {"NPxxY": [322, 323, 324, 325, 326],
-                           "TM6": [267, 268, 269, 270]},
-        "ensembles": {"active": {"codes": ["3P0G"]},
-                      "inactive": {"codes": ["2RH1"]}},
-        "frames": [
-            {"time_ns": t / 10.0, "n_conflicts": 0, "motifs": [
-                {"motif": "NPxxY", "d_act_a": 0.4, "d_inact_a": 3.1,
-                 "s": 0.77, "label": "active"},
-                {"motif": "TM6", "d_act_a": 1.5, "d_inact_a": 3.4,
-                 "s": 0.39, "label": "active"}]}
-            for t in range(12)],
-        "notes": [],
-    }
-    store.ingest_analysis(database, receptor, system_id="b2ar",
-                          run_id="b2ar_apo", family="gpcr",
-                          environment="membrane",
-                          run_fields={"start_state": "active",
-                                      "status": "complete",
-                                      "ns_per_day": 59.7})
-
-    # One chunk per verdict, so the badge macro is exercised in all three of
-    # its branches rather than only the happy one. 67.0 is inside the expected
-    # window, 69.5 is outside it but still acceptable, and 80.0 raises G6.
-    with store.connect(database) as connection:
-        store.put_membrane(connection, "b2ar_apo", [
-            {"start_ns": 0.0, "apl_a2": 67.0, "thickness_a": 38.9,
-             "tilt_deg": 13.6, "core_waters": 54.4},
-            {"start_ns": 10.0, "apl_a2": 69.5, "thickness_a": 39.4,
-             "tilt_deg": 15.4, "core_waters": 49.4},
-            {"start_ns": 20.0, "apl_a2": 80.0, "thickness_a": 42.5,
-             "tilt_deg": 9.6, "core_waters": 28.1},
-        ])
-
-    # Reference geometry, so the state map has points and actually renders.
-    # Without it the panel is correctly hidden, and a test that then asserts
-    # the map drew is testing the fixture rather than the page.
-    with store.connect(database) as connection:
-        for code, state, alphac, lys in (("2F4J", "in", 6.83, 13.63),
-                                         ("2GQG", "in", 6.64, 14.04),
-                                         ("2HYY", "out", 13.82, 11.14),
-                                         ("3PYY", "out", 13.10, 9.64)):
-            store.put_reference(
-                connection, f"abl1:{code}", "abl1", pdb=code, chain="A",
-                source="KLIFS", source_state=state, our_state=state,
-                metrics={"dfg_d_alphac": alphac, "dfg_d_lys": lys})
-
-        # One reference the catalogue labels and this build could not, which
-        # is the `n_unlabelled` branch of the references page. It fires on
-        # real data, where ABL1 has three, and fired on no fixture: the page
-        # says "a further N structures could not be labelled here, which is
-        # not a disagreement", and that sentence had never been rendered.
-        store.put_reference(
-            connection, "abl1:2V7A", "abl1", pdb="2V7A", chain="B",
-            source="KLIFS", source_state="in", our_state=None,
-            metrics={"dfg_d_alphac": 6.71, "dfg_d_lys": 13.9})
-
-        # And the receptor's, which has different axes: the kinase map plots
-        # two DFG distances and this one plots the TM3-TM6 cleft against the
-        # NPxxY RMSD. Without these the receptor page drew no map, so only the
-        # kinase half of a panel that is built per family had ever been in a
-        # browser.
-        for code, state, cleft, npxxy in (("3P0G", "active", 14.2, 2.95),
-                                          ("3SN6", "active", 14.9, 2.79),
-                                          ("2RH1", "inactive", 9.1, 0.42),
-                                          ("5D5A", "inactive", 9.4, 0.51)):
-            store.put_reference(
-                connection, f"b2ar:{code}", "b2ar", pdb=code, chain="A",
-                source="GPCRdb", source_state=state, our_state=state,
-                metrics={"tm3_tm6": cleft, "npxxy_to_inactive": npxxy})
-
-    # The run's analysis file, which the DSSP ribbon and the viewer read.
-    analysis = root / "analysis"
-    analysis.mkdir(exist_ok=True)
-    # Frames carrying the Dunbrack distances, so the state map has a
-    # trajectory path to draw and the click test is testing the page rather
-    # than the fixture. A drift across the plane, not a constant, so a click in
-    # the middle lands somewhere distinguishable from either end.
-    (analysis / "abl1_apo.json").write_text(json.dumps({
-        "dssp": {"n_frames": 12, "residues": [316, 317, 318, 380, 381],
-                 "frames": ["HHHEE"] * 12, "motifs": {}},
-        "viewer": {"topology": "abl1_apo.pdb", "trajectory": "abl1_apo.xtc",
-                   "n_frames": 6, "stride": 10, "frame_ns": 1.0,
-                   "bytes": 1024,
-                   "overlay": {
-                       "active": {"pdb": "abl1_apo.ref_active.pdb",
-                                  "code": "2HZ4", "mean_motif_rmsd_a": 4.06,
-                                  "motifs_checked": 1, "bytes": 1024},
-                       "inactive": {"pdb": "abl1_apo.ref_inactive.pdb",
-                                    "code": "2HZ0", "mean_motif_rmsd_a": 6.05,
-                                    "motifs_checked": 1, "bytes": 1024}}},
-        "frames": [
-            {"time_ns": t / 2.0, "measurements": {"dfg_plane": {
-                "status": "ok", "d_alphac_a": 6.5 + t * 0.05,
-                "d_lys_a": 14.0 - t * 0.04}}}
-            for t in range(12)],
-    }))
-    # The viewer panel only renders when both files exist, and the slider only
-    # when the bundle has more than one frame.
-    # Spanning both of this fixture's motifs, 316 to 318 and 380 to 383.
-    _write_bundle(analysis, "abl1_apo", n_residues=80, n_frames=6,
+    # Spanning both of the kinase fixture's motifs, 316 to 318 and 380 to 383.
+    _write_bundle(bundles, "abl1_apo", n_residues=80, n_frames=6,
                   first_residue=310)
-    # Section 6.2's reference overlay, which no fixture had: both bound and
-    # apo runs carry one in production, but the page QC never did, so the two
-    # ghost toggles and the script that wires them had never been loaded in a
-    # browser. One frame each, because a ghost is a single superposed
-    # structure rather than a trajectory.
+    # Section 6.2's reference overlay. One frame each, because a ghost is a
+    # single superposed structure rather than a trajectory.
     for state in ("active", "inactive"):
-        _write_bundle(analysis, f"abl1_apo.ref_{state}", n_residues=80,
+        _write_bundle(bundles, f"abl1_apo.ref_{state}", n_residues=80,
                       n_frames=1, first_residue=310)
-
-    # The receptor's own bundle. `viewer.lipids` is what draws the bilayer
-    # toggle, and the page only offers it when both lipid files are present,
-    # so both are written.
-    (analysis / "b2ar_apo.json").write_text(json.dumps({
-        "dssp": {"n_frames": 12, "residues": [267, 268, 322, 323, 324],
-                 "frames": ["HHHHH"] * 12, "motifs": {}},
-        "viewer": {"topology": "b2ar_apo.pdb", "trajectory": "b2ar_apo.xtc",
-                   "n_frames": 6, "stride": 10, "frame_ns": 1.0,
-                   "bytes": 1024,
-                   "lipids": {"topology": "b2ar_apo.lipids.pdb",
-                              "trajectory": "b2ar_apo.lipids.xtc",
-                              "n_atoms": 476, "n_frames": 6}},
-        "frames": [{"time_ns": t / 2.0, "measurements": {}}
-                   for t in range(12)],
-        # Section 5.7's ligand panel, which is gated on this key and so had
-        # never been rendered in a browser or seen by axe: both bound rows are
-        # last in the queue, so no run has ever carried one. The shape is
-        # `pose_and_contacts`'s, and the values are the real carazolol
-        # rehearsal's, so the panel is exercised with the numbers it will
-        # actually be given rather than with round ones.
-        "ligand": {
-            "resname": "CAU", "n_residues": 2, "n_heavy_atoms": 22,
-            "final_pose_rmsd_a": 0.84, "max_pose_rmsd_a": 1.37,
-            "symmetry_corrected": True, "contact_cutoff_a": 4.0,
-            "mean_contacts": 15.2,
-            "persistent_contacts": [
-                {"residue": 113, "name": "ASP", "fraction_of_frames": 1.0,
-                 "closest_a": 2.54},
-                {"residue": 203, "name": "SER", "fraction_of_frames": 0.98,
-                 "closest_a": 2.7},
-                {"residue": 193, "name": "PHE", "fraction_of_frames": 0.91,
-                 "closest_a": 3.69},
-                {"residue": 118, "name": "THR", "fraction_of_frames": 0.76,
-                 "closest_a": 3.51},
-            ],
-            "n_contacts_per_frame": [15, 16, 15, 14, 16, 15,
-                                     15, 16, 14, 15, 16, 15],
-            # The per-frame RMSD the timeline plots, which the fixture had
-            # omitted: the panel's container is gated on it, so the plot was
-            # simply not rendered and the first version of its test timed out
-            # waiting for a chart that could not appear.
-            "pose_rmsd_a": [0.0, 0.21, 0.33, 0.41, 0.52, 0.68,
-                            0.74, 1.37, 0.91, 0.79, 0.86, 0.84],
-        },
-    }))
-    # Spanning this fixture's motifs, 267 to 270 and 322 to 326.
-    _write_bundle(analysis, "b2ar_apo", n_residues=75, n_frames=6,
+    _write_bundle(bundles, "b2ar_apo", n_residues=75, n_frames=6,
                   first_residue=260)
     # The lipid bundle is phosphorus atoms, which is what the real one holds
     # and what the bilayer toggle draws as spheres.
-    _write_bundle(analysis, "b2ar_apo.lipids", n_residues=24, n_frames=6,
+    _write_bundle(bundles, "b2ar_apo.lipids", n_residues=24, n_frames=6,
                   resname="POP", atoms="phosphorus")
 
+    # Frames carrying the Dunbrack distances, so the state map has a trajectory
+    # path to draw and the click test is testing the page rather than the
+    # fixture. A drift across the plane, not a constant, so a click in the
+    # middle lands somewhere distinguishable from either end.
+    kinase = {
+        "name": "abl1_apo", "kind": "kinase", "system_id": "abl1",
+        "n_frames": 12, "smoothing_window_ns": 2.0,
+        "core": {"n_residues": 43, "source": "fixture core"},
+        "motif_residues": {"xDFG": [380, 381, 382, 383],
+                           "hinge": [316, 317, 318]},
+        "ensembles": {"active": ["2F4J"], "inactive": ["3PYY"]},
+        "references": {"active": ["2F4J"], "inactive": ["3PYY"]},
+        "report": {"alignment": {"target": "2GQG", "n_aligned": 4,
+                                 "n_dropped": 1, "mean_core_rmsd_a": 0.49,
+                                 "max_core_rmsd_a": 0.92},
+                   "rigidity": {"reference": "2GQG", "mean_rmsd_a": 0.31},
+                   "sse_profiles": {
+                       "active": {"xDFG": {"0": {"E": 4}, "1": {"E": 3, "C": 1}}},
+                       "inactive": {"xDFG": {"0": {"C": 4}, "1": {"C": 4}}}}},
+        "dssp": {"n_frames": 12, "n_residues": 5,
+                 "residues": [316, 317, 318, 380, 381],
+                 "frames": ["HHHEE"] * 12, "motifs": {}},
+        "whole_s_raw": [0.30 + t * 0.01 for t in range(12)],
+        "whole_s_smoothed": [0.31 + t * 0.01 for t in range(12)],
+        "frames": [
+            {"time_ns": t / 2.0, "n_conflicts": 0,
+             "whole_s": 0.30 + t * 0.01, "whole_label": "active",
+             "motifs": [
+                 {"motif": "xDFG", "n_residues": 4, "d_act_a": 1.0,
+                  "d_inact_a": 4.0, "s": 0.6, "label": "active",
+                  "nearest_active": "2F4J", "nearest_inactive": "3PYY"},
+                 {"motif": "hinge", "n_residues": 3, "d_act_a": 2.0,
+                  "d_inact_a": 2.0, "s": 0.0, "label": "intermediate",
+                  "nearest_active": "2F4J", "nearest_inactive": "3PYY"}],
+             "measurements": {"dfg_plane": {"status": "ok",
+                                            "d_alphac_a": 6.5 + t * 0.05,
+                                            "d_lys_a": 14.0 - t * 0.04},
+                              "r_spine": {"state": "assembled"},
+                              "alphac_salt_bridge": {
+                                  "distance_a": 3.1 + t * 0.02,
+                                  "state": "formed",
+                                  "pair": "E286 - K271"}}}
+            for t in range(12)],
+        "reference_structures": _reference_rows("abl1"),
+        "membrane_chunks": [],
+        "notes": [],
+        "viewer": {"motif_painted": True,
+                   "overlay": {
+                       "active": {"member": "refstates_active.pdb",
+                                  "code": "2HZ4", "mean_motif_rmsd_a": 4.06,
+                                  "motifs_checked": 1},
+                       "inactive": {"member": "refstates_inactive.pdb",
+                                    "code": "2HZ0", "mean_motif_rmsd_a": 6.05,
+                                    "motifs_checked": 1}},
+                   "lipids": {}},
+    }
+    _fxa(runs / "abl1_apo" / "results.fxa", job_name="abl1_apo",
+         payload=kinase, frames=6, atoms=320, duration_ns=5.0,
+         metrics={"time_ns": [t / 2.0 for t in range(12)],
+                  "rmsd_nm": [0.01 * t for t in range(12)]},
+         config={"protein_ff": "amber14-all.xml", "water_model": "tip3p",
+                 "temperature": 300.0},
+         members={
+             "topology.pdb": (bundles / "abl1_apo.pdb").read_bytes(),
+             "traj.xtc": (bundles / "abl1_apo.xtc").read_bytes(),
+             "refstates_active.pdb":
+                 (bundles / "abl1_apo.ref_active.pdb").read_bytes(),
+             "refstates_inactive.pdb":
+                 (bundles / "abl1_apo.ref_inactive.pdb").read_bytes(),
+         })
+    (runs / "abl1_apo" / "run.json").write_text(json.dumps(
+        {"label": "ABL1 fixture", "source": "fixture"}))
+
+    receptor = dict(kinase)
+    receptor.update({
+        "name": "b2ar_apo", "kind": "gpcr", "system_id": "b2ar",
+        "motif_residues": {"NPxxY": [322, 323, 324, 325, 326],
+                           "TM6": [267, 268, 269, 270]},
+        "dssp": {"n_frames": 12, "n_residues": 5,
+                 "residues": [267, 268, 322, 323, 324],
+                 "frames": ["HHHHH"] * 12, "motifs": {}},
+        "report": {"alignment": {"target": "2RH1", "n_aligned": 4,
+                                 "n_dropped": 0, "mean_core_rmsd_a": 0.6},
+                   "rigidity": {"reference": "2RH1", "mean_rmsd_a": 0.4},
+                   "sse_profiles": {
+                       "active": {"NPxxY": {"0": {"H": 3, "C": 1}}},
+                       "inactive": {"NPxxY": {"0": {"H": 4}}}}},
+        "frames": [
+            {"time_ns": t / 2.0, "n_conflicts": 0,
+             "whole_s": 0.5, "whole_label": "active",
+             "motifs": [
+                 {"motif": "NPxxY", "n_residues": 5, "d_act_a": 0.4,
+                  "d_inact_a": 3.1, "s": 0.77, "label": "active",
+                  "nearest_active": "3P0G", "nearest_inactive": "2RH1"},
+                 {"motif": "TM6", "n_residues": 4, "d_act_a": 1.5,
+                  "d_inact_a": 3.4, "s": 0.39, "label": "active",
+                  "nearest_active": "3P0G", "nearest_inactive": "2RH1"}],
+             "measurements": {
+                 "micro_switches": {
+                     "tm3_tm6_a": 14.0 - t * 0.05,
+                     "tm3_tm6_pair": "R3.50 (R131) - L6.34 (L272)",
+                     "ionic_lock": {"distance_a": 11.0 + t * 0.03,
+                                    "state": "broken",
+                                    "pair": "R3.50 (R131) - E6.30 (E268)"},
+                     "toggle_w6x48": {"chi1_deg": -60.0 - t,
+                                      "chi2_deg": 90.0 + t,
+                                      "position": "W6.48 (W286)"}}}}
+            for t in range(12)],
+        "reference_structures": _reference_rows("b2ar"),
+        # One chunk per verdict, so every branch is exercised rather than only
+        # the happy one. 67.0 is inside the expected window, 69.5 is outside it
+        # but still acceptable, and 80.0 would raise G6.
+        "membrane_chunks": [
+            {"time_ns": 0.0, "apl": 67.0, "thickness": 38.9, "tilt": 13.6},
+            {"time_ns": 10.0, "apl": 69.5, "thickness": 39.4, "tilt": 15.4},
+            {"time_ns": 20.0, "apl": 80.0, "thickness": 42.5, "tilt": 9.6},
+        ],
+        "viewer": {"motif_painted": True, "overlay": {},
+                   "lipids": {"topology": "lipids.pdb",
+                              "trajectory": "lipids.xtc",
+                              "n_atoms": 24, "n_frames": 6}},
+    })
+    _fxa(runs / "b2ar_apo" / "results.fxa", job_name="b2ar_apo",
+         payload=receptor, frames=6, atoms=300, duration_ns=5.0,
+         metrics={"time_ns": [t / 2.0 for t in range(12)],
+                  "rmsd_nm": [0.01 * t for t in range(12)],
+                  "area_per_lipid_nm2": [0.67 + 0.001 * t for t in range(12)],
+                  "bilayer_thickness_nm": [3.9 + 0.001 * t for t in range(12)],
+                  # Section 5.7's two per-frame ligand series. The values are
+                  # the carazolol rehearsal's, so the panels are exercised with
+                  # the numbers they will actually be given: a pose that wanders
+                  # to 1.37 angstrom and comes back, which is the shape a final
+                  # number on its own cannot show.
+                  "ligand_rmsd_nm": [0.0, 0.021, 0.033, 0.041, 0.052, 0.068,
+                                     0.074, 0.137, 0.091, 0.079, 0.086, 0.084],
+                  "ligand_contacts": [
+                      {"residue": "ASP113", "occupancy": 1.0},
+                      {"residue": "SER203", "occupancy": 0.98},
+                      {"residue": "PHE193", "occupancy": 0.91},
+                      {"residue": "THR118", "occupancy": 0.76}]},
+         config={"protein_ff": "amber14-all.xml", "water_model": "tip3p",
+                 "temperature": 303.15, "use_membrane": True,
+                 "has_ligands": True, "keep_heteroatoms": ["CAU"]},
+         members={
+             "topology.pdb": (bundles / "b2ar_apo.pdb").read_bytes(),
+             "traj.xtc": (bundles / "b2ar_apo.xtc").read_bytes(),
+             "lipids.pdb": (bundles / "b2ar_apo.lipids.pdb").read_bytes(),
+             "lipids.xtc": (bundles / "b2ar_apo.lipids.xtc").read_bytes(),
+         })
+    (runs / "b2ar_apo" / "run.json").write_text(json.dumps(
+        {"label": "beta2AR fixture", "source": "fixture"}))
+
     app = create_app()
-    app.config["REFSTATES_DB"] = str(database)
-    # Configuration rather than a monkeypatch. Patching `web.analysis_file`
-    # redirected the run's JSON and nothing else, because the two routes that
-    # serve a viewer bundle resolved the directory themselves, so a fixture
-    # run's viewer was always looked for in the repository's own data and a
-    # patch left behind leaked into every later test in the session. One key,
-    # read the same way `REFSTATES_DB` is, covers all three.
-    app.config["REFSTATES_ANALYSIS_DIR"] = str(analysis)
+    # The library, pointed at this fixture's own runs. Configuration rather
+    # than a monkeypatch, so every route that resolves a run reads the same
+    # key and a patch cannot be left behind to leak into a later test.
+    app.config["RUNS_ROOT"] = str(runs)
     port = _free_port()
     server = make_server("127.0.0.1", port, app, threaded=True)
     thread = threading.Thread(target=server.serve_forever, daemon=True)
@@ -449,7 +519,7 @@ def _warm_webgl(chromium, site):
     context = _context(chromium, VIEWPORTS["desktop"])
     page = context.new_page()
     try:
-        page.goto(f"{site}/refstates/run/abl1_apo", wait_until="networkidle")
+        page.goto(f"{site}/runs/abl1_apo", wait_until="networkidle")
     finally:
         context.close()
 
@@ -459,16 +529,14 @@ PAGES = [
     ("analysis", "/analysis"),
     ("example", "/example"),
     ("runs", "/runs"),
-    ("refstates", "/refstates/"),
-    ("refstates-about", "/refstates/about"),
-    ("refstates-run", "/refstates/run/abl1_apo"),
-    ("refstates-run-membrane", "/refstates/run/b2ar_apo"),
-    ("refstates-references", "/refstates/references/abl1"),
-    # Both families, for the reason the state map needed both: the page is
-    # rendered per system and its prose is family specific, naming KLIFS for a
-    # kinase and GPCRdb for a receptor, so only the kinase half had ever been
-    # loaded in a browser or measured by axe.
-    ("refstates-references-gpcr", "/refstates/references/b2ar"),
+    # The two reference-state runs, which were four pages of their own until
+    # the fifth tab was removed. Both families, for the reason the state map
+    # needed both: several of these panels are built per family, naming KLIFS
+    # for a kinase and GPCRdb for a receptor, and only the kinase half had ever
+    # been loaded in a browser or measured by axe. The receptor page is also
+    # the only one carrying the bilayer panel and the lipid toggle.
+    ("run-kinase", "/runs/abl1_apo"),
+    ("run-membrane", "/runs/b2ar_apo"),
 ]
 
 
@@ -554,25 +622,30 @@ def test_no_serious_or_critical_accessibility_violations(chromium, site, name,
         context.close()
 
 
-def test_the_ligand_timeline_draws(chromium, site):
-    """Section 5.7's two per-frame series, which nothing drew.
+def test_the_ligand_panels_draw(chromium, site):
+    """Section 5.7's per-frame series, which nothing drew.
 
-    `pose_rmsd_a` and `n_contacts_per_frame` were computed and stored in every
-    bound row's payload and read by no template, figure or script, which is
-    the fault 4f records for four other functions. They are worth drawing
-    rather than deleting because the final and maximum above them cannot tell
-    a ligand that sat still from one that left and came back.
+    The pose RMSD and the contact occupancy were computed and stored in every
+    bound row and read by no template, figure or script, which is the fault 4f
+    records for four other functions. They are worth drawing rather than
+    deleting because a final number cannot tell a ligand that sat still from
+    one that left and came back.
+
+    These are now the Analysis tab's own two ligand panels rather than a chart
+    of this page's own: a bound run in the library gets them from
+    `plots.build_all` like any other bound run, which is the whole point of
+    moving these runs into the library.
     """
     context, page, response, problems = _open(
-        chromium, site, "/refstates/run/b2ar_apo", VIEWPORTS["desktop"])
+        chromium, site, "/runs/b2ar_apo", VIEWPORTS["desktop"])
     try:
         assert response is not None and response.status == 200
-        page.wait_for_selector("#ligand-timeline .main-svg", timeout=15000)
-        assert page.locator("#ligand-timeline .main-svg").count() > 0
-        # Two traces: the RMSD and the contact count on its own axis.
+        for panel in ("plot-ligand_rmsd", "plot-ligand_contacts"):
+            page.wait_for_selector(f"#{panel} .main-svg", timeout=15000)
+            assert page.locator(f"#{panel} .main-svg").count() > 0, panel
         traces = page.evaluate(
-            "document.getElementById('ligand-timeline').data.length")
-        assert traces == 2, traces
+            "document.getElementById('plot-ligand_rmsd').data.length")
+        assert traces == 1, traces
     finally:
         context.close()
 
@@ -585,12 +658,12 @@ def test_the_reference_state_plots_actually_draw(chromium, site):
     SVG Plotly injects rather than by looking for the div.
     """
     context, page, response, problems = _open(
-        chromium, site, "/refstates/run/abl1_apo", VIEWPORTS["desktop"])
+        chromium, site, "/runs/abl1_apo", VIEWPORTS["desktop"])
     try:
         assert response is not None and response.status == 200
-        page.wait_for_selector("#state-timeline .main-svg", timeout=15000)
-        page.wait_for_selector("#state-map .main-svg", timeout=15000)
-        for panel in ("#state-timeline", "#dssp-ribbon", "#state-map"):
+        page.wait_for_selector("#plot-refstates_state .main-svg", timeout=15000)
+        page.wait_for_selector("#plot-refstates_map .main-svg", timeout=15000)
+        for panel in ("#plot-refstates_state", "#plot-refstates_ribbon", "#plot-refstates_map"):
             count = page.locator(f"{panel} .main-svg").count()
             assert count > 0, f"{panel} drew nothing"
         # The console assertion belongs to the tests written for it, which
@@ -630,7 +703,7 @@ def test_the_explorer_paints_within_its_budget(chromium, site):
     context = _context(chromium, VIEWPORTS["desktop"])
     page = context.new_page()
     try:
-        page.goto(f"{site}/refstates/run/abl1_apo", wait_until="domcontentloaded")
+        page.goto(f"{site}/runs/abl1_apo", wait_until="domcontentloaded")
         # Waited for rather than read immediately. The paint entry is not always
         # recorded by the time DOMContentLoaded fires, and reading it at that
         # instant made this test fail intermittently on a page that paints in
@@ -670,13 +743,13 @@ def test_scrubbing_a_frame_stays_within_its_budget(chromium, site):
     context = _context(chromium, VIEWPORTS["desktop"])
     page = context.new_page()
     try:
-        page.goto(f"{site}/refstates/run/abl1_apo", wait_until="networkidle")
-        page.wait_for_selector("#state-timeline .main-svg", timeout=15000)
+        page.goto(f"{site}/runs/abl1_apo", wait_until="networkidle")
+        page.wait_for_selector("#plot-refstates_state .main-svg", timeout=15000)
         # Relayout the timeline to a single frame's window, twenty times, and
         # take the worst. Plotly's relayout is the same work a scrub does.
         worst = page.evaluate(
             """async () => {
-                const node = document.getElementById('state-timeline');
+                const node = document.getElementById('plot-refstates_state');
                 let worst = 0;
                 for (let i = 0; i < 20; i++) {
                     const start = performance.now();
@@ -725,11 +798,11 @@ def test_clicking_the_state_map_moves_the_viewer_to_that_frame(chromium, site):
     context = _context(chromium, VIEWPORTS["desktop"])
     page = context.new_page()
     try:
-        page.goto(f"{site}/refstates/run/abl1_apo", wait_until="networkidle")
-        page.wait_for_selector("#state-map .main-svg", timeout=20000)
+        page.goto(f"{site}/runs/abl1_apo", wait_until="networkidle")
+        page.wait_for_selector("#plot-refstates_map .main-svg", timeout=20000)
 
         names = page.evaluate(
-            "()=>document.getElementById('state-map').data.map(t=>t.name)")
+            "()=>document.getElementById('plot-refstates_map').data.map(t=>t.name)")
         assert "this run" in names, f"the trajectory path is not drawn: {names}"
 
         if page.locator("#scrub").count() == 0:
@@ -737,7 +810,7 @@ def test_clicking_the_state_map_moves_the_viewer_to_that_frame(chromium, site):
 
         # The midpoint of the path, so neither end can pass by accident.
         clicked = page.evaluate("""()=>{
-            const n = document.getElementById('state-map');
+            const n = document.getElementById('plot-refstates_map');
             const t = n.data.findIndex(d => d.name === 'this run');
             const i = Math.round((n.data[t].x.length - 1) / 2);
             n.emit('plotly_click', {points: [{curveNumber: t, pointNumber: i,
@@ -752,16 +825,14 @@ def test_clicking_the_state_map_moves_the_viewer_to_that_frame(chromium, site):
         # fails whenever the structure cannot load. What the handler promises is
         # to move the slider and fire its input event; that is what is checked.
         moved = int(page.input_value("#scrub"))
-        total = page.evaluate("""()=>{
-            const n = document.getElementById('state-map');
-            const t = n.data.findIndex(d => d.name === 'this run');
-            return n.data[t].x.length;
-        }""")
-        frames = int(page.get_attribute("#scrub", "max")) + 1
-        expected = round((int(clicked[0]) / (total - 1)) * (frames - 1))
-        assert moved == expected, (
-            f"clicked frame {clicked[0]} of {total}; slider went to {moved} "
-            f"and should have gone to {expected}")
+        # The point already carries the viewer's own frame: the panel scales
+        # the analysis frame onto what the file actually packed, so the handler
+        # has no arithmetic to get wrong and neither has this test. The fixture
+        # has twelve analysed frames against six packed, so a click in the
+        # middle proves the scaling rather than passing on an identity.
+        assert moved == int(clicked), (
+            f"the point asked for viewer frame {clicked} and the slider went "
+            f"to {moved}")
         assert moved > 0, "a click in the middle of the path left the slider at zero"
     finally:
         context.close()
@@ -771,18 +842,30 @@ def test_clicking_the_state_map_moves_the_viewer_to_that_frame(chromium, site):
 # in the queue, so three of them had never been drawn in a browser: the
 # membrane health table (4bb), the ligand panel (4bf) and the reference
 # overlay (4bg). Each was found separately. This asserts the whole set at
-# once, so the next panel added to the template is caught by the fixture not
-# covering it rather than by somebody noticing a fourth time.
+# once, so the next panel added is caught by the fixture not covering it
+# rather than by somebody noticing a fourth time.
+#
+# Rewritten for the move onto the Runs tab: the markers are the panel ids
+# `refstates.panels` builds and the two ligand panels the Analysis tab draws
+# for any bound run, rather than the headings of a template that no longer
+# exists. The three viewer controls are in here too, which they were not
+# before: the motif colouring had no marker at all.
 GATED_PANELS = {
     "viewer": 'id="molstar-viewer"',
-    "measurements": "Measurement",
-    "reference spread": "reference",
-    "DSSP agreement": "Secondary structure",
-    "state map": 'id="state-map"',
-    "ligand panel": "<h3>The ligand</h3>",
-    "membrane health": "<h3>Membrane health</h3>",
+    "state score": 'id="plot-refstates_state"',
+    "motif timelines": 'id="plot-refstates_motifs"',
+    "motif table": "motifs at the end of the run",
+    "measurements": "what the published criteria measured",
+    "DSSP ribbon": 'id="plot-refstates_ribbon"',
+    "state map": 'id="plot-refstates_map"',
+    "bilayer quality": 'id="plot-refstates_bilayer"',
     "superposition core": "superposition core",
+    "reference structures": "reference structures",
+    "ligand pose": 'id="plot-ligand_rmsd"',
+    "ligand contacts": 'id="plot-ligand_contacts"',
     "reference overlay": 'id="overlay-toggle-',
+    "bilayer toggle": 'id="lipid-toggle"',
+    "motif colouring": 'data-motif-painted="1"',
 }
 
 
@@ -796,7 +879,7 @@ def test_every_gated_panel_is_drawn_by_some_fixture_row(chromium, site):
     pages = {}
     for run in ("abl1_apo", "b2ar_apo"):
         context, page, response, _problems = _open(
-            chromium, site, f"/refstates/run/{run}", VIEWPORTS["desktop"])
+            chromium, site, f"/runs/{run}", VIEWPORTS["desktop"])
         try:
             assert response is not None and response.status == 200, run
             pages[run] = page.content().lower()

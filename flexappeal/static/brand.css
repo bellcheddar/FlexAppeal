@@ -907,7 +907,44 @@ a { color: var(--md-primary); }
 .md-table th { font-weight: 600; color: var(--md-text-muted); white-space: nowrap; }
 .md-table td { font-family: 'Roboto Mono', monospace; }
 
+/* The viewer's own toggles, under the viewport: the reference ghosts and the
+   bilayer. A row of their own rather than inside the scrubber, because the
+   scrubber is a control for the frame and these are controls for what is in
+   the scene, and on a phone the two wrap into each other otherwise. */
+.md-viewer-toggles {
+  margin: 10px 0 0; gap: 6px 18px;
+  padding-top: 10px; border-top: 1px solid var(--md-bg-alt);
+}
+.md-viewer-toggles em {
+  color: var(--md-text-muted); font-style: normal; font-size: 12px;
+}
+
+/* The reference-state tables. Long ones scroll inside their own panel rather
+   than widening the page: the receptor's reference list is 116 rows, and a
+   table that sets the page width makes every chart above it scroll sideways
+   too. Capped at a height that still shows a dozen rows, which is enough to
+   see the shape of it before deciding to scroll. */
+.md-table-scroll { overflow: auto; max-height: 460px; }
+.md-table-scroll thead th {
+  position: sticky; top: 0; background: var(--md-bg);
+  box-shadow: 0 1px 0 var(--md-bg-alt);
+}
+.md-table-scroll .md-table th[scope="row"] {
+  font-family: 'Roboto Mono', monospace; color: var(--md-text);
+  font-weight: 500;
+}
+
+/* Section 6.1's colour beside the label it belongs to, never instead of it.
+   A swatch is 9px and decorative: the state and the motif are spelled out in
+   the same cell, so the table reads the same in greyscale, which is the rule
+   the contrast failures in 4b came from breaking. */
+.md-swatch {
+  display: inline-block; width: 9px; height: 9px; border-radius: 2px;
+  margin-right: 6px; vertical-align: baseline;
+}
+
 @media (max-width: 768px) {
+  .md-table-scroll { max-height: 380px; }
   .md-plot { height: 280px; }
   .md-panel.is-wide .md-plot { height: 320px; }
   #molstar-viewer { height: 360px; }

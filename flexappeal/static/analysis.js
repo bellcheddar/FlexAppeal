@@ -7,12 +7,30 @@
 (function () {
   'use strict';
 
-  /* One pass through the trajectory takes this long, however many frames it
-     holds. Mol*'s own parameter is durationInS and it clamps to 1-120, so this
-     is in seconds, not milliseconds. Fifty is slow enough to follow a loop
-     opening and closing and short enough that the whole run has been seen
-     before anyone scrolls past. */
-  const PLAYBACK_SECONDS = 50;
+  /* Playback is a frame rate with a clamp on the pass, not a fixed pass.
+     
+     It used to be a flat fifty seconds however many frames the file held, which
+     divides out to the interval between frames: 100 ms for the 500-frame
+     example, and 1,000 ms for the 50-frame bundles the reference-state viewer
+     carried. One frame per second is not slow playback, it is a slideshow, and
+     it was reported as jerky and in slow motion because that is what it was.
+     
+     So the rate is the constant and the pass length follows from it. Twenty-five
+     a second is smooth to the eye and well inside what a model-index update can
+     sustain. The clamp is on the pass rather than on the rate: a short file
+     played at 25 fps would be over in two seconds, and a very long one would
+     take minutes, so the pass is held between eight and forty seconds and the
+     rate gives way at the ends. Mol*'s own durationInS clamps to 1-120, which
+     this is well inside. */
+  const PLAYBACK_FPS = 25;
+  const PLAYBACK_MIN_SECONDS = 8;
+  const PLAYBACK_MAX_SECONDS = 40;
+
+  function playbackSeconds(frames) {
+    if (!frames || frames < 2) return PLAYBACK_MIN_SECONDS;
+    return Math.min(PLAYBACK_MAX_SECONDS,
+                    Math.max(PLAYBACK_MIN_SECONDS, frames / PLAYBACK_FPS));
+  }
 
   /* ------------------------------------------------------- drop zone */
 
@@ -71,10 +89,45 @@
       }
       Plotly.newPlot(node, figure.data, figure.layout, PLOT_CONFIG);
       drawn.push(node);
+      wirePlotClick(node);
     });
 
     window.addEventListener('resize', function () {
       drawn.forEach(function (node) { Plotly.Plots.resize(node); });
+    });
+  }
+
+  /* Clicking a point that knows its frame moves the viewer to that frame.
+     
+     Section 6.2 asks for this on the reference state map, where the question is
+     "what was the protein doing when it was over there": a reader picks a point
+     off the cloud and wants to see that conformation. The panel that carries it
+     says so by putting a frame index in each point's `customdata`, so this is
+     wired to every panel and does nothing on the ones that do not.
+     
+     Driven through the slider rather than by reaching into the viewer, so one
+     control owns the model index and the two cannot end up disagreeing about
+     which frame is shown. The frame is clamped to what the slider actually has:
+     a results file is packed at a stride, so a trajectory frame index is not
+     necessarily a frame the viewer holds. */
+  function wirePlotClick(node) {
+    if (!node || typeof node.on !== 'function') return;
+    node.on('plotly_click', function (event) {
+      const point = (event.points || [])[0];
+      if (!point || point.customdata === undefined
+          || point.customdata === null) return;
+      const frame = Array.isArray(point.customdata)
+        ? Number(point.customdata[0]) : Number(point.customdata);
+      if (!Number.isFinite(frame)) return;
+      const slider = document.getElementById('scrub');
+      if (!slider) return;
+      const highest = parseInt(slider.max, 10);
+      slider.value = String(Math.max(0, Math.min(highest, Math.round(frame))));
+      slider.dispatchEvent(new Event('input', { bubbles: true }));
+      const host = document.getElementById('molstar-viewer');
+      if (host && typeof host.scrollIntoView === 'function') {
+        host.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      }
     });
   }
 
@@ -350,8 +403,51 @@
      moved, so a panel lost its own annotations as soon as anybody scrubbed it. */
   const baseShapes = new WeakMap();
 
-  function markFrame(ns) {
-    timePlots().forEach(function (node) {
+  /* Which time panels are actually on screen.
+     
+     A relayout costs the same whether anyone can see the panel or not, and on a
+     reference-state run page there are ten time panels down a page several
+     screens long: while someone watches the viewer at the top, nine of them are
+     being redrawn out of view. The observer is created once and panels are only
+     added to it, so a page with no IntersectionObserver (or none yet observed)
+     falls back to redrawing everything, which is what it did before. */
+  let onScreen = null;
+  function visiblePlots() {
+    const plots = timePlots();
+    if (typeof IntersectionObserver !== 'function') return plots;
+    if (!onScreen) {
+      onScreen = new WeakMap();
+      const observer = new IntersectionObserver(function (entries) {
+        entries.forEach(function (entry) {
+          onScreen.set(entry.target, entry.isIntersecting);
+        });
+      }, { rootMargin: '120px' });
+      plots.forEach(function (node) { observer.observe(node); });
+      return plots;                /* nothing reported yet: draw them all once */
+    }
+    const seen = plots.filter(function (node) { return onScreen.has(node); });
+    if (!seen.length) return plots;
+    return seen.filter(function (node) { return onScreen.get(node); });
+  }
+
+  /* The cursor, coalesced to its own rate.
+     
+     The frame clock steps the model up to twenty-five times a second, and the
+     cursor does not need to: a 1.5px line moving across a 600px panel is at the
+     same pixel for several frames at a time, and a relayout per panel per frame
+     was the second half of the stutter the first half of this file explains.
+     Eight a second is beyond what the eye resolves on a line that thin, and it
+     is the frequency Plotly can sustain across ten panels without taking the
+     main thread away from the compositor.
+     
+     Coalesced rather than dropped: the last requested position is always drawn,
+     so letting go of the slider never leaves the cursor behind the model. */
+  const CURSOR_MS = 125;
+  let cursorPending = null;
+  let cursorTimer = null;
+
+  function drawCursor(ns) {
+    visiblePlots().forEach(function (node) {
       if (!baseShapes.has(node)) {
         const existing = (node.layout && node.layout.shapes) || [];
         baseShapes.set(node, existing.map(function (s) { return s; }));
@@ -362,6 +458,17 @@
       }]);
       Plotly.relayout(node, { shapes: shapes });
     });
+  }
+
+  function markFrame(ns) {
+    cursorPending = ns;
+    if (cursorTimer) return;
+    cursorTimer = setTimeout(function () {
+      cursorTimer = null;
+      const value = cursorPending;
+      cursorPending = null;
+      if (value !== null) drawCursor(value);
+    }, CURSOR_MS);
   }
 
   /* ------------------------------------------------------- frame slider */
@@ -424,15 +531,33 @@
     }
     slider.addEventListener('input', show);
 
-    let timer = null;
     /* Set only by the person, never by the page. Without it, anything that
        restarts playback would override a deliberate pause. */
     let paused = window.matchMedia
       && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 
+    /* Driven by requestAnimationFrame with a time accumulator rather than by
+       setInterval, for three reasons that all showed up as stutter. A timer
+       fires on its own schedule and the browser composites on its own, so every
+       few frames a model update lands just after a paint and is seen a frame
+       late. A timer also keeps firing in a backgrounded tab, where it is
+       throttled to once a second and then delivers a burst of queued work on
+       return. And a fractional interval cannot be expressed at all: 500 frames
+       over 20 s is 40 ms, which is fine, but 180 frames over 8 s is 44.4 ms and
+       setInterval rounds it, so the pass drifts.
+       
+       The accumulator carries the remainder between callbacks, so the playback
+       runs at the real rate on any display and skips rather than stalls if a
+       callback is late. */
+    let frameClock = null;
+    let lastTick = 0;
+    let carry = 0;
+
     function stop(byUser) {
       if (byUser) paused = true;
-      if (timer) { clearInterval(timer); timer = null; }
+      if (frameClock) { cancelAnimationFrame(frameClock); frameClock = null; }
+      lastTick = 0;
+      carry = 0;
       if (play) {
         play.textContent = 'Play';
         play.setAttribute('aria-label', 'Play the trajectory');
@@ -440,20 +565,31 @@
     }
     function start(byUser) {
       if (byUser) paused = false;
-      if (timer || paused) return;
+      if (frameClock || paused) return;
       if (play) {
         play.textContent = 'Pause';
         play.setAttribute('aria-label', 'Pause the trajectory');
       }
-      const every = Math.max(40, Math.round((PLAYBACK_SECONDS * 1000) / frames));
-      timer = setInterval(function () {
-        slider.value = String((parseInt(slider.value, 10) + 1) % frames);
-        show();
-      }, every);
+      const perMs = frames / (playbackSeconds(frames) * 1000);
+      lastTick = 0;
+      carry = 0;
+      frameClock = requestAnimationFrame(function tick(now) {
+        if (!frameClock) return;
+        const delta = lastTick ? Math.min(now - lastTick, 250) : 0;
+        lastTick = now;
+        carry += delta * perMs;
+        const advance = Math.floor(carry);
+        if (advance >= 1) {
+          carry -= advance;
+          slider.value = String((parseInt(slider.value, 10) + advance) % frames);
+          show();
+        }
+        frameClock = requestAnimationFrame(tick);
+      });
     }
     if (play) {
       play.addEventListener('click', function () {
-        if (timer) { stop(true); } else { start(true); }
+        if (frameClock) { stop(true); } else { start(true); }
       });
     }
     /* Dragging pauses: the person has taken the wheel, and a loop that keeps
@@ -476,7 +612,7 @@
      Skipped for anyone who has asked their system for reduced motion. A
      3D scene that starts moving on its own is exactly what that setting is
      about, and the playback controls are still there for them. */
-  function autoplay(viewer) {
+  function autoplay(viewer, frames) {
     if (window.matchMedia
         && window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
       return false;
@@ -489,7 +625,8 @@
       if (!animation) return false;
       manager.play(animation, {
         mode: { name: 'loop', params: { direction: 'forward' } },
-        duration: { name: 'fixed', params: { durationInS: PLAYBACK_SECONDS } }
+        duration: { name: 'fixed',
+                    params: { durationInS: playbackSeconds(frames) } }
       });
       return true;
     } catch (err) {
@@ -786,13 +923,14 @@
         wireLipidToggle(viewer, say);
         wireOverlayToggles(viewer, say);
         const scrubbing = wireSlider(viewer, frames, duration);
-        const playing = scrubbing || (frames > 1 && autoplay(viewer));
+        const playing = scrubbing || (frames > 1 && autoplay(viewer, frames));
+        const pass = Math.round(playbackSeconds(frames));
         say(frames
           ? frames + ' frames'
               + (scrubbing
-                  ? ', on a ' + PLAYBACK_SECONDS + ' second loop. Drag the slider to a frame and every time plot marks it.'
+                  ? ', on a ' + pass + ' second loop. Drag the slider to a frame and every time plot marks it.'
                   : (playing
-                      ? ', playing on a ' + PLAYBACK_SECONDS + ' second loop. The controls under the viewport pause it.'
+                      ? ', playing on a ' + pass + ' second loop. The controls under the viewport pause it.'
                       : ' loaded. Use the playback controls under the viewport.'))
           : 'Structure loaded.');
       });
