@@ -1674,6 +1674,22 @@ def test_each_panel_carries_a_collapsible_description(library):
     assert "A complete run, start to finish" not in body
 
 
+@pytest.mark.skipif(not _example_built(), reason="the example run has not been built")
+def test_the_library_puts_a_space_before_a_unit(library):
+    """`100ns` is not a number with a unit, it is a typo.
+
+    The unit is a muted span so that the number reads first, and the span was
+    written hard against the value, which renders as one word. Everywhere else
+    on the site a unit is spaced off its value, so this read as a different
+    convention rather than as a smaller one.
+    """
+    body = library.get("/runs").get_data(as_text=True)
+    assert '</span>' in body
+    assert ' <span class="md-units">ns</span>' in body
+    assert ' <span class="md-units">frames</span>' in body
+    assert '}}<span class="md-units"' not in body
+
+
 def test_an_upload_is_not_kept_unless_it_is_asked_for(library):
     """A results file can carry an unpublished receptor and compound, and this
     site is public. Keeping one is a choice, never a side effect of analysing."""

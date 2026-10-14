@@ -4717,6 +4717,47 @@ def test_the_ghost_is_coloured_after_loading_not_by_the_preset():
         "the ghost should take the state colour the badges use")
 
 
+def test_the_viewport_is_hidden_until_its_camera_has_settled():
+    """One picture, not two.
+
+    Mol* frames the camera on what it has loaded and animates into that
+    framing on its own schedule, so the camera a run was packed with can only
+    be applied after that has finished. With the viewport visible throughout,
+    a reader watched the structure appear in one view, hold still, and then
+    swing into another as the playback started.
+
+    The stylesheet hides it and the viewer reveals it once the camera has
+    stopped moving. A timer reveals it too, because a load that fails must not
+    leave a blank rectangle on the page.
+    """
+    root = Path(__file__).resolve().parents[1] / "flexappeal" / "static"
+    script = (root / "analysis.js").read_text()
+    css = (root / "brand.css").read_text()
+
+    assert "#molstar-viewer.is-settling { opacity: 0; }" in css
+    assert "host.classList.add('is-settling')" in script
+    assert "host.classList.remove('is-settling')" in script
+    assert "setTimeout(reveal, 8000)" in script, "a failed load must still reveal"
+    assert "orientToMembraneSoon(viewer, host, revealNow)" in script
+
+
+def test_the_camera_is_pointed_before_the_bilayer_is_fetched():
+    """The bilayer is 17 MB, and the camera cannot wait for it.
+
+    The orientation used to be applied in the branch that runs when there is no
+    bilayer to load, so on a membrane run it happened only once the bilayer had
+    arrived: seconds of the receptor in Mol*'s default view, and then a swing.
+    Both now happen from the same place, the camera first.
+    """
+    script = (Path(__file__).resolve().parents[1]
+              / "flexappeal" / "static" / "analysis.js").read_text()
+    body = script[script.index("orientToMembraneSoon(viewer, host, revealNow)"):]
+    body = body[: body.index("const scrubbing")]
+    assert "lipid-toggle" in body, "the bilayer is still dispatched after it"
+    assert "} else {" not in body, (
+        "the camera should not be in the branch for runs without a bilayer")
+
+
 def _fake_pocket(resolved: dict, regions: dict):
     """A stand-in PocketMap: position to residue, and position to region."""
     import types

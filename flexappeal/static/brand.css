@@ -754,6 +754,20 @@ a { color: var(--md-primary); }
   border: 1px solid var(--md-border); border-radius: var(--md-radius);
   overflow: hidden; background: var(--md-bg-alt);
 }
+/* Hidden until the view it is going to keep is the view on screen.
+   Mol* frames the camera on what it has loaded and animates into that framing
+   on its own schedule, and the camera this run was packed with can only be
+   applied after that has finished, so a visible viewport showed the structure
+   still in one view and then swung it into another the moment playback began.
+   It fades in once, already pointing the right way. The class is removed by a
+   timer as well as by the viewer, so a load that fails still leaves a visible
+   viewport. */
+#molstar-viewer { transition: opacity 180ms ease; }
+#molstar-viewer.is-settling { opacity: 0; }
+@media (prefers-reduced-motion: reduce) {
+  #molstar-viewer { transition: none; }
+}
+
 /* The stage holds the canvas and anything that floats over it. The canvas is
    already position: relative, but the diagram is positioned against the stage so
    that it does not become a child of Mol*'s own DOM, which Mol* rebuilds. */

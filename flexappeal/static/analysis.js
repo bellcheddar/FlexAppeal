@@ -947,7 +947,7 @@
      was supposed to be edge on. The second application lands after Mol* has
      finished and is what the reader sees. Both are guarded, so a bundle whose
      camera does not expose a snapshot simply keeps its own view. */
-  function orientToMembraneSoon(viewer, host) {
+  function orientToMembraneSoon(viewer, host, done) {
     /* Applied, then checked and applied again if it did not hold.
        
        Mol* frames the camera on what it holds when a load resolves, and it
@@ -958,14 +958,21 @@
        and reapplying is what makes it stick without guessing a delay long
        enough to outlast an animation whose length is Mol*'s business. Three
        looks over two seconds, and it stops as soon as the view is the one
-       asked for, so a reader who takes hold of the camera is not fighting it. */
+       asked for, so a reader who takes hold of the camera is not fighting it.
+
+       `done` is called once the view has stopped changing, whether it was
+       reached or given up on, because that is the moment the viewport is worth
+       showing a reader. A file with no camera in it calls it straight away:
+       there is nothing to wait for. */
+    const finish = typeof done === 'function' ? done : function () {};
     let plan;
     try {
       plan = JSON.parse(host && host.dataset.orientation || 'null');
     } catch (err) {
+      finish();
       return;
     }
-    if (!plan || !plan.up) return;
+    if (!plan || !plan.up) { finish(); return; }
     orientToMembrane(viewer, host);
     let attempts = 0;
     const settle = setInterval(function () {
@@ -975,7 +982,7 @@
         && Math.abs(snapshot.up[0] - plan.up[0]) < 0.01
         && Math.abs(snapshot.up[1] - plan.up[1]) < 0.01
         && Math.abs(snapshot.up[2] - plan.up[2]) < 0.01;
-      if (held || attempts >= 3) { clearInterval(settle); return; }
+      if (held || attempts >= 3) { clearInterval(settle); finish(); return; }
       orientToMembrane(viewer, host);
     }, 700);
   }
@@ -1161,6 +1168,27 @@
       status.classList.toggle('is-error', Boolean(isError));
     }
 
+    /* Hidden until the view it will keep is the view on screen.
+     *
+     * A reader saw the structure appear in Mol*'s own framing, hold still
+     * there, and then swing into the camera this run was packed with as the
+     * playback started: two pictures where there should be one. The viewport
+     * is revealed once, after the camera has settled, so the first thing a
+     * reader sees is the view they will go on looking at.
+     *
+     * Revealed by a timer as well, because nothing on this page is worth a
+     * viewport that stays blank: if the load fails, or the camera never
+     * settles, the fallback shows whatever there is. */
+    host.classList.add('is-settling');
+    let revealed = false;
+    function reveal() {
+      if (revealed) return;
+      revealed = true;
+      host.classList.remove('is-settling');
+    }
+    const revealFallback = setTimeout(reveal, 8000);
+    function revealNow() { clearTimeout(revealFallback); reveal(); }
+
     molstar.Viewer.create(host, {
       layoutIsExpanded: false,
       layoutShowControls: false,
@@ -1212,13 +1240,18 @@
            the first one, and Mol* never resolves it: the toggle sat disabled
            and the bilayer never appeared, with no error anywhere, while the
            same control clicked by hand a second later worked every time. */
+        /* The camera is settled before the bilayer is asked for, not after it
+           arrives. The bilayer is 17 MB and takes seconds, and pointing the
+           camera only once it had landed left the receptor sitting in Mol*'s
+           default view for all of them and then swinging round. The bilayer's
+           own load snapshots and restores the camera, so it arrives into the
+           view rather than changing it. */
+        orientToMembraneSoon(viewer, host, revealNow);
         const lipids = document.getElementById('lipid-toggle');
         if (lipids && lipids.checked) {
           setTimeout(function () {
             lipids.dispatchEvent(new Event('change', { bubbles: true }));
           }, 0);
-        } else {
-          orientToMembraneSoon(viewer, host);
         }
         const scrubbing = wireSlider(viewer, frames, duration);
         const playing = scrubbing || (frames > 1 && autoplay(viewer, frames));
@@ -1233,6 +1266,7 @@
           : 'Structure loaded.');
       });
     }).catch(function (err) {
+      revealNow();
       say('The 3D viewer could not load this structure (' + err + '). '
         + 'The plots below are unaffected.', true);
     });

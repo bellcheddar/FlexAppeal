@@ -2669,3 +2669,26 @@ places that image lipids. Three tests: a molecule straddling the far face stays
 whole, the grouping is by residue rather than by order, and a source guard that
 neither path goes back to rounding per atom. The two membrane runs were repacked
 and redeployed. 4bz.
+
+### 14 October, 01:50. Four from the reader, and the viewer stops showing two pictures
+
+A space before the unit on the Runs table: `49ns` is a typo, not a number with a
+unit, and the muted span was written hard against the value.
+
+The README's intro and its to-do list are shorter, 389 words to 263 and 1,266 to
+889, and the open items are at the end rather than the top.
+
+Five reference-state charts printed their heading twice, once as the card's `h3`
+and once inside the figure. The builder took the title out of the figure and did
+not blank it afterwards, which is the step `plots.add` has done for the panels
+above them since it was written. 4cb.
+
+And the viewer: it appeared in Mol*'s own framing, held still, and then swung
+into the camera the run was packed with as the playback began, because Mol*
+animates into its framing after the load resolves and the packed camera can only
+be applied after that. On a membrane run the orientation was also sitting in the
+branch for runs with no bilayer, so it waited for 17 MB of lipids first. The
+viewport is hidden until its camera has settled and revealed once, and the camera
+is pointed before the bilayer is fetched. Measured in a browser: 1.25 s hidden on
+a membrane run, 1.0 on a kinase, 0.5 where there is no packed camera to wait for.
+4ca.

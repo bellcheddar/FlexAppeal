@@ -1299,8 +1299,17 @@ def build(payload: dict[str, Any]) -> list[dict[str, Any]]:
               wide: bool = True) -> None:
         if figure is None:
             return
+        # The card's own <h3> names the panel, so the in-figure title said the
+        # same thing twice and took vertical space from the plot. Taken from
+        # the figure and then blanked, the way `plots.add` does it for the
+        # panels above these, so a builder stays self-describing when a figure
+        # is used on its own and the page never prints a heading twice.
+        title = figure["layout"]["title"]["text"]
+        figure["layout"]["title"] = {"text": ""}
+        figure["layout"]["margin"] = dict(figure["layout"].get("margin", {}),
+                                          t=12)
         panels.append({"id": f"refstates_{panel_id}", "kind": "figure",
-                       "title": figure["layout"]["title"]["text"],
+                       "title": title,
                        "figure": figure, "blurb": blurb, "wide": wide})
 
     def table(panel_id: str, title: str, built: dict | None, blurb: str,

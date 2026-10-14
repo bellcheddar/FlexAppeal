@@ -5235,6 +5235,43 @@ before this change. If a trajectory from somewhere else ever arrived wrapped
 per atom, this would need to unwrap along the bonds instead, and the symptom
 would be the same streaks at the first frame rather than only later ones.
 
+## 4ca. Two pictures where there should have been one
+
+The viewer showed the structure twice before it showed it once. Mol* frames the
+camera on what it has loaded and animates into that framing on its own
+schedule, so the camera a run was packed with can only be applied after that
+animation has finished. With the viewport visible throughout, a reader watched
+the structure appear in Mol*'s framing, hold still there, and then swing into
+the packed view as the playback started.
+
+On a membrane run it was worse, and for a second reason. The orientation was
+applied in the branch that runs when there is no bilayer to load, so with the
+bilayer on by default it happened only once 17 MB of lipids had arrived: seven
+seconds of a receptor in an arbitrary view, then the swing.
+
+The viewport is hidden until its camera has stopped moving and revealed once,
+and the camera is now pointed before the bilayer is asked for rather than
+after. Measured in a browser: hidden 1.25 s on a membrane run, 1.0 s on a
+kinase run, and 0.5 s on a run with no packed camera at all, where there is
+nothing to wait for. A timer reveals it as well, at eight seconds, because a
+load that fails must not leave a blank rectangle on the page.
+
+Worth saying what this does not hide: the bilayer still arrives after the
+viewport does, because holding an empty viewport for the seconds that 17 MB
+takes would be worse than a membrane that appears. It arrives into the view
+rather than changing it, which is what the complaint was about.
+
+## 4cb. The same heading, twice, on five panels
+
+Each reference-state chart printed its title inside the figure as well as in
+the card's own heading above it, one line under the other, and the duplicate
+took vertical space from the plot. The panels above them have not done this
+since `plots.add` was written: it reads the title out of the figure, so a
+builder stays self-describing when a figure is used on its own, and then blanks
+it. The reference-state builder took the title the same way and did not blank
+it. Five charts: the state score, the motif timelines, the DSSP ribbon, the
+state map and the bilayer QC.
+
 ## 5. Production runs
 
 Tier 2 started at 17:04 on 10 October, in section 5.3's priority order: β2AR

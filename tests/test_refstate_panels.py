@@ -1179,3 +1179,23 @@ def test_both_bilayer_paths_image_whole_molecules():
     first = first[: first.index("\n        centre =")]
     assert "_image_whole(" in first
     assert "np.round(offset / box)" not in first
+
+
+def test_no_panel_prints_its_own_heading_twice():
+    """The card's <h3> names the panel, so the figure must not name it again.
+
+    The title is taken from the figure, which keeps each builder able to
+    describe itself when a figure is used on its own, and then blanked, which
+    is what `plots.add` does for the panels above these. Before this, five
+    charts carried the same words as a heading and as a chart title, one above
+    the other, and the duplicate took vertical space from the plot.
+    """
+    panels_built = panels.build(_payload())
+    charts = [panel for panel in panels_built if panel["kind"] == "figure"]
+    assert charts, "the fixture should build at least one chart"
+    for panel in charts:
+        assert panel["title"], f"{panel['id']} lost its heading"
+        assert panel["figure"]["layout"]["title"] == {"text": ""}, (
+            f"{panel['id']} still carries an in-figure title")
+        # And the space the title took goes back to the plot.
+        assert panel["figure"]["layout"]["margin"]["t"] == 12

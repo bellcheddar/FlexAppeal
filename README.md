@@ -14,11 +14,31 @@
 
 ---
 
-FlexAppeal is a four-tab web application for protein molecular dynamics. The **Prepare** tab turns the OpenMM option surface into a guided form and emits a single self-contained file. You run that file on your own machine, where it installs its environment, benchmarks the available compute platforms, simulates, and analyses the full trajectory. It produces one results file, which the **Analysis** tab reads and renders as interactive plots and a three-dimensional structure viewer. The **Example** tab is a real 100 ns run of T4 lysozyme with benzene bound in its buried cavity, rendered through that same path, so what the documentation claims and what the software does cannot drift apart. The **Runs** tab is a library of kept results files: open any row for the same panels an upload gets, with each panel's description tucked under its own chart rather than above it. Four of the runs in that library are the reference-state set: two proteins simulated from both of their known conformational states, with every structural motif scored against the crystal structures that define those states, which is the subject of its own section below. They are ordinary runs with extra panels at the end rather than a section of their own, because they are the same kind of object as any other run.
+FlexAppeal is a four-tab web application for protein molecular dynamics.
+**Prepare** turns the OpenMM option surface into a guided form and emits one
+self-contained file. You run that file on your own machine, where it installs its
+environment, benchmarks the available compute platforms, simulates, and analyses
+the full trajectory. **Analysis** reads the results file it produces and renders
+interactive plots and a three-dimensional structure viewer. **Example** is a real
+100 ns run of T4 lysozyme with benzene in its buried cavity, rendered through that
+same path, so what the documentation claims and what the software does cannot
+drift apart. **Runs** is a library of kept results files, the four reference-state
+runs among them: ordinary runs with extra panels at the end rather than a section
+of their own.
 
-**Why it matters:** setting up a correct MD run means stitching together structure repair, force-field selection, solvation, system construction, integrator and barostat choice, a staged equilibration protocol, and a set of reporters, across roughly 120 interacting parameters. A large fraction of the ways to get that wrong produce a trajectory that runs to completion and looks entirely plausible: solvent padding smaller than the non-bonded cutoff, so the protein interacts with its own periodic image; a 4 fs timestep without hydrogen mass repartitioning, so total energy climbs all run; CHARMM36 used with AMBER's cutoff scheme. FlexAppeal encodes those rules as validation rather than leaving them to be remembered. It is useful for: setting up a first simulation without a week of reading, reproducing someone else's protocol exactly, sweeping a parameter across replicates, and getting a standard analysis panel without writing MDTraj by hand.
+**Why it matters:** a correct MD run means stitching together structure repair,
+force-field selection, solvation, system construction, integrator and barostat
+choice, a staged equilibration and a set of reporters, across roughly 120
+interacting parameters. Many of the ways to get that wrong still produce a
+trajectory that runs to completion and looks plausible: solvent padding smaller
+than the non-bonded cutoff, so the protein interacts with its own periodic image;
+a 4 fs timestep without hydrogen mass repartitioning, so total energy climbs all
+run; CHARMM36 used with AMBER's cutoff scheme. FlexAppeal encodes those rules as
+validation rather than leaving them to be remembered.
 
-The hosted application never simulates. That is a design decision, not a limitation to be lifted later: MD needs hours of dedicated compute, and your trajectory should not have to travel anywhere.
+The hosted application never simulates. That is a design decision rather than a
+limitation to be lifted later: MD needs hours of dedicated compute, and your
+trajectory should not have to travel anywhere.
 
 ---
 
@@ -408,29 +428,92 @@ The values duplicated across Python, nginx, gunicorn and systemd are annotated "
 
 ## ✅ To Do
 
-Roadmap, newest ideas at the top. Suggestions welcome.
+What is done, newest first, then what is open. Suggestions welcome.
 
-- [ ] Espaloma charges as a faster alternative to AM1-BCC, which takes minutes per ligand
-- [ ] Replicate comparison in the Analysis tab: overlay several `.fxa` files on one panel
+- [x] **Reference states.** ABL1 kinase and the β2 adrenergic receptor, each
+  simulated from an active and an inactive start: 200 ns of production in 43.4
+  GPU-hours on one Mac Studio. Eleven structural motifs scored per frame against
+  the crystal structures that define each state, with the reference ensembles
+  resolved from KLIFS and GPCRdb at run time rather than from a hand-typed
+  residue list, and the thresholds either taken from the literature or refitted
+  and reported as refitted. Six positive controls, all passing. `FINDINGS.md`
+  carries the figures, the limitations and an account of the faults found on the
+  way.
+- [x] **The reference-state runs are rows in the Runs library**, at
+  [flexappeal.mdeller.com/runs](https://flexappeal.mdeller.com/runs). Each is a
+  results file built by a bundle's own analysis script, so it carries the same
+  panels, tiles and viewer as the committed example, with the reference-state
+  measurements as further panels at the end. They had a tab of their own for
+  three days, which was one code path too many.
+- [x] **Trajectory playback on load.** The structure panel starts looping as soon
+  as the frames are in, and is skipped for anyone whose system asks for reduced
+  motion.
+- [x] **A worked example.** 100 ns of T4 lysozyme L99A with benzene in its buried
+  cavity (181L, 25,463 atoms with water), committed and rendered through the same
+  code path as an upload, so the page cannot drift from the product: if the
+  Analysis tab breaks, this breaks with it, in CI.
+  `bash examples/lysozyme_benzene_100ns/rebuild.sh` regenerates all of it, in
+  about eight and a half hours.
+- [x] **Apple Silicon runs on the GPU.** OpenCL was being disqualified on every
+  Mac: Apple's implementation supports single precision only, the default
+  configuration asks for mixed, and the failure names the platform rather than
+  the property, so the benchmark fell back to the CPU. Measured on solvated
+  lysozyme, 19,433 atoms, M1 Max: **29.5 ns/day on CPU against 206 on OpenCL**.
+  Unsupported properties are dropped rather than fatal and the substitution is
+  announced.
+- [x] **Rich terminal output.** One palette across the CLI and both generated
+  scripts: tables for structure reports, determinate bars for the integration
+  stages, and a live memory readout beside every bar. Swap is the figure that
+  matters, because a run that spills out of RAM slows by an order of magnitude
+  with no other symptom. Off a terminal it degrades to plain milestone lines,
+  which is what makes a `nohup` log readable.
+- [x] **Deployed to [flexappeal.mdeller.com](https://flexappeal.mdeller.com).**
+  Port 8004 on the shared droplet, behind nginx with a Let's Encrypt certificate
+  and HTTP/2, verified in production rather than merely health-checked: an upload
+  renders all 115 options, a bundle builds and its scripts compile, and a results
+  file renders its panels.
+- [x] **Server-side re-analysis.** The Analysis tab can compute a metric the run
+  did not, or restrict one to part of the molecule, against the trajectory packed
+  in the results file. Bounded by an atom-by-frame budget, a ceiling on quadratic
+  pairwise work, one job at a time, and a cgroup memory limit, in a detached
+  subprocess so MDTraj never blocks a worker.
+- [x] **Membrane systems.** `Modeller.addMembrane` with seven lipids,
+  pre-oriented structures from OPM, the membrane barostat, and area-per-lipid,
+  thickness and deuterium order parameter panels.
+- [x] **Ligands and cofactors.** Chemistry from the RCSB Chemical Component
+  Dictionary transferred onto the deposited coordinates, parameterised with
+  OpenFF Sage, GAFF2 or espaloma, with ligand RMSD and per-residue contact
+  occupancy.
+- [x] **Analysis tab.** Nine panels plus six convergence small multiples, a Mol\*
+  viewer, stat tiles and a table view. The categorical palette is validated
+  rather than chosen: three of the brand accents failed the contrast and
+  lightness checks for chart use and were re-stepped.
+- [x] **Self-contained run bundles.** One file carrying the structure, a pinned
+  environment, a readable OpenMM script, the analysis pass and its own installer.
+- [x] **The option registry.** 115 options declared once as data; the form, the
+  validator, the script template and the documentation all read from it.
+
+Open:
+
+- [ ] **Work around the OpenCL memory leak.** OpenMM's OpenCL platform grows by
+  roughly 3 kB per integration step on an M1 Max with no reporters attached, so
+  it is the platform rather than anything FlexAppeal does, and neither
+  `Context.reinitialize(preserveState=True)` nor rebuilding the `Simulation`
+  reclaims it. The run measures its own slope and warns in time to restart from
+  the checkpoint. The 100 ns benzene run says that warning's model is wrong in
+  the direction that costs a user eight hours: memory climbed to 46 GB at 64% of
+  the run, then *fell* to 34.4 GB by the end. The growth plateaus and the
+  allocator gives it back, but a linear fit over the first few percent does not
+  see that, and the run advised a restart it did not need. The slope needs
+  refitting against this trace.
+- [ ] Espaloma charges as a faster alternative to AM1-BCC, which takes minutes
+  per ligand
+- [ ] Replicate comparison in the Analysis tab: overlay several `.fxa` files on
+  one panel
 - [ ] Trajectory concatenation, so an extended run analyses as one piece
-- [ ] Umbrella-sampling and steered-MD protocols (currently out of scope by design)
+- [ ] Umbrella-sampling and steered-MD protocols (currently out of scope by
+  design)
 - [ ] A "reproduce this" button that rebuilds a bundle from an uploaded `.fxa`
-- [x] **Reference states.** The largest thing added since the worked example. Two proteins, ABL1 kinase and the β2 adrenergic receptor, each simulated from an active and an inactive start, 200 ns of production in 43.4 GPU-hours on one Mac Studio. Eleven structural motifs are scored per frame against the crystal structures that define each state, with the reference ensembles resolved from KLIFS and GPCRdb at run time rather than from a hand-typed residue list, and the thresholds either taken from the literature or refitted and reported as refitted. Six positive controls, all passing: the spatial DFG and αC labels agree with KLIFS 17 times out of 17, the fitted TM3-TM6 threshold reproduces GPCRdb's own state call 100 times out of 100 under leave-one-out, each start structure scores as its own state, both inactive starts stay inactive across the final 20 ns, and the bilayer holds its published area per lipid and thickness. Each run is a row in the Runs library: a scrubable trajectory with the nearest reference overlaid and the cartoon coloured by motif, a per-motif table, a DSSP ribbon carrying the reference consensus, and the state map with the published threshold drawn on it. The same annotation runs on an unseen protein from the CLI. `FINDINGS.md` carries the figures, the limitations and a long account of the faults found on the way.
-- [x] **Trajectory playback on load.** The structure panel starts looping as soon as the frames are in, one pass every 50 seconds, skipped for anyone whose system asks for reduced motion.
-- [ ] **Work around the OpenCL memory leak.** OpenMM's OpenCL platform grows by roughly 3 kB per integration step on an M1 Max, measured with no reporters attached, so it is the platform rather than anything FlexAppeal does. The 10 ns reference run ended 8 GB up. Neither `Context.reinitialize(preserveState=True)` nor destroying and rebuilding the `Simulation` reclaims it, and the run measures its own slope and warns in time to restart from the checkpoint, which does release it.
-
-  The 100 ns benzene run since then says the warning's model is wrong, though, and in the direction that costs a user eight hours. Resident memory climbed linearly at 0.78 GB per percent to 46 GB at 64% of the run, then *fell* to 34.4 GB by the end, finishing with 8.4 MB of swap added on a 96 GB machine. The growth plateaus and the allocator gives it back. A linear fit over the first few percent does not see that, so the run projected 105 GB still to come and advised a restart it did not need. The slope needs refitting against this trace before the advice is trustworthy.
-- [x] **A worked example.** A real 100 ns run of T4 lysozyme L99A with benzene bound in its buried cavity (181L, 25,463 atoms with water) is committed to the repository, and the Example tab renders it through the same code path as an upload: the panels come from `plots.build_all()`, the Mol\* viewer loads the topology and trajectory out of the same `.fxa`, and the option tables are read from the registry. So the page cannot drift from the product -- if the Analysis tab breaks, this breaks with it, in CI. The terminal captures are the bytes the run actually printed, replayed through the library that produced them. `bash examples/lysozyme_benzene_100ns/rebuild.sh` regenerates all of it, in about eight and a half hours.
-- [x] **Apple Silicon runs on the GPU.** OpenMM's OpenCL platform was being disqualified on every Mac: Apple's implementation supports single precision only, the default configuration asks for mixed (correct on CUDA), and context creation fails with "No compatible OpenCL platform is available" -- which names the platform rather than the property, so the benchmark caught it and silently fell back to the CPU. Measured on solvated lysozyme, 19,433 atoms, M1 Max: **29.5 ns/day on CPU against 206 on OpenCL**, so a 10 ns run took eight hours instead of seventy minutes. Unsupported properties are now dropped rather than fatal, the substitution is announced, and the check probes the platform in front of it rather than hard-coding a list.
-- [x] **Rich terminal output.** The CLI and both generated scripts share one palette and print through [rich](https://github.com/Textualize/rich): tables for structure reports, determinate bars for the integration stages, an indeterminate spinner for minimisation (whose iteration counter is not monotonic, so a percentage would run backwards), and a live memory readout beside every bar. Swap is the figure that matters -- a run that spills out of RAM slows by an order of magnitude with no other symptom -- so it is on screen throughout and warns once, loudly, if this run is what pushed the machine there. Off a terminal it degrades to plain milestone lines with no escape sequences, which is what makes a `nohup` log readable.
-- [x] **The reference-state runs are rows in the Runs library**, at [flexappeal.mdeller.com/runs](https://flexappeal.mdeller.com/runs). Each is a results file built by a bundle's own analysis script, so it carries the same panels, tiles and viewer as the committed example, with the reference-state measurements as nine or ten further panels at the end. They had a tab of their own for three days; it had its own templates, endpoints and charts for the same measurements the Analysis tab already drew, which is one code path too many.
-- [x] **Deployed to [flexappeal.mdeller.com](https://flexappeal.mdeller.com).** Port 8004 on the shared droplet, behind nginx with a Let's Encrypt certificate and HTTP/2. Verified in production rather than merely health-checked: a structure upload renders all 115 options and finds lysozyme's four disulfides, a bundle builds and its generated scripts compile, and a results file renders eleven panels. Each application on the box serves its own certificate, which is the failure the unconditional-certbot rule exists to prevent.
-- [x] **Server-side re-analysis.** The Analysis tab can compute a metric the run did not, or restrict one to part of the molecule, against the trajectory packed in the results file. Bounded by an atom-by-frame budget, a separate ceiling on quadratic pairwise work, one job at a time via an expiring lock, and a cgroup memory limit. The work runs in a detached subprocess so MDTraj never blocks a worker.
-- [x] **Membrane systems.** `Modeller.addMembrane` with seven lipids, pre-oriented structures from OPM, the membrane barostat, and area-per-lipid, thickness and deuterium order parameter panels.
-- [x] **Ligands and cofactors.** Chemistry from the RCSB Chemical Component Dictionary transferred onto the deposited coordinates, parameterised with OpenFF Sage, GAFF2 or espaloma, with ligand RMSD and per-residue contact occupancy.
-- [x] **Analysis tab.** Nine panels plus six convergence small multiples, a Mol\* viewer, stat tiles and a table view. The categorical palette is validated rather than chosen: three of the brand accents failed the contrast and lightness checks for chart use and were re-stepped.
-- [x] **Self-contained run bundles.** One file carrying the structure, a pinned environment, a readable OpenMM script, the analysis pass and its own installer.
-- [x] **The option registry.** 115 options declared once as data; the form, the validator, the script template and the documentation all read from it.
 
 ## 📝 Licence
 
