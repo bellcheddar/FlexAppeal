@@ -1250,10 +1250,12 @@ def viewer_controls(results) -> dict[str, Any]:
         "motif_painted": bool(viewer.get("motif_painted")),
         "overlay": overlay,
         "lipids": lipids,
-        # Only offered with a bilayer to orient against: the vectors are
-        # measured from the lipids, so a water run has none and the viewer
-        # keeps whatever view Mol* framed.
-        "orientation": (viewer.get("orientation") or {}) if lipids else {},
+        # Offered for any run that carries one, membrane or not. It was gated
+        # on the bilayer when the only thing that could define a view was the
+        # membrane normal; a water run's view comes from the shape of its own
+        # core, and the point of it is that the two runs of a system open
+        # facing the same way.
+        "orientation": viewer.get("orientation") or {},
         # The key to the cartoon's colours, for a legend under the viewport.
         # Section 6.1 gives each motif a token and the structure carries the
         # token's number in its B-factor column, so the viewer draws colours

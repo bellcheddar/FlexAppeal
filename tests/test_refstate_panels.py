@@ -929,12 +929,14 @@ def test_an_older_bilayer_that_moves_still_works():
     assert half["lipids"]["topology"] == "lipids.pdb"
 
 
-def test_the_camera_is_only_pointed_where_there_is_a_bilayer_to_point_at():
-    """A water run keeps whatever view Mol* framed.
+def test_a_run_carries_its_camera_whether_or_not_it_has_a_bilayer():
+    """The two runs of a system have to open facing the same way.
 
-    The two vectors are measured from the lipids, so a run without them has no
-    edge-on view to offer and the viewer is left alone rather than pointed
-    somewhere arbitrary.
+    It was gated on the bilayer when the only thing that could define a view
+    was the membrane normal. A water run's view comes from the shape of its own
+    core instead, and both runs of a system are matched to one of them by
+    superposing their cores, so a kinase pair opens as one picture rather than
+    two unrelated angles.
     """
     orientation = {"up": [0, 0, 1], "along": [1, 0, 0], "normal_axis": 2}
     membrane = _payload(viewer={"motif_painted": False, "overlay": {},
@@ -947,7 +949,12 @@ def test_the_camera_is_only_pointed_where_there_is_a_bilayer_to_point_at():
 
     water = _payload(viewer={"motif_painted": False, "overlay": {},
                              "orientation": orientation, "lipids": {}})
-    assert panels.viewer_controls(_results(water))["orientation"] == {}
+    assert panels.viewer_controls(_results(water))["orientation"] == orientation
+
+    # And a file with no camera in it leaves the viewer alone.
+    plain = _payload(viewer={"motif_painted": False, "overlay": {},
+                             "lipids": {}})
+    assert panels.viewer_controls(_results(plain))["orientation"] == {}
 
 
 def test_the_viewer_legend_names_every_motif_the_cartoon_colours():

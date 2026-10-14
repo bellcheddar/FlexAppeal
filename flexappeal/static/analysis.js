@@ -1045,7 +1045,10 @@
                 if (!old.type) return;
                 old.type.name = 'line';
                 old.type.params = old.type.params || {};
-                old.type.params.alpha = 0.55;
+                /* Transparent, so the receptor reads through the membrane
+                   rather than behind it. The bilayer is context: a reader is
+                   looking at the protein in it, not at the lipids. */
+                old.type.params.alpha = 0.3;
                 touched += 1;
               });
             });
@@ -1108,7 +1111,11 @@
           restoreCamera(viewer, framing);
           toggle.dataset.loaded = 'yes';
           orientToMembraneSoon(viewer, host);
-          if (say) say('Bilayer drawn around the receptor, at the first frame.');
+          if (say) {
+            say(toggle.dataset.trajectory
+              ? 'Bilayer drawn around the receptor, moving with it.'
+              : 'Bilayer drawn around the receptor, at the first frame.');
+          }
         } else if (loaded && loaded.model) {
           await viewer.plugin.state.data.build()
             .delete(loaded.model.ref).commit();

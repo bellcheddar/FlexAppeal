@@ -5158,6 +5158,46 @@ saying which motif either was. The key under the viewport uses the same swatch
 and the same section 6.1 tokens as the panel tables, so a motif looks the same
 wherever the page mentions it.
 
+## 4by. A pair that opens at two different angles is two pictures
+
+Three more from the reader, and the third is the one worth keeping.
+
+**The bilayer stood still.** It was one frame, which was the right trade when
+it was the whole box at 48 MB and the wrong one at 18 angstrom: the patch over
+every frame is 17 MB, and a membrane that does not move while the protein does
+is not a membrane. Fitted per frame rather than once, because the transform
+between the staged frame and the packed one is a translation that changes as
+the protein diffuses through the box, and the first frame's transform would
+leave the bilayer further behind the longer the run went on.
+
+**The lipids were opaque enough to hide the receptor.** Alpha 0.3 now. The
+bilayer is context: a reader is looking at a protein in a membrane, not at the
+membrane.
+
+**And the two runs of a system opened at unrelated angles.** This is the one
+that was a fault rather than a preference. Each run arrives in whatever frame
+its own trajectory left it in, so `abl1_apo` and `abl1_imatinib` faced
+different ways, and a reader comparing the pair was comparing two pictures as
+well as two runs. On a page whose whole argument is "the same protein from two
+starting structures", that is the comparison the page exists to make.
+
+One run of each system defines the view and the other is matched to it by
+superposing their cores, which is the same superposition every motif distance
+on the page is measured after. A direction carries across by the rotation
+alone: the centroids are where the two structures happen to be and a camera
+does not care. Checked afterwards by superposing the two cores independently
+and taking the dot product of the two camera vectors: **1.0000 on both**, on 43
+shared core residues for the kinase and 82 for the receptor.
+
+The defining run's own view comes from the structure rather than from a
+preference. A receptor's up is the bilayer normal with helix 8 saying which end
+is extracellular, and the camera looks along the widest direction lying in the
+membrane. A kinase has no membrane to ask, so it is the principal axes of the
+core: looking down the thinnest one shows the widest face, which is the view
+every published figure of a kinase domain uses. The sign is fixed against the
+first core residue, so the same structure always comes out the same way up
+rather than depending on which way the singular vectors happened to point.
+
 ## 5. Production runs
 
 Tier 2 started at 17:04 on 10 October, in section 5.3's priority order: β2AR

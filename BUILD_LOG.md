@@ -2626,3 +2626,25 @@ test on the inode rather than on the content, because identical content is what
 hid it.
 
 **1,061 passed, nothing skipped.**
+
+### 13 October, 20:45. The pair has to be one picture
+
+Three more from Marc. The bilayer now moves with the protein: the patch within
+18 angstrom over every frame is 17 MB against 48 for whole lipids over the whole
+box, and it is fitted per frame because the transform between the staged frame
+and the packed one changes as the protein diffuses. The lipids are transparent,
+because the bilayer is context and the receptor is the subject.
+
+The third was a fault rather than a preference. Each run arrives in whatever
+frame its own trajectory left it in, so the two runs of a system opened facing
+different ways: a reader comparing the pair was comparing two pictures as well
+as two runs, on a page whose whole argument is the same protein from two starts.
+One run of each system defines the view now and the other is matched to it by
+superposing their cores, the same superposition every motif distance is measured
+after. Verified by superposing the cores independently and taking the dot
+product of the camera vectors: 1.0000 for both pairs, on 43 shared core residues
+for the kinase and 82 for the receptor. 4by.
+
+The defining run's own view is measured too: the bilayer normal for a receptor,
+with helix 8 for the sign, and the principal axes of the core for a kinase,
+where looking down the thinnest axis shows the widest face.

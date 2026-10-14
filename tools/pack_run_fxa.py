@@ -704,6 +704,76 @@ def _packed_frame(produced: Path):
     return md.load(str(path)), scratch
 
 
+# Which run of each system defines the view the others are matched to. The two
+# runs of a system are the same protein from two starting structures, and they
+# arrive in whatever frame their own trajectory left them in, so without this
+# they open at unrelated angles and a reader comparing the pair is comparing two
+# different pictures as well as two different runs.
+VIEW_REFERENCE = {"abl1": "abl1_apo", "b2ar": "b2ar_apo"}
+
+
+def _core_calphas(packed, payload: dict[str, Any]) -> dict[int, Any]:
+    """The superposition core's Calpha positions, keyed by residue number.
+
+    Keyed on the analysis's own numbering, which is the construct's, because
+    that is what two runs of one system share: the packed topologies are
+    renumbered from 1 and the two runs have different numbers of residues
+    before the core starts.
+    """
+    import numpy as np
+
+    axis = (payload.get("dssp") or {}).get("residues") or []
+    core = (payload.get("core") or {}).get("residues") or []
+    protein = [residue for residue in packed.topology.residues
+               if residue.is_protein]
+    if not axis or not core or len(protein) != len(axis):
+        return {}
+    renumbered = {int(number): protein[index]
+                  for index, number in enumerate(axis)}
+    found: dict[int, Any] = {}
+    for number in core:
+        residue = renumbered.get(int(number))
+        if residue is None:
+            continue
+        alpha = next((atom for atom in residue.atoms if atom.name == "CA"), None)
+        if alpha is not None:
+            found[int(number)] = np.asarray(packed.xyz[0][alpha.index]) * 10.0
+    return found
+
+
+def _view_from_shape(coords, up_hint=None):
+    """A camera from the protein's own shape, for the run that defines a pair.
+
+    The axes are the principal axes of the core: a kinase domain is wider than
+    it is thick, so looking down the thinnest one shows the widest face, which
+    is the view every figure of a kinase uses. For a receptor the up direction
+    is given rather than derived, because the membrane says which way is up and
+    the shape does not.
+
+    The sign is fixed against the first core residue, so the same structure
+    always comes out the same way up rather than depending on which way the
+    singular vectors happened to point.
+    """
+    import numpy as np
+
+    centred = coords - coords.mean(axis=0)
+    _, _, axes = np.linalg.svd(centred, full_matrices=False)
+    if up_hint is None:
+        up = axes[1]
+        if float(np.dot(centred[0], up)) > 0:
+            up = -up
+        along = axes[2]
+    else:
+        up = np.asarray(up_hint, dtype=float)
+        # The widest direction that lies in the plane across the view, so the
+        # camera looks at the face rather than at an edge.
+        widest = axes[0] - up * float(np.dot(axes[0], up))
+        norm = float(np.linalg.norm(widest))
+        along = (widest / norm) if norm > 1e-6 else axes[0]
+        along = np.cross(up, along)
+    return up, along
+
+
 def _orientation(packed, payload: dict[str, Any],
                  phosphorus) -> dict[str, Any]:
     """Which way is up for a membrane run, measured rather than assumed.
@@ -761,14 +831,92 @@ def _orientation(packed, payload: dict[str, Any],
     sign = 1.0 if towards > 0 else -1.0
     up = [0.0, 0.0, 0.0]
     up[normal] = sign
-    # The camera looks along the first axis that is not the normal, which puts
-    # the normal across the screen rather than into it.
-    along = [0.0, 0.0, 0.0]
-    along[(normal + 1) % 3] = 1.0
-    return {"up": up, "along": along, "normal_axis": normal,
-             "note": ("the bilayer normal is the axis the phosphorus atoms are "
-                      "least spread along, and helix 8 says which end of it is "
-                      "intracellular")}
+    return {"up": up, "normal_axis": normal,
+            "note": ("the bilayer normal is the axis the phosphorus atoms are "
+                     "least spread along, and helix 8 says which end of it is "
+                     "intracellular")}
+
+
+def _camera_plan(row: str, system: str, packed, payload: dict[str, Any],
+                 membrane: dict[str, Any]) -> dict[str, Any]:
+    """Where the camera looks, in this run's own frame.
+
+    Two runs of one system are the same protein from two starting structures,
+    and each arrives in whatever frame its own trajectory left it in. Opened
+    side by side they faced different ways, so a reader comparing the pair was
+    comparing two pictures as well as two runs.
+
+    One run of each system defines the view and the other is matched to it by
+    superposing their cores, which is the same superposition every motif
+    distance on the page is measured after. A direction is carried across by
+    the rotation alone: that is what makes the pair agree rather than merely
+    look similar.
+
+    The defining run's own view comes from the structure. For a receptor the up
+    direction is the bilayer normal, with helix 8 saying which end is
+    extracellular, and the camera looks along the widest direction lying in the
+    membrane. For a kinase there is no membrane to ask, so it is the principal
+    axes of the core: looking down the thinnest one shows the widest face.
+
+    Returns an empty dict when the core cannot be resolved, and the viewer then
+    keeps whatever view Mol* framed.
+    """
+    import json as json_mod
+    import zipfile as zip_mod
+
+    import numpy as np
+
+    from flexappeal.refstates import traj as traj_mod
+
+    core = _core_calphas(packed, payload)
+    if len(core) < 8:
+        return {}
+
+    reference_row = VIEW_REFERENCE.get(system)
+    stored = RUNS_ROOT / (reference_row or "") / "results.fxa"
+    if reference_row and reference_row != row and stored.is_file():
+        try:
+            with zip_mod.ZipFile(stored) as archive:
+                reference_payload = json_mod.loads(archive.read("refstates.json"))
+                scratch = WORK / "_view"
+                scratch.mkdir(parents=True, exist_ok=True)
+                path = scratch / "reference.pdb"
+                path.write_bytes(archive.read("topology.pdb"))
+            import mdtraj as md
+
+            reference_packed = md.load(str(path))
+            shutil.rmtree(scratch, ignore_errors=True)
+            plan = ((reference_payload.get("viewer") or {}).get("orientation")
+                    or {})
+            reference_core = _core_calphas(reference_packed, reference_payload)
+            shared = sorted(set(core) & set(reference_core))
+            if plan.get("up") and plan.get("along") and len(shared) >= 8:
+                rotation, _, _ = traj_mod.superpose(
+                    np.array([reference_core[number] for number in shared]),
+                    np.array([core[number] for number in shared]))
+                # A direction moves under the rotation alone: the centroids are
+                # where the two structures are, and a camera does not care.
+                return {
+                    "up": (rotation @ np.asarray(plan["up"])).tolist(),
+                    "along": (rotation @ np.asarray(plan["along"])).tolist(),
+                    "matched_to": reference_row,
+                    "note": (f"the same view as {reference_row}, carried across "
+                             f"by superposing the two cores on "
+                             f"{len(shared)} residues"),
+                }
+        except (OSError, ValueError, KeyError, zip_mod.BadZipFile):
+            pass
+
+    numbers = sorted(core)
+    coords = np.array([core[number] for number in numbers])
+    up, along = _view_from_shape(coords, membrane.get("up"))
+    plan = {"up": list(map(float, up)), "along": list(map(float, along))}
+    plan["note"] = (membrane.get("note") if membrane else
+                    "the principal axes of the superposition core: the camera "
+                    "looks down the thinnest one, which shows the widest face")
+    if membrane.get("normal_axis") is not None:
+        plan["normal_axis"] = membrane["normal_axis"]
+    return plan
 
 
 # How far from the receptor a lipid is still drawn. Eighteen angstrom is about
@@ -776,6 +924,68 @@ def _orientation(packed, payload: dict[str, Any],
 # as a membrane rather than as a collar, and little enough that the camera
 # frames the receptor rather than the box.
 LIPID_PATCH_A = 18.0
+
+
+def packed_coordinates(produced: Path):
+    """Every frame of the packed trajectory, which the bilayer is fitted onto."""
+    import mdtraj as md
+
+    scratch = WORK / "_packedtraj"
+    scratch.mkdir(parents=True, exist_ok=True)
+    with zipfile.ZipFile(produced) as archive:
+        (scratch / "topology.pdb").write_bytes(archive.read("topology.pdb"))
+        (scratch / "traj.xtc").write_bytes(archive.read("traj.xtc"))
+    loaded = md.load(str(scratch / "traj.xtc"), top=str(scratch / "topology.pdb"))
+    shutil.rmtree(scratch, ignore_errors=True)
+    return loaded
+
+
+def _stage_lipid_frames(trajectory: Path, topology: Path, packed, shared,
+                        lipid, destination: Path) -> int:
+    """The bilayer over the whole run, in the packed trajectory's frame.
+
+    One fit per frame. The two frames differ by the whole-molecule translation
+    imaging applied, and that changes as the protein moves through the box, so
+    a single transform taken at frame 0 leaves the bilayer further behind the
+    further the run goes.
+
+    Streamed in chunks: the staged trajectory is 194,032 atoms and reading it
+    whole to write 8,000 of them back out would be a gigabyte held for nothing.
+    """
+    import mdtraj as md
+    import numpy as np
+    from mdtraj.formats import XTCTrajectoryFile
+
+    from flexappeal.refstates import traj as traj_mod
+
+    protein = packed.topology.select("protein")
+    if len(protein) != len(shared):
+        return 0
+
+    written = 0
+    with XTCTrajectoryFile(str(destination), "w") as out:
+        for chunk in md.iterload(str(trajectory), top=str(topology), chunk=20):
+            for index in range(chunk.n_frames):
+                if written >= packed.n_frames:
+                    break
+                frame = chunk.xyz[index] * 10.0
+                box = (np.asarray(chunk.unitcell_lengths)[index] * 10.0
+                       if chunk.unitcell_lengths is not None else None)
+                centre = frame[shared].mean(axis=0)
+                coordinates = frame[lipid]
+                if box is not None:
+                    offset = coordinates - centre
+                    coordinates = centre + offset - box * np.round(offset / box)
+                transform = traj_mod.superpose(
+                    frame[shared], packed.xyz[written][protein] * 10.0)
+                out.write((traj_mod.apply_transform(coordinates, *transform)
+                           / 10.0).astype("float32").reshape(1, -1, 3),
+                          time=np.array([float(written)]),
+                          step=np.array([written]))
+                written += 1
+            if written >= packed.n_frames:
+                break
+    return written
 
 
 def _viewer_members(row: str, payload: dict[str, Any], produced: Path,
@@ -800,6 +1010,7 @@ def _viewer_members(row: str, payload: dict[str, Any], produced: Path,
     import numpy as np
 
     members: dict[str, bytes] = {}
+    system = "abl1" if row.startswith("abl1") else "b2ar"
     packed, scratch = _packed_frame(produced)
     try:
         # The ghosts, from the reference-state viewer bundle's frame. Its
@@ -835,6 +1046,11 @@ def _viewer_members(row: str, payload: dict[str, Any], produced: Path,
                     "packed topology, so no ghost is offered")
 
         if not cfg.get("use_membrane"):
+            # A water run still gets a camera, so the two runs of a system open
+            # facing the same way.
+            payload.setdefault("viewer", {})["orientation"] = _camera_plan(
+                row, system, packed, payload, {})
+            log(f"  camera: {payload['viewer']['orientation'].get('note', 'none')}")
             return members
 
         # The bilayer, from the staged trajectory this run was packed from.
@@ -919,25 +1135,43 @@ def _viewer_members(row: str, payload: dict[str, Any], produced: Path,
         out = scratch / "lipids.pdb"
         bilayer.save_pdb(str(out))
         members["lipids.pdb"] = out.read_bytes()
-        log(f"  bilayer: {len(lipid)} lipid atoms aligned onto the packed "
-            f"frame, {residual:.3f} angstrom residual, "
-            f"{len(members['lipids.pdb']) / 1e6:.1f} MB")
+
+        # And every frame of it, so the bilayer moves with the protein rather
+        # than standing still around a receptor that does not. One frame was
+        # the first answer, on the grounds that the bilayer is context and 500
+        # frames of whole lipids is 48 MB; at 18 angstrom it is 16, which is
+        # worth it for a membrane that behaves like one.
+        #
+        # Fitted per frame, not once: the transform between the staged frame
+        # and the packed one is a translation that changes as the protein
+        # diffuses, and reusing the first frame's would leave the bilayer
+        # behind as the run goes on.
+        frames = _stage_lipid_frames(
+            trajectory, topology, packed_coordinates(produced), shared, lipid,
+            scratch / "lipids.xtc")
+        if frames:
+            members["lipids.xtc"] = (scratch / "lipids.xtc").read_bytes()
+        log(f"  bilayer: {len(lipid)} lipid atoms over {frames or 1} frame(s), "
+            f"aligned onto the packed frame, {residual:.3f} angstrom residual, "
+            f"{sum(len(members[name]) for name in members if 'lipids' in name) / 1e6:.1f} MB")
 
         payload.setdefault("viewer", {})["lipids"] = {
             "topology": "lipids.pdb", "n_atoms": int(len(lipid)),
             "n_residues": int(len({solvated.topology.atom(i).residue.index
                                    for i in lipid})),
-            "n_frames": 1, "within_a": LIPID_PATCH_A,
+            "n_frames": int(frames or 1), "within_a": LIPID_PATCH_A,
         }
+        if frames:
+            payload["viewer"]["lipids"]["trajectory"] = "lipids.xtc"
         # Imaged and transformed the same way the patch was, so the axes are
         # the packed frame's. A rigid transform does not change a spread, but
         # the sign of "which way is extracellular" is read against the packed
         # protein, so both have to be in one frame.
         whole = traj_mod.apply_transform(imaged(whole_phosphorus), *transform)
-        payload["viewer"]["orientation"] = _orientation(packed, payload, whole)
-        log(f"  orientation: {payload['viewer']['orientation'] or 'not established'}"
-            f" (phosphorus {len(whole_phosphorus)}, spread "
-            f"{np.round(whole.std(axis=0), 1).tolist()})")
+        payload["viewer"]["orientation"] = _camera_plan(
+            row, system, packed, payload,
+            _orientation(packed, payload, whole))
+        log(f"  camera: {payload['viewer']['orientation'].get('note', 'none')}")
         return members
     finally:
         shutil.rmtree(scratch, ignore_errors=True)

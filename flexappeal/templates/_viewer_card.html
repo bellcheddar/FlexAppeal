@@ -108,8 +108,10 @@
       {% endfor %}
       {% if refstates_viewer.lipids %}
         {# On by default: a receptor in a membrane should open looking like
-           one. Drawn at the first frame, because the whole lipid is 24,752
-           heavy atoms and five hundred frames of that is 48 MB. #}
+           one. The whole lipid, over every frame, for the patch within 18
+           angstrom of the receptor: whole lipids over the whole box would be
+           48 MB, and a bilayer that stands still while the protein moves is
+           not a bilayer. #}
         <label class="md-check">
           <input type="checkbox" id="lipid-toggle" checked
                  data-structure="{{ url_for('analysis.viewer_member', token=token, member=refstates_viewer.lipids.topology) }}"
