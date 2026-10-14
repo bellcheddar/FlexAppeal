@@ -5621,6 +5621,77 @@ The four runs, each against its own catalogue ensemble and none against the
 worked example: beta2AR -40.5, M2 -45.3, mu-opioid -36.4, A2A -33.7 kcal/mol,
 37 panels each. The A2A antagonist reads as inactive, which is what it is.
 
+## 4ci. A bundle's viewer, and a camera measured twice
+
+Seven verification runs went into the Runs library and three things about them
+were wrong on the page rather than in the numbers. All three are the same shape
+as 4ch: the product was tested through `tools/pack_run_fxa.py`, and what a
+bundle produces had never been looked at.
+
+**The trajectory crawled.** The playback pass is clamped to between eight and
+forty seconds, which for 500 frames is 25 a second and for 20 frames is two and
+a half, each held for 400 milliseconds. Every file in the library was 500
+frames until these arrived, so the floor never bound. There is a floor on the
+rate now as well: twenty frames take two seconds, five hundred still take
+twenty.
+
+**The membrane was not there.** The bilayer, the reference ghosts, the motif
+colouring and the camera are all written by the packer, so a bundle produced
+every reference-state panel and no reference-state viewer. The bilayer and the
+camera are built by the bundle now, and it is far less work there than in the
+packer: the lipids are the same frames of the same array as the packed protein,
+already imaged and already superposed by the analysis that precedes them, so
+they need only be cut out. Eighteen angstrom patch, whole residues, membership
+fixed at the first packed frame.
+
+**And the camera was wrong, which is the part worth writing down.** The packer
+measures two things: the bilayer normal, from the axis the phosphorus atoms are
+least spread along, and which end of it is extracellular, from helix 8 lying on
+the intracellular face. My first version of the bundle's camera took the normal
+the same way and then decided the sign by comparing the protein's centroid with
+the phosphorus mean. Those are nearly the same point. The sign was therefore
+arbitrary, a receptor could open upside down, and the view direction was the
+next axis cyclically rather than the widest face, so it was also rotated to
+anywhere about the normal.
+
+It would have been easy to call that a small mistake in a new function. It is
+better described as writing a second implementation of a measurement that
+already existed, and getting it wrong in the half that the first implementation
+had a comment explaining. The two now answer with the same rule, and the test
+asserts the rule rather than a number: the sign flips when helix 8 moves to the
+other leaflet, the view stays perpendicular to the normal, and an absent helix
+8 yields nothing rather than a guess. All six receptors come out with up along
+the membrane normal and the camera across it, which is what the 50 ns rows have
+always had.
+
+**One more from the suite.** Clicking a point on the state map set the slider
+and did not stop playback, so the frame clock dragged the viewer off that frame
+within 40 milliseconds. A reader asking to see a frame was shown it and then
+moved away from it. The click pauses first now, which is the behaviour anybody
+would expect and is also what makes the move deterministic rather than a race.
+
+## 4cj. The motif that is not there in class B
+
+GLP-1R was the first class B receptor this build has scored, and it showed that
+one motif name was a class A assumption written into a constant.
+
+The receptor motifs are spans of GPCRdb generic numbers, and 7.49 to 7.53 is
+the same structural place in every class: the top of TM7 where it meets helix
+8. In class A that sequence is NPxxY and in class B it is PxxG, a proline and a
+glycine rather than an asparagine and a tyrosine. The span needed nothing; the
+name did, and the motif list carried "NPxxY" as a literal, so GLP-1R was
+scored on a motif it does not have and the state map's axis was labelled with
+it.
+
+The name comes from GPCRdb's own class string now, so `glp1r_human` reports
+"Class B1 (Secretin); the 7.49-7.53 motif is PxxG" and beta2AR is unchanged. A
+class this build has not met, C or F, is named by its generic numbers rather
+than being handed class A's motif, and a results file written before today
+still reads NPxxY and is still right, because everything scored until now was
+class A.
+
+The measurement never changed. Only what the page calls it.
+
 ## 5. Production runs
 
 Tier 2 started at 17:04 on 10 October, in section 5.3's priority order: β2AR

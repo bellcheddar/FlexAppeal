@@ -13,6 +13,8 @@ table returns exactly that.
 
 from __future__ import annotations
 
+import re
+
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -22,6 +24,29 @@ TM3_TM6_OPEN = ("3.50", "6.34")      # the intracellular cleft
 TM3_TM6_ALT = ("3.50", "6.30")       # reported beside it
 IONIC_LOCK = ("3.50", "6.30")        # R3.50 to E6.30
 NPXXY = ("7.49", "7.53")
+
+# What that span is called, which depends on the receptor's class.
+#
+# The generic numbers are the same structural positions in every class, so the
+# span above needs no adjusting; the name does. 7.49 to 7.53 is NPxxY in class
+# A and PxxG in class B, where the sequence is a proline and a glycine rather
+# than an asparagine and a tyrosine. Everything this build scored until GLP-1R
+# was class A, so the class A name was written into the motif list as a
+# constant and a class B receptor was handed a motif it does not have.
+#
+# Keyed on the leading letter of GPCRdb's own class string ("Class A
+# (Rhodopsin)", "Class B1 (Secretin)"), so a class this table does not know
+# falls back to the generic numbers themselves, which are true of any of them.
+TM7_MOTIF_NAMES = {"A": "NPxxY", "B": "PxxG"}
+TM7_MOTIF_FALLBACK = "TM7 7.49-7.53"
+
+
+def tm7_motif_name(class_name: str) -> str:
+    """The name of the 7.49 to 7.53 motif for one receptor class."""
+    text = str(class_name or "").strip()
+    match = re.search(r"class\s+([A-Z])", text, re.I)
+    letter = match.group(1).upper() if match else ""
+    return TM7_MOTIF_NAMES.get(letter, TM7_MOTIF_FALLBACK)
 NPXXY_TO_TM5 = ("5.58", "7.53")      # Y5.58 OH to Y7.53 OH
 PIF = ("3.40", "5.50", "6.44")
 TOGGLE = ("6.48",)

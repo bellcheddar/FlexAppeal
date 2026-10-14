@@ -443,3 +443,141 @@ def gate_six(chunks: list[MembraneChunk]) -> dict[str, Any]:
                    f"{APL_ACCEPTABLE_A2[0]} to {APL_ACCEPTABLE_A2[1]}")
                   if opens else "mean area per lipid is within the acceptable window",
     }
+
+
+# ---------------------------------------------------------------------------
+#  The bilayer the viewer draws
+# ---------------------------------------------------------------------------
+#
+# Written here so a generated bundle can produce it. The four runs in the Runs
+# library got their bilayer from `tools/pack_run_fxa.py`, which no bundle has,
+# so a receptor simulated through the Prepare tab came back with every membrane
+# metric and a viewer with no membrane in it.
+#
+# It is much less work inside a bundle than in the packer. The packer had to
+# fit each frame of a separately staged trajectory onto the packed one; here
+# the lipids and the packed protein are the same frames of the same array,
+# already imaged and already superposed by the analysis that precedes this, so
+# the lipids need only be cut out and written.
+
+# How far from the protein a lipid is still drawn. The whole box is a wall of
+# lipid with the receptor lost inside it, and Mol* frames the camera on
+# everything it holds; a patch frames itself.
+LIPID_PATCH_A = 18.0
+
+# PDB residue names are three characters, so POPC is written and read as POP.
+LIPID_PREFIXES = ("POP", "DPP", "DOP", "DLP", "DMP", "PLP", "SOP", "CHL")
+
+
+def lipid_atoms(topology) -> "list[int]":
+    """Every atom of every lipid residue, by name rather than by connectivity.
+
+    A bilayer built by `addMembrane` has no chain of its own and its residues
+    are not polymers, so this is a name test. Both spellings are covered
+    because a trajectory written as PDB truncates to three characters.
+    """
+    found = []
+    for residue in topology.residues:
+        name = residue.name.upper()
+        if any(name.startswith(prefix) for prefix in LIPID_PREFIXES):
+            found += [atom.index for atom in residue.atoms]
+    return found
+
+
+def bilayer_patch(traj, frames, within_a: float = LIPID_PATCH_A):
+    """The lipids near the protein, over the frames the viewer will show.
+
+    `frames` are indices into `traj`, the same ones the packed trajectory was
+    decimated to, so the patch lines up with the protein the viewer draws.
+
+    Membership is decided once, at the first of them, and whole residues are
+    kept: a lipid is in or out, never half drawn, and what is on screen does
+    not change under the reader as the run goes on.
+
+    Returns (trajectory of the patch, number of lipid residues) or (None, 0)
+    where the trajectory holds no lipids, which is the usual case: the default
+    trajectory selection keeps the protein and its ligands only.
+    """
+    import mdtraj as md
+    import numpy as np
+
+    lipid = np.asarray(lipid_atoms(traj.topology), dtype=int)
+    protein = traj.topology.select("protein")
+    if not len(lipid) or not len(protein) or not len(frames):
+        return None, 0
+
+    first = int(frames[0])
+    near = set(md.compute_neighbors(
+        traj[first], within_a / 10.0, protein, haystack_indices=lipid)[0])
+    residues = {traj.topology.atom(int(i)).residue.index for i in near}
+    kept = np.asarray(
+        [int(i) for i in lipid
+         if traj.topology.atom(int(i)).residue.index in residues], dtype=int)
+    if not len(kept):
+        return None, 0
+
+    patch = traj[list(frames)].atom_slice(kept)
+    return patch, len(residues)
+
+
+def bilayer_orientation(traj, frame=0, protein_xyz=None, helix8_xyz=None):
+    """Which way is up and which way the camera looks, both measured.
+
+    The same two facts the packer measures for the library's own runs, by the
+    same rules, because a reader comparing a run of their own against one of
+    those is entitled to the same picture.
+
+    The normal is the axis the phosphorus atoms are least spread along: a
+    leaflet is wide in the plane and thin across it. Which end of it is
+    extracellular comes from helix 8, which lies on the intracellular face, so
+    if its centroid sits below the protein's along the normal then up is the
+    positive direction and the extracellular loops are at the top. The camera
+    then looks along the widest direction lying in the plane, which shows the
+    receptor's widest face rather than an edge of it.
+
+    Both are refused rather than guessed. Without helix 8 there is no way to
+    tell one end of the normal from the other, and the first version of this
+    took the protein's own centroid against the phosphorus mean, which is
+    nearly the same point: the sign was arbitrary and a receptor could open
+    upside down. Without a bilayer that actually lies across one axis there is
+    no edge-on view to offer at all.
+    """
+    import numpy as np
+
+    phosphorus = [index for index in lipid_atoms(traj.topology)
+                  if traj.topology.atom(index).name == "P"]
+    if len(phosphorus) < 20:
+        return {}
+
+    spread = traj.xyz[frame][phosphorus].std(axis=0) * 10.0
+    normal = int(np.argmin(spread))
+    others = [value for index, value in enumerate(spread) if index != normal]
+    if min(others) < spread[normal] * 1.5:
+        # Not a bilayer lying across one axis, so there is no edge-on view and
+        # guessing one would point the camera somewhere arbitrary.
+        return {}
+
+    if protein_xyz is None or helix8_xyz is None or not len(helix8_xyz):
+        return {}
+    protein_xyz = np.asarray(protein_xyz, dtype=float)
+    towards = float(protein_xyz[:, normal].mean()
+                    - np.asarray(helix8_xyz, dtype=float)[:, normal].mean())
+    if abs(towards) < 1.0:
+        return {}
+
+    up = np.zeros(3)
+    up[normal] = 1.0 if towards > 0 else -1.0
+
+    # The widest direction that lies in the plane across the view.
+    centred = protein_xyz - protein_xyz.mean(axis=0)
+    _, _, axes = np.linalg.svd(centred, full_matrices=False)
+    widest = axes[0] - up * float(np.dot(axes[0], up))
+    norm = float(np.linalg.norm(widest))
+    along = np.cross(up, widest / norm if norm > 1e-6 else axes[0])
+
+    return {"up": [float(v) for v in up],
+            "along": [float(v) for v in along],
+            "normal_axis": normal,
+            "note": ("the bilayer normal is the axis the phosphorus atoms are "
+                     "least spread along, and helix 8 says which end of it is "
+                     "intracellular")}

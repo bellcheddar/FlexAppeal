@@ -5924,3 +5924,113 @@ def test_the_state_map_cloud_is_carried_rather_than_recomputed():
     assert "dfg_d_alphac" not in block, (
         "the bundle must not measure the references itself: it has neither "
         "their structures nor the annotator")
+
+
+def test_the_tm7_motif_is_named_for_the_receptor_class():
+    """7.49 to 7.53 is NPxxY in class A and PxxG in class B.
+
+    The span is the same structural place in either, because a generic number
+    is a position rather than a sequence, so only the name changes. Everything
+    this build scored until GLP-1R was class A and the class A name was a
+    constant in the motif list, which handed a class B receptor a motif it does
+    not have.
+    """
+    from flexappeal.refstates.gpcr import tm7_motif_name
+
+    assert tm7_motif_name("Class A (Rhodopsin)") == "NPxxY"
+    assert tm7_motif_name("Class B1 (Secretin)") == "PxxG"
+    assert tm7_motif_name("Class B2 (Adhesion)") == "PxxG"
+    # A class this build has not met is named by the numbers themselves, which
+    # are true of any of them, rather than by class A's motif.
+    assert tm7_motif_name("Class C (Glutamate)") == "TM7 7.49-7.53"
+    assert tm7_motif_name("") == "TM7 7.49-7.53"
+    assert tm7_motif_name(None) == "TM7 7.49-7.53"
+
+
+def test_the_state_map_labels_its_axis_from_the_payload():
+    """A file carries the name its own class uses, and the panel follows it.
+
+    A results file written before the names were class-aware has no such key,
+    and every one of those is class A, so the fallback is NPxxY.
+    """
+    from flexappeal.refstates import panels
+
+    base = {"kind": "gpcr", "frames": [], "reference_structures": [
+        {"pdb": "6XOX", "source_state": "active",
+         "metrics": {"tm3_tm6": 14.0, "npxxy_to_inactive": 2.1}}]}
+
+    class_b = dict(base, report={"map_axis": {"motif": "PxxG"}})
+    assert "PxxG RMSD" in panels.state_map(class_b)["layout"]["yaxis"]["title"]["text"]
+
+    class_a = dict(base, report={"map_axis": {"motif": "NPxxY"}})
+    assert "NPxxY RMSD" in panels.state_map(class_a)["layout"]["yaxis"]["title"]["text"]
+
+    # No key at all: an older file, and older files are class A.
+    assert "NPxxY RMSD" in panels.state_map(base)["layout"]["yaxis"]["title"]["text"]
+
+
+def test_the_camera_is_measured_the_same_way_in_both_places():
+    """A run of your own should open like the library's runs do.
+
+    The packer measures two things for the four library rows: the bilayer
+    normal, from the axis the phosphorus atoms are least spread along, and
+    which end of it is extracellular, from helix 8 lying on the intracellular
+    face. A bundle measures the same two, and the first version of it did not:
+    it took the protein's centroid against the phosphorus mean, which is nearly
+    the same point, so the sign was arbitrary and a receptor could open upside
+    down with the camera rotated anywhere about the normal.
+
+    Built here rather than committed: a slab of phosphorus either side of a
+    protein whose helix 8 is on the low side of it.
+    """
+    import numpy as np
+    import mdtraj as md
+
+    from flexappeal.refstates.membrane import bilayer_orientation
+
+    rng = np.random.default_rng(0)
+    # A bilayer across z: the leaflets are far wider in the plane than the
+    # pair is thick, which is the shape the normal is found from. The real
+    # receptor runs measure about 38 and 40 angstrom of spread in the plane
+    # against 19 across, and the test below is the same ratio.
+    plane = rng.uniform(-60, 60, size=(120, 2))
+    z = np.where(np.arange(120) < 60, -18.0, 18.0)
+    phosphorus = np.column_stack([plane, z])
+
+    lines = []
+    for serial, xyz in enumerate(phosphorus, start=1):
+        lines.append(
+            f"HETATM{serial:>5d} P    POP A{serial:>4d}    "
+            f"{xyz[0]:8.3f}{xyz[1]:8.3f}{xyz[2]:8.3f}  1.00  0.00           P")
+    for offset in range(4):
+        serial = 121 + offset
+        lines.append(
+            f"ATOM  {serial:>5d} CA   ALA B{offset + 1:>4d}    "
+            f"{0.0:8.3f}{0.0:8.3f}{offset * 2.0:8.3f}  1.00  0.00           C")
+    import tempfile
+    from pathlib import Path as _Path
+
+    path = _Path(tempfile.mkdtemp()) / "slab.pdb"
+    path.write_text("\n".join(lines) + "\nEND\n")
+    traj = md.load(str(path))
+
+    # The protein spans z = 0 to 6 and is widest along x; helix 8 is its lowest
+    # part, so up is +z and the camera looks across x.
+    protein = np.array([[0.0, 0.0, 0.0], [20.0, 0.0, 2.0],
+                        [0.0, 5.0, 4.0], [0.0, 0.0, 6.0]])
+    helix8 = np.array([[0.0, 0.0, -4.0], [1.0, 0.0, -4.0]])
+
+    found = bilayer_orientation(traj, 0, protein_xyz=protein, helix8_xyz=helix8)
+    assert found["normal_axis"] == 2, found
+    assert found["up"][2] > 0, "helix 8 is below, so up is the positive normal"
+    # And the camera looks across the membrane rather than down it.
+    assert abs(found["along"][2]) < 1e-6, found["along"]
+
+    # Flip helix 8 to the other side and the view flips with it.
+    flipped = bilayer_orientation(traj, 0, protein_xyz=protein,
+                                  helix8_xyz=helix8 + np.array([0, 0, 14.0]))
+    assert flipped["up"][2] < 0
+
+    # Without helix 8 there is no way to tell one end from the other, and a
+    # guess is refused rather than made.
+    assert bilayer_orientation(traj, 0, protein_xyz=protein) == {}

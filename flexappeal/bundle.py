@@ -92,7 +92,8 @@ _MUTATION_RE = re.compile(r"^([A-Za-z0-9]+):([A-Z]{3})-(\d+)-([A-Z]{3})$")
 # the build-time setup already resolved. Nothing else in the package is on the
 # path, checked by blocking gemmi, requests and the vendored annotator and
 # watching what still imports.
-VENDORED_REFSTATES = ("traj.py", "state.py", "sse.py")
+VENDORED_REFSTATES = ("traj.py", "state.py", "sse.py",
+                      "membrane.py")
 
 # Where the resolved ensemble sits in the bundle, and the name `analyse.py`
 # looks for. One definition, because the writer and the reader are in different

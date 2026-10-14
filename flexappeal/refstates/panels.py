@@ -497,8 +497,13 @@ def state_map(payload: dict[str, Any]) -> dict[str, Any] | None:
                 "DFG-Phe to catalytic Lys C\u03b1 (\u00c5)")
     else:
         keys = ("tm3_tm6", "npxxy_to_inactive")
+        # The 7.49 to 7.53 motif is NPxxY in class A and PxxG in class B, and
+        # the payload carries whichever this receptor's class calls it. Older
+        # files have no such key and every one of them is class A.
+        tm7 = (((payload.get("report") or {}).get("map_axis") or {})
+               .get("motif") or "NPxxY")
         axes = ("TM3-TM6 C\u03b1 distance, 3.50 to 6.34 (\u00c5)",
-                "NPxxY RMSD to the nearest inactive reference (\u00c5)")
+                f"{tm7} RMSD to the nearest inactive reference (\u00c5)")
 
     clouds: dict[str, dict[str, list]] = {}
     for reference in references:
@@ -568,7 +573,7 @@ def state_map(payload: dict[str, Any]) -> dict[str, Any] | None:
         # computed as that motif's score, so it is read from there rather than
         # measured twice.
         y = next((motif.get("d_inact_a") for motif in frame.get("motifs") or []
-                  if motif.get("motif") == "NPxxY"), None)
+                  if motif.get("motif") == tm7), None)
         return x, y
 
     path_x, path_y, frame_index, hover = [], [], [], []

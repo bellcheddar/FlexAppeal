@@ -307,9 +307,11 @@ def gpcr_setup(start_pdb: Path, protein: str = "adrb2_human",
     """Motif residues, core and reference ensembles for a receptor run.
 
     Every residue comes through GPCRdb generic numbers, so the segments are the
-    catalogue's own and the beta2AR numbers are never typed. NPxxY is the one
-    motif that is a span of generic numbers rather than a segment, because that
-    is what it is: 7.49 to 7.53.
+    catalogue's own and the beta2AR numbers are never typed. One motif is a
+    span of generic numbers rather than a segment, because that is what it is:
+    7.49 to 7.53, which is NPxxY in class A and PxxG in class B. The span is
+    the same structural place in either; only the name changes, and it is taken
+    from the catalogue's own class string rather than assumed.
 
     `protein` is GPCRdb's entry name, `adrb2_human` for the worked example. Like
     the kinase side, this ignored its caller and every receptor was annotated
@@ -319,11 +321,26 @@ def gpcr_setup(start_pdb: Path, protein: str = "adrb2_human",
 
     from flexappeal.refstates import (Catalogue, ensembles, receptor_references,
                                       receptor_residues, refs, sse)
-    from flexappeal.refstates.gpcr import NPXXY, build_numbering
+    from flexappeal.refstates.gpcr import (NPXXY, build_numbering,
+                                           tm7_motif_name)
     from flexappeal.refstates.traj import core_agreement, gpcr_core
 
     catalogue = Catalogue(GPCRDB_CACHE)
     numbering = build_numbering(receptor_residues(catalogue, protein))
+
+    # What this receptor's class calls the 7.49 to 7.53 span. Read off the
+    # reference entries, which carry GPCRdb's own class string, so a class this
+    # build has not met is named by its generic numbers rather than by class
+    # A's motif.
+    reference_sets = receptor_references(catalogue, protein)
+    class_name = next(
+        (str(entry.get("class") or "")
+         for ensemble in reference_sets.values()
+         for entry in getattr(ensemble, "entries", [])
+         if entry.get("class")), "")
+    tm7_name = tm7_motif_name(class_name)
+    if class_name:
+        log(f"{protein} is {class_name}; the 7.49-7.53 motif is {tm7_name}")
 
     structure = gemmi.read_structure(str(start_pdb))
     structure.setup_entities()
@@ -332,6 +349,7 @@ def gpcr_setup(start_pdb: Path, protein: str = "adrb2_human",
     motif_residues: dict[str, list[int]] = {}
     for segment in GPCR_MOTIFS:
         if segment == "NPxxY":
+            segment = tm7_name
             lo, hi = (int(float(NPXXY[0]) * 100) % 100,
                       int(float(NPXXY[1]) * 100) % 100)
             residues = [numbering.residue(f"7.{n}") for n in range(lo, hi + 1)]
@@ -417,19 +435,20 @@ def gpcr_setup(start_pdb: Path, protein: str = "adrb2_human",
     log(f"core agreement across {rigidity.get('n')} references: mean "
         f"{rigidity.get('mean_rmsd_a')} A, worst {rigidity.get('max_rmsd_a')} A")
 
-    # Section 5.6's second map axis: NPxxY RMSD to the nearest inactive
-    # reference. Without it the receptor map is a row of points with no y and
-    # the panel renders empty while the endpoint returns 200.
-    npxxy = ensembles.rmsd_to_nearest(built, "NPxxY", "inactive")
+    # Section 5.6's second map axis: the 7.49-7.53 motif's RMSD to the nearest
+    # inactive reference. Without it the receptor map is a row of points with
+    # no y and the panel renders empty while the endpoint returns 200.
+    npxxy = ensembles.rmsd_to_nearest(built, tm7_name, "inactive")
     if npxxy:
-        log(f"  map axis: NPxxY RMSD to nearest inactive for "
+        log(f"  map axis: {tm7_name} RMSD to nearest inactive for "
             f"{len(npxxy)} references, "
             f"{min(npxxy.values()):.2f} to {max(npxxy.values()):.2f} A")
     return (motif_residues, core, built, numbering,
             {"rigidity": rigidity, "alignment": alignment,
              "sse_profiles": sse_profiles,
-             "map_axis": {"motif": "NPxxY", "against": "inactive",
-                          "values": npxxy}},
+             "map_axis": {"motif": tm7_name, "against": "inactive",
+                          "values": npxxy},
+             "receptor_class": class_name},
             {"rows_by_state": rows, "motifs_for": motifs_for,
              "core_for": core_for})
 

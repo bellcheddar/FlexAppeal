@@ -25,6 +25,19 @@
   const PLAYBACK_FPS = 25;
   const PLAYBACK_MIN_SECONDS = 8;
   const PLAYBACK_MAX_SECONDS = 40;
+  /* The rate the pass is never allowed to fall below.
+     
+     The eight-second floor is on the pass, and for a short trajectory that is
+     a floor on how slowly it crawls: 20 frames over eight seconds is 2.5 a
+     second, each one held for 400 ms, which reads as a slideshow rather than
+     as a molecule moving. It went unnoticed while every file in the library
+     was 500 frames, where the floor never binds. A pass is now also never
+     longer than the frames divided by this, so twenty frames take two seconds
+     and five hundred still take twenty. */
+  const PLAYBACK_MIN_FPS = 10;
+  /* And a hard floor, because at a handful of frames even ten a second is a
+     flicker. Two frames blink once a second rather than four times. */
+  const PLAYBACK_FLOOR_SECONDS = 1.2;
 
   /* How the rest of this file asks playback to stop and start again.
      
@@ -41,8 +54,12 @@
 
   function playbackSeconds(frames) {
     if (!frames || frames < 2) return PLAYBACK_MIN_SECONDS;
+    const ideal = frames / PLAYBACK_FPS;
+    /* The floor on the pass, except where holding to it would drop the rate
+       below PLAYBACK_MIN_FPS. */
+    const floor = Math.min(PLAYBACK_MIN_SECONDS, frames / PLAYBACK_MIN_FPS);
     return Math.min(PLAYBACK_MAX_SECONDS,
-                    Math.max(PLAYBACK_MIN_SECONDS, frames / PLAYBACK_FPS));
+                    Math.max(PLAYBACK_FLOOR_SECONDS, floor, ideal));
   }
 
   /* ------------------------------------------------------- drop zone */
@@ -176,6 +193,15 @@
       if (!Number.isFinite(frame)) return;
       const slider = document.getElementById('scrub');
       if (!slider) return;
+      /* Stop the trajectory before moving it.
+       *
+       * The frame clock owns the slider while playback runs, so a click that
+       * only set the value was overwritten within one frame: at 25 a second
+       * the viewer left the point a reader had just asked to look at, 40
+       * milliseconds later. Asking to see a frame is asking to see it, so the
+       * click pauses, which is also what makes the move deterministic rather
+       * than a race between the click and the next tick. */
+      playback.pause();
       const highest = parseInt(slider.max, 10);
       slider.value = String(Math.max(0, Math.min(highest, Math.round(frame))));
       slider.dispatchEvent(new Event('input', { bubbles: true }));

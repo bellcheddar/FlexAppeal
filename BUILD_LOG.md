@@ -2841,3 +2841,28 @@ Nine faults, each with a test. The fourth receptor passed first time and added a
 reporting gap rather than a fault: A2A's 171-structure inactive ensemble contains
 one reference 12 angstrom from the rest, and the core table gave the number
 without the name. 4ch.
+
+### 14 October, 17:40. The bundle's viewer, and GLP-1R
+
+Marc reported the new rows playing slowly and showing no membrane, then asked
+for GLP-1R with orforglipron and for the motif naming to be class aware.
+
+The playback pass had an eight second floor, which for twenty frames is two and
+a half a second; there is a floor on the rate now too. The bilayer, camera,
+ghosts and motif colouring are all written by the packer, so a bundle produced
+reference-state panels and no reference-state viewer: the bilayer and the camera
+are built by the bundle now, which is much less work there because the lipids
+are the same frames of the same array as the packed protein.
+
+The camera was then wrong in my first version, and that is the part worth
+keeping: I wrote a second implementation of a measurement that already existed
+and got the sign from the protein's centroid against the phosphorus mean, which
+are nearly the same point. Helix 8 decides it, as it always did in the packer,
+and the test asserts the rule rather than a number. 4ci.
+
+GLP-1R is the first class B receptor scored here, and 7.49 to 7.53 is NPxxY in
+class A and PxxG in class B. The span is the same structural place; the name was
+a literal in the motif list. It comes from GPCRdb's own class string now. 4cj.
+
+Seven verification runs in the library, each with its bilayer, its camera and
+its own catalogue ensemble. Suite green at 1107.
