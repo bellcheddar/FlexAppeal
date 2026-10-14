@@ -48,7 +48,11 @@
                 </span>
               {% endif %}
             </th>
-            <td>{% if run.duration_ns %}{{ run.duration_ns | round | int if run.duration_ns >= 1 else run.duration_ns }} <span class="md-units">ns</span>{% else %}&mdash;{% endif %}</td>
+            {# Whole nanoseconds for a run of one or more, three decimals below
+               that. The second half was the raw float: no run in the library was
+               shorter than a nanosecond until the verification runs arrived, and
+               the column then read "0.20000000298023224 ns". #}
+            <td>{% if run.duration_ns %}{{ run.duration_ns | round | int if run.duration_ns >= 1 else '%.3f' % run.duration_ns }} <span class="md-units">ns</span>{% else %}&mdash;{% endif %}</td>
             <td>
               {% if run.frames %}{{ run.frames }} <span class="md-units">frames</span>{% else %}&mdash;{% endif %}
             </td>
