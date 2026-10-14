@@ -926,6 +926,47 @@ def _camera_plan(row: str, system: str, packed, payload: dict[str, Any],
 LIPID_PATCH_A = 18.0
 
 
+def _residue_groups(topology, indices) -> list[Any]:
+    """Which positions in `indices` belong to each molecule, in order.
+
+    Positions rather than atom indices, because the caller is working on a
+    sliced array of the selected atoms and not on the whole box.
+    """
+    import numpy as np
+
+    groups: dict[int, list[int]] = {}
+    for position, index in enumerate(indices):
+        groups.setdefault(topology.atom(int(index)).residue.index,
+                          []).append(position)
+    return [np.array(positions) for positions in groups.values()]
+
+
+def _image_whole(coordinates, groups, centre, box):
+    """Each molecule moved into the periodic copy nearest the receptor, whole.
+
+    Per molecule, not per atom. A lipid with atoms on both sides of a box face
+    has some of them rounded one way and some the other, and the two halves
+    end up a box apart: on screen it is a lipid stretched right across the
+    picture, with bonds crossing everything. It does not show at the first
+    frame, where every lipid in the patch is within 18 angstrom of the
+    receptor, and it shows more the longer the run goes and the further the
+    lipids have diffused.
+
+    The shift is decided once per residue, from the mean of its own atoms, and
+    every atom of that residue moves by the same amount, so a molecule stays a
+    molecule.
+    """
+    import numpy as np
+
+    if box is None:
+        return coordinates
+    imaged = np.array(coordinates, dtype=float)
+    for positions in groups:
+        offset = imaged[positions].mean(axis=0) - centre
+        imaged[positions] -= box * np.round(offset / box)
+    return imaged
+
+
 def packed_coordinates(produced: Path):
     """Every frame of the packed trajectory, which the bilayer is fitted onto."""
     import mdtraj as md
@@ -963,8 +1004,11 @@ def _stage_lipid_frames(trajectory: Path, topology: Path, packed, shared,
         return 0
 
     written = 0
+    groups: list[Any] = []
     with XTCTrajectoryFile(str(destination), "w") as out:
         for chunk in md.iterload(str(trajectory), top=str(topology), chunk=20):
+            if not groups:
+                groups = _residue_groups(chunk.topology, lipid)
             for index in range(chunk.n_frames):
                 if written >= packed.n_frames:
                     break
@@ -972,10 +1016,7 @@ def _stage_lipid_frames(trajectory: Path, topology: Path, packed, shared,
                 box = (np.asarray(chunk.unitcell_lengths)[index] * 10.0
                        if chunk.unitcell_lengths is not None else None)
                 centre = frame[shared].mean(axis=0)
-                coordinates = frame[lipid]
-                if box is not None:
-                    offset = coordinates - centre
-                    coordinates = centre + offset - box * np.round(offset / box)
+                coordinates = _image_whole(frame[lipid], groups, centre, box)
                 transform = traj_mod.superpose(
                     frame[shared], packed.xyz[written][protein] * 10.0)
                 out.write((traj_mod.apply_transform(coordinates, *transform)
@@ -1123,9 +1164,11 @@ def _viewer_members(row: str, payload: dict[str, Any], produced: Path,
             coordinates = first.xyz[0][indices] * 10.0
             if first.unitcell_lengths is None:
                 return coordinates
-            box = np.asarray(first.unitcell_lengths)[0] * 10.0
-            offset = coordinates - centre
-            return centre + offset - box * np.round(offset / box)
+            # Whole molecules, the same way every later frame is imaged, so a
+            # lipid is never drawn with half of it a box away.
+            return _image_whole(
+                coordinates, _residue_groups(first.topology, indices), centre,
+                np.asarray(first.unitcell_lengths)[0] * 10.0)
 
         centre = (first.xyz[0][shared] * 10.0).mean(axis=0)
         moved = traj_mod.apply_transform(imaged(lipid), *transform)

@@ -1108,3 +1108,74 @@ def test_the_packer_copies_the_topology_rather_than_linking_it():
     assert "hardlink_to(src)" not in staging, (
         "the topology is rewritten in place, so it cannot share an inode with "
         "the simulation's output")
+
+
+def test_a_lipid_near_the_far_face_is_imaged_whole_rather_than_split():
+    """A molecule is moved by one shift, not atom by atom.
+
+    Imaging per atom rounds the atoms of one lipid in opposite directions when
+    the lipid sits about half a box from the receptor, and the two halves land
+    a box apart: on screen it is a lipid stretched across the whole picture.
+    It does not show at the first frame, where every lipid in the patch is
+    within 18 angstrom of the receptor, and it shows more the longer the run
+    goes and the further the lipids have diffused.
+    """
+    import numpy as np
+
+    packer = _packer()
+    box = np.array([60.0, 60.0, 60.0])
+    centre = np.array([30.0, 30.0, 30.0])
+    # Four atoms of one molecule, whole, straddling the far face. Their
+    # offsets from the receptor are 29 to 32 angstrom, so half of them round
+    # to zero boxes and half to one.
+    molecule = np.array([[59.0, 30.0, 30.0], [60.0, 30.0, 30.0],
+                         [61.0, 30.0, 30.0], [62.0, 30.0, 30.0]])
+
+    split = centre + (molecule - centre) - box * np.round((molecule - centre) / box)
+    assert np.ptp(split[:, 0]) > 50, "per atom, this molecule is torn in two"
+
+    whole = packer._image_whole(molecule, [np.arange(4)], centre, box)
+    assert np.ptp(whole[:, 0]) == pytest.approx(3.0), "it stays one molecule"
+    # And on the near side of the box, which is the point of imaging it.
+    assert abs(whole[:, 0].mean() - centre[0]) < box[0] / 2
+
+
+def test_the_molecules_are_grouped_by_residue():
+    """One shift per residue means one group per residue, in order."""
+    import types
+
+    import numpy as np
+
+    packer = _packer()
+    # Atom index 7 and 9 are one lipid, 8 is another: the selection is not
+    # contiguous and not sorted by residue, which is what a patch chosen by
+    # distance looks like.
+    residues = {7: 3, 8: 4, 9: 3}
+
+    class _Topology:
+        def atom(self, index):
+            return types.SimpleNamespace(
+                residue=types.SimpleNamespace(index=residues[index]))
+
+    groups = packer._residue_groups(_Topology(), np.array([7, 8, 9]))
+    assert [sorted(group.tolist()) for group in groups] == [[0, 2], [1]]
+
+
+def test_both_bilayer_paths_image_whole_molecules():
+    """The guard for the fault above, at both places that image lipids.
+
+    The first frame and every later frame have to be imaged the same way, or
+    the bilayer changes shape the moment a reader presses play.
+    """
+    source = (Path(__file__).resolve().parents[1]
+              / "tools" / "pack_run_fxa.py").read_text(encoding="utf-8")
+    frames = source[source.index("def _stage_lipid_frames("):]
+    frames = frames[: frames.index("\ndef ")]
+    assert "_image_whole(" in frames
+    assert "np.round(offset / box)" not in frames, "per atom, this tears lipids"
+
+    members = source[source.index("def _viewer_members("):]
+    first = members[members.index("def imaged("):]
+    first = first[: first.index("\n        centre =")]
+    assert "_image_whole(" in first
+    assert "np.round(offset / box)" not in first

@@ -5198,6 +5198,43 @@ every published figure of a kinase domain uses. The sign is fixed against the
 first core residue, so the same structure always comes out the same way up
 rather than depending on which way the singular vectors happened to point.
 
+## 4bz. The animated bilayer tore its own lipids
+
+The bilayer moves now, and the first thing moving it showed was a fault that
+had been in the imaging all along and could not show while there was only one
+frame to look at.
+
+Late in a run, a few lipids were drawn as single bonds reaching right across
+the picture, out to the edges of the box and back. At the first frame the same
+bilayer was clean.
+
+The imaging was per atom. Every lipid is moved into the periodic copy nearest
+the receptor before anything is measured off it, and the move was decided atom
+by atom: `offset - box * round(offset / box)`. For a molecule whose atoms sit
+about half a box from the receptor centre, some atoms round to zero boxes and
+some to one, and the two halves of one lipid land a box apart. The bond between
+them is then drawn across the whole scene.
+
+It could not show at frame 0 because the patch is chosen there, by distance:
+every lipid in it is within 18 angstrom of the receptor and no atom of it is
+anywhere near half a box away. The patch keeps its membership for the rest of
+the run, as it should, and over 50 ns some of those lipids diffuse out to where
+the rounding splits them. So the fault was always in the code and animating the
+bilayer is what asked the question.
+
+The shift is decided once per residue now, from the mean of its own atoms, and
+every atom of that residue moves by the same amount, so a molecule stays a
+molecule. Both places that image lipids use the one helper, because the first
+frame and every later frame have to be imaged the same way or the bilayer
+changes shape the moment a reader presses play.
+
+Worth stating what this does not do: a molecule that arrives already split in
+the staged trajectory stays split. OpenMM's reporter wraps whole molecules, so
+they arrive whole, and the evidence that they do is that frame 0 was clean
+before this change. If a trajectory from somewhere else ever arrived wrapped
+per atom, this would need to unwrap along the bonds instead, and the symptom
+would be the same streaks at the first frame rather than only later ones.
+
 ## 5. Production runs
 
 Tier 2 started at 17:04 on 10 October, in section 5.3's priority order: β2AR

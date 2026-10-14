@@ -2648,3 +2648,24 @@ for the kinase and 82 for the receptor. 4by.
 The defining run's own view is measured too: the bilayer normal for a receptor,
 with helix 8 for the sign, and the principal axes of the core for a kinase,
 where looking down the thinnest axis shows the widest face.
+
+### 14 October, 01:10. Deployed, and the animation found a fault in the imaging
+
+The three changes above went to the droplet and were checked there: both camera
+plans are in the live pages, the bilayer trajectory is a 16.5 MB member served
+in a second, and all four runs open in the matched view.
+
+The check also found a fault that only an animated bilayer could show. Late in
+a run a few lipids were drawn as bonds reaching right across the box. The
+imaging was per atom, so a molecule sitting about half a box from the receptor
+had some of its atoms rounded into one periodic copy and the rest into the next,
+and the two halves landed a box apart. It could not show at the first frame,
+where the patch is chosen by distance and nothing in it is near half a box away;
+the patch keeps its membership for the rest of the run and some of those lipids
+diffuse out to where the rounding splits them.
+
+One shift per residue now, decided from the mean of its own atoms, at both
+places that image lipids. Three tests: a molecule straddling the far face stays
+whole, the grouping is by residue rather than by order, and a source guard that
+neither path goes back to rounding per atom. The two membrane runs were repacked
+and redeployed. 4bz.
