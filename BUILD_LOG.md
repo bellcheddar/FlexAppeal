@@ -2747,3 +2747,30 @@ series was the first fix and it was wrong: at one point in five the example's
 own answer moved from 0.52 ns to nothing at all. Computed once per file and
 kept instead, 1.1977 seconds cold against 0.0004 warm, with deploy.sh warming
 every run page. Suite green at 1082.
+
+### 14 October, 10:50. Running the default path rather than reading it
+
+Marc asked whether a run set up in the Prepare tab, left at its defaults and
+uploaded to the Analysis tab, gives everything the Runs tab shows. It was run
+rather than argued: a bundle built through the Prepare tab's own two routes from
+3PTB, trypsin with benzamidine, simulated and analysed by its own scripts, and
+the results file posted back to the upload form.
+
+Two things were not true. `run.py` wrote no equilibration figure into its run
+manifest, so a bundle-produced file could show "settles after" and not
+"equilibrated". And a kept ligand did not bring `ligand_rmsd` or
+`ligand_contacts` with it: both are registry choices gated on `has_ligands`,
+offered by the form and ticked by nothing, so a structure uploaded with a ligand
+and run unchanged had every binding-site panel and no ligand RMSD. Both fixed,
+the second in the structure step rather than the registry default, because an
+apo run carrying those choices fails validation.
+
+With those in, a default run reproduces the committed example with nothing
+missing: 30 panels, the grade meter, the MM/GBSA term panel, the viewer, both
+equilibration tiles and the shaded head. It differs from a reference-state row
+by the four reference-state panels, which need an annotation a bundle cannot
+produce on a laptop without KLIFS or GPCRdb.
+
+The run also reproduced the periodic-imaging fault from 4cc on its own, in a
+fresh 200 ps run of a 21,000-atom system, which says that fault was never
+specific to the reference-state rows. 4cf.

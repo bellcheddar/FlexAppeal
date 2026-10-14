@@ -218,6 +218,24 @@ def load_structure():
     cfg["chains"] = [c["value"] for c in dynamic["chains"]]
     cfg["keep_heteroatoms"], hetero_notes = structure.default_heteroatoms(report)
     cfg = schema.normalise(cfg)
+    # A kept ligand brings its own two measurements with it.
+    #
+    # Both are offered by the registry and gated on `has_ligands`, and neither
+    # was ticked, so a user who uploaded a structure with a ligand, changed
+    # nothing, and ran it got every binding-site panel and no ligand RMSD or
+    # contact occupancy. Keeping the ligand is already a default rather than a
+    # question, which is the same reasoning: a measurement of the thing the run
+    # is about should not need finding.
+    #
+    # Seeded here rather than in the registry's own default, because the
+    # choices are only valid for a run that has a ligand and an apo run would
+    # fail validation on them.
+    if cfg.get("has_ligands"):
+        chosen = list(cfg.get("analysis_metrics") or [])
+        for metric in ("ligand_rmsd", "ligand_contacts"):
+            if metric not in chosen:
+                chosen.append(metric)
+        cfg["analysis_metrics"] = chosen
     if hetero_notes:
         source_warning = " ".join(
             [source_warning] + hetero_notes).strip() if source_warning \

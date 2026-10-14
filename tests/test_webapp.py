@@ -1600,6 +1600,45 @@ def test_the_ligand_is_drawn_without_hydrogens(client):
     assert "ignoreHydrogens = true" in script
 
 
+def test_a_kept_ligand_brings_its_own_two_measurements(client):
+    """Keeping the ligand is a default; measuring it should be one too.
+
+    Both metrics are offered by the registry and gated on `has_ligands`, and
+    neither was ticked, so a structure with a ligand uploaded and run unchanged
+    produced every binding-site panel and no ligand RMSD or contact occupancy.
+    The four reference-state rows carry them because their packer asks for them
+    by name, which is what made the difference visible: a default run could not
+    reproduce a row in the library it sits next to.
+    """
+    import io
+    import re
+
+    if not (FIXTURES / "3ptb.pdb").is_file():
+        pytest.skip("tests/fixtures/3ptb.pdb is missing")
+    raw = (FIXTURES / "3ptb.pdb").read_bytes()
+    _, _, body = _upload(client, "3ptb.pdb")
+
+    ticked = {a or b for a, b in re.findall(
+        r'name="analysis_metrics"[^>]*value="([^"]*)"[^>]*checked'
+        r'|checked[^>]*name="analysis_metrics"[^>]*value="([^"]*)"', body)}
+    assert {"ligand_rmsd", "ligand_contacts"} <= ticked, sorted(ticked)
+    # And the registry's own defaults are still there beside them.
+    assert {"rmsd", "rgyr", "dssp"} <= ticked
+
+    # An apo structure gets neither, because neither choice is valid for it and
+    # a config carrying them would fail validation.
+    apo = b"\n".join(line for line in raw.splitlines()
+                     if not line.startswith(b"HETATM")) + b"\nEND\n"
+    body = client.post(
+        "/prepare/structure",
+        data={"input_file": (io.BytesIO(apo), "apo.pdb")},
+        content_type="multipart/form-data").get_data(as_text=True)
+    ticked = {a or b for a, b in re.findall(
+        r'name="analysis_metrics"[^>]*value="([^"]*)"[^>]*checked'
+        r'|checked[^>]*name="analysis_metrics"[^>]*value="([^"]*)"', body)}
+    assert not any("ligand" in metric for metric in ticked), sorted(ticked)
+
+
 # ===========================================================================
 #  The runs library
 # ===========================================================================

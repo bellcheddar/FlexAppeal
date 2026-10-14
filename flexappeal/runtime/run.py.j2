@@ -1493,6 +1493,11 @@ def _simulate(replicate, modeller, forcefield, system, plat, properties, benchma
         "wall_seconds": round(elapsed, 1),
         "production_steps": production_steps,
         "timestep_ps": {{ derived.timestep_ps }},
+        # The restrained phase before production, so the results file can say
+        # what the protocol did as well as what the trajectory shows. The run
+        # page reports the two side by side and they are different facts: this
+        # is a setting, and "settles after" is a measurement of production.
+        "equilibration_ns": {{ (cfg.equilibration_duration or 0.0) / 1000.0 }},
         "trajectory": traj_path.name,
         "trajectory_atoms": len(subset) if subset is not None else simulation.topology.getNumAtoms(),
         "total_atoms": simulation.topology.getNumAtoms(),

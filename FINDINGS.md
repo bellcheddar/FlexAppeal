@@ -5418,6 +5418,52 @@ is not a cheaper number. The work is done once per file and kept, keyed on the
 series it was computed from, and `deploy.sh` warms every run page, so a reader
 never pays for it. 1.1977 seconds cold, 0.0004 warm.
 
+## 4cf. What a default run actually reproduces
+
+The question was whether a run set up in the Prepare tab, left at its defaults
+and uploaded to the Analysis tab, produces everything the Runs tab shows,
+energy and equilibration included. Asserting it from the code would have been
+worthless, so it was run: a bundle built through the Prepare tab's own two
+routes from 3PTB, trypsin with benzamidine, simulated and analysed by the
+bundle's own scripts, and the results file posted back to the upload form.
+
+It found two things that were not true, and confirmed one boundary that is.
+
+**The bundle had no equilibration figure in it.** `run.py` wrote a run manifest
+with the platform, the throughput, the wall time and the timestep, and not the
+length of the restrained phase it had just run, so a bundle-produced file could
+show "settles after" and not "equilibrated". The four reference-state rows have
+it because their packer writes it by hand. It is in the manifest now.
+
+**A kept ligand did not bring its own measurements.** `ligand_rmsd` and
+`ligand_contacts` are registry choices gated on `has_ligands`, offered by the
+form and ticked by nothing, so a structure uploaded with a ligand in it and run
+unchanged produced every binding-site panel and no ligand RMSD or contact
+occupancy. Keeping the ligand is already a default rather than a question;
+measuring it now is too. Seeded in the structure step rather than in the
+registry's own default, because an apo run carrying those choices fails
+validation on them.
+
+Both of those are differences a reader would have met as "the example has a
+panel my run does not", which is exactly the comparison the Runs tab invites.
+
+**And the boundary.** With those fixed, a default run reproduces the committed
+example with nothing missing, and differs from a reference-state row by four
+panels: the state score, the motif timelines, the DSSP ribbon and the state
+map. Those come from three members no bundle writes, `refstates.json` and two
+ghost structures, which are produced by `FlexAppeal.py refstates annotate`
+against KLIFS or GPCRdb and merged into a results file only by
+`tools/pack_run_fxa.py`. That is a real gap rather than a fault: the annotation
+needs a protein the catalogues know and a network to ask them, neither of which
+a bundle running on somebody's laptop can assume.
+
+Worth recording from the run itself: the imaging fix from 4cc fired on it, "the
+ligand was in a different periodic copy from its receptor, by up to 67
+angstrom". A fresh, default, 200 ps run of a 21,000-atom system reproduced the
+fault that took four attempts to find on the reference-state rows, which says
+it was never specific to them. The energy came out at -20.8 kcal/mol, sd 3.6,
+for benzamidine.
+
 ## 5. Production runs
 
 Tier 2 started at 17:04 on 10 October, in section 5.3's priority order: β2AR
