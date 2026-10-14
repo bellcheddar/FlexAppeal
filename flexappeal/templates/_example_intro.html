@@ -137,7 +137,11 @@
                 <td class="md-changed-cell">{% if row.changed %}<span class="md-changed-key"
                     title="changed from the default">&bull;</span>{% endif %}</td>
                 <th scope="row" title="{{ row.help }}">{{ row.label }}</th>
-                <td>{{ row.value }}{% if row.units %} <span class="md-units">{{ row.units }}</span>{% endif %}</td>
+                {# An option this results file predates. The registry's default is
+                   deliberately not shown: the run did not choose it, and a table
+                   of settings has to say what was set rather than what would be
+                   set today. #}
+                <td>{% if row.recorded %}{{ row.value }}{% if row.units %} <span class="md-units">{{ row.units }}</span>{% endif %}{% else %}<span class="md-units">not recorded in this file</span>{% endif %}</td>
                 <td>{% if row.openmm %}<code class="md-symbol">{{ row.openmm }}</code>{% endif %}</td>
               </tr>
             {% endfor %}

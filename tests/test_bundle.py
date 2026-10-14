@@ -1013,3 +1013,73 @@ def test_the_energy_reaches_both_files_from_one_calculation(trypsin):
     code = "\n".join(line for line in script.splitlines()
                      if not line.lstrip().startswith("#"))
     assert "mmgbsa=True" not in code, "the package would compute it a second time"
+
+
+# ---------------------------------------------------------------------------
+#  Reference states, as a request rather than a step
+# ---------------------------------------------------------------------------
+
+
+def test_the_reference_state_options_are_off_and_silent_by_default(structure):
+    """A run that did not ask for them should not hear about them."""
+    from flexappeal import schema
+
+    cfg = schema.validate({"job_name": "plain"}).config
+    assert cfg["use_refstates"] is False
+
+    files = bundle.unpack(bundle.build(cfg, structure).content)
+    assert "reference states were requested" not in files["analyse.py"].decode()
+    assert "## Reference states" not in files["README.md"].decode()
+
+
+def test_the_request_travels_and_comes_back_as_a_command(structure):
+    """The annotation cannot run in a bundle, so the bundle hands it over.
+
+    It needs KLIFS or GPCRdb over the network and a FlexAppeal checkout's own
+    `tools/analyse_run.py`, and a bundle is meant to run on a machine with an
+    OpenMM environment and nothing else. What it can do is carry the answers
+    given in the Prepare tab and print them back as the command, so nothing has
+    to be remembered or retyped hours later.
+    """
+    import ast
+
+    from flexappeal import schema
+
+    cfg = schema.validate({
+        "job_name": "abl1_demo", "use_refstates": "on",
+        "refstates_family": "kinase", "refstates_protein": "ABL1",
+        "refstates_reference_pdb": "2HYY", "refstates_max_references": 25,
+    }).config
+    files = bundle.unpack(bundle.build(cfg, structure,
+                                       structure_filename="2hyy.pdb").content)
+
+    # The request is in the config the results file will carry.
+    assert json.loads(files["config.json"])["config"]["refstates_protein"] == "ABL1"
+
+    script = files["analyse.py"].decode()
+    ast.parse(script)
+    assert "refstates annotate" in script
+    for answer in ("--family kinase", "--protein ABL1",
+                   "--reference-pdb 2HYY", "--max-references 25"):
+        assert answer in script, answer
+
+    readme = files["README.md"].decode()
+    assert "## Reference states" in readme
+    # The embedded name, which is the file that exists beside the script, and
+    # not what the user called their upload. It carries the deposited
+    # numbering, which is the whole reason `--start` is in the command:
+    # OpenMM renumbers from 1 on solvation and every motif is addressed by its
+    # deposited number.
+    assert "--start input.pdb" in readme
+    assert "deposited number" in readme
+
+
+def test_an_empty_optional_is_left_out_of_the_command(structure):
+    """Rather than passed as an empty string, which the parser would take."""
+    from flexappeal import schema
+
+    cfg = schema.validate({"job_name": "demo", "use_refstates": "on"}).config
+    script = bundle.unpack(bundle.build(cfg, structure).content)["analyse.py"].decode()
+    assert "--protein" not in script
+    assert "--reference-pdb" not in script
+    assert "--family auto" in script

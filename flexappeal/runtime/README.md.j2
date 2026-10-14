@@ -75,6 +75,35 @@ Everything lands in `{{ cfg.output_dir }}/`:
 The `.fxa` carries the metrics computed against your **full** trajectory plus a
 decimated copy for viewing ({{ cfg.payload_tier }} tier). The full trajectory
 never leaves your machine.
+{% if cfg.use_refstates %}
+
+## Reference states
+
+You asked for the reference-state annotation, which scores each structural
+motif as a distance from the experimental active and inactive structures of
+this same protein rather than from its own first frame.
+
+It does not run here. It needs {% if cfg.refstates_family == 'gpcr' %}GPCRdb{% elif cfg.refstates_family == 'kinase' %}KLIFS{% else %}KLIFS or GPCRdb{% endif %} over the network and the
+catalogue's own structures, and this bundle is meant to run on a machine that
+has an OpenMM environment and nothing else. The settings travel in
+`config.json` and in the results file's manifest, and `analyse.py` prints the
+command with your own answers already in it when it finishes. From a FlexAppeal
+checkout:
+
+```bash
+python FlexAppeal.py refstates annotate \
+    --topology  {{ cfg.output_dir }}/{{ cfg.job_name }}/topology.pdb \
+    --trajectory {{ cfg.output_dir }}/{{ cfg.job_name }}/trajectory.{{ traj_extension }} \
+    --start {{ structure_filename }} \
+    --family {{ cfg.refstates_family }}{% if cfg.refstates_protein %} \
+    --protein {{ cfg.refstates_protein }}{% endif %}{% if cfg.refstates_reference_pdb %} \
+    --reference-pdb {{ cfg.refstates_reference_pdb }}{% endif %} \
+    --max-references {{ cfg.refstates_max_references }}
+```
+
+`--start` matters: OpenMM renumbers residues from 1 when it solvates, and every
+motif here is addressed by its deposited number.
+{% endif %}
 
 ## Changing something
 

@@ -1956,3 +1956,78 @@ def test_the_cache_directory_is_not_listed_as_a_run(tmp_path):
         listed = [row["id"] for row in webapp.list_runs()]
     assert ".binding-cache" not in listed
     assert all(not name.startswith(".") for name in listed)
+
+
+def test_the_reference_state_inputs_are_offered_and_optional(client):
+    """The settings the four library rows were measured with, in the form.
+
+    They were only ever reachable by editing a table in `tools/pack_run_fxa.py`,
+    so a reader who wanted the same measurement for their own kinase had no way
+    to ask for it. Optional and off: a run that does not want them is not asked
+    about them, and the fields are gated on the checkbox.
+    """
+    import io
+    import re
+
+    if not (FIXTURES / "3ptb.pdb").is_file():
+        pytest.skip("tests/fixtures/3ptb.pdb is missing")
+    _, _, body = _upload(client, "3ptb.pdb")
+
+    assert "Reference states" in body
+    for field in ("use_refstates", "refstates_family", "refstates_protein",
+                  "refstates_reference_pdb", "refstates_max_references"):
+        assert f'name="{field}"' in body, field
+
+    # Off by default, so nothing changes for a run that did not ask.
+    from flexappeal import options as opts
+    assert opts.BY_ID["use_refstates"].default is False
+    for field in ("refstates_family", "refstates_protein",
+                  "refstates_reference_pdb", "refstates_max_references"):
+        assert opts.BY_ID[field].requires == "use_refstates", field
+
+
+def test_a_catalogue_name_from_the_wrong_catalogue_is_caught(client):
+    """The two name shapes are easy to give the wrong way round.
+
+    A GPCRdb entry name is lower case with a species suffix and a KLIFS kinase
+    name is neither, and the failure otherwise arrives hours later as a score
+    against the worked example for that family.
+    """
+    from flexappeal import schema
+
+    wrong = schema.validate({"job_name": "x", "use_refstates": "on",
+                             "refstates_family": "kinase",
+                             "refstates_protein": "adrb2_human"})
+    assert wrong.ok, "a name that looks wrong is a warning, not a refusal"
+    assert any("GPCRdb entry name" in i.message for i in wrong.issues)
+
+    right = schema.validate({"job_name": "x", "use_refstates": "on",
+                             "refstates_family": "kinase",
+                             "refstates_protein": "ABL1"})
+    assert not [i for i in right.issues if i.option_id == "refstates_protein"]
+
+    # A PDB code is checkable exactly, so it is an error rather than a warning.
+    bad = schema.validate({"job_name": "x", "use_refstates": "on",
+                           "refstates_reference_pdb": "ABCD"})
+    assert not bad.ok
+    assert any(i.option_id == "refstates_reference_pdb" for i in bad.errors)
+
+
+@pytest.mark.skipif(not _example_built(), reason="the example run has not been built")
+def test_an_option_the_file_predates_is_listed_and_says_so(client):
+    """Listing every option means every option, including the newer ones.
+
+    The committed example was run before the reference-state settings existed.
+    Skipping what a file has no value for quietly undid the promise the table
+    is built on: five options were added and the page whose job is to list all
+    of them simply did not. What it must not do instead is print the registry's
+    default in that row, because the run did not choose it.
+    """
+    html = client.get("/example").get_data(as_text=True)
+    assert "Score against experimental reference states" in html
+    assert "not recorded in this file" in html
+
+    # And the default is not quietly presented as the run's own setting: the
+    # example has no reference-state protein, so no catalogue name appears.
+    block = html.split("Catalogue name", 1)[1][:400]
+    assert "adrb2_human" not in block and "ABL1" not in block

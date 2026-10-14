@@ -780,6 +780,33 @@ def main():
         print()
         info(f"  {package_path}")
         info("this one is the graded package: upload it to DeepFlex")
+{% if cfg.use_refstates %}
+
+    # The reference-state annotation was asked for in the Prepare tab, and it
+    # does not run here. It needs KLIFS or GPCRdb over the network and the
+    # catalogue's own structures, and it is a FlexAppeal checkout's job rather
+    # than a bundle's: this script is meant to run on a machine that has an
+    # OpenMM environment and nothing else. What the bundle can do is carry the
+    # request and hand back the command with the answers already in it, so
+    # nothing has to be remembered or retyped.
+    print()
+    info("reference states were requested for this run. The annotation runs")
+    info("from a FlexAppeal checkout, against the trajectory this directory")
+    info("still holds:")
+    print()
+    info("  python FlexAppeal.py refstates annotate \\")
+    info(f"      --topology {run_dirs[0] / 'topology.pdb'} \\")
+    info(f"      --trajectory {run_dirs[0] / 'trajectory.xtc'} \\")
+    info("      --start {{ structure_filename }} \\")
+    info("      --family {{ cfg.refstates_family }} \\")
+{% if cfg.refstates_protein %}
+    info("      --protein {{ cfg.refstates_protein }} \\")
+{% endif %}
+{% if cfg.refstates_reference_pdb %}
+    info("      --reference-pdb {{ cfg.refstates_reference_pdb }} \\")
+{% endif %}
+    info("      --max-references {{ cfg.refstates_max_references }}")
+{% endif %}
     return 0
 
 

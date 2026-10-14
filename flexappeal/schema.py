@@ -492,9 +492,75 @@ def _rule_input(cfg: dict[str, Any]) -> list[Issue]:
     return issues
 
 
+def _rule_refstates(cfg: dict[str, Any]) -> list[Issue]:
+    """The reference-state request, checked where it can be checked here.
+
+    What this cannot check is whether the catalogue has heard of the protein,
+    because that is a question for KLIFS or GPCRdb at annotation time. What it
+    can check is that the name is shaped like the family's own names, which is
+    the mistake worth catching: a GPCRdb entry name is lower case with a
+    species suffix and a KLIFS kinase name is neither, so the two are easy to
+    give the wrong way round and the failure comes hours later.
+    """
+    if not cfg.get("use_refstates"):
+        return []
+
+    issues: list[Issue] = []
+    name = str(cfg.get("refstates_protein") or "").strip()
+    family = cfg.get("refstates_family")
+
+    if not name:
+        issues.append(Issue(
+            "warning",
+            "no catalogue name given, so the annotation will score against the "
+            "worked example for whichever family it detects: ABL1 for a kinase, "
+            "beta2 adrenergic for a receptor. That is almost certainly not this "
+            "protein, and the scores would be distances to the wrong structures.",
+            "refstates_protein",
+        ))
+    elif family == "gpcr" and "_" not in name:
+        issues.append(Issue(
+            "warning",
+            f"GPCRdb entry names are lower case with a species suffix, such as "
+            f"adrb2_human; {name!r} does not look like one, and the annotation "
+            f"will fall back to the worked example if the catalogue cannot "
+            f"resolve it.",
+            "refstates_protein",
+        ))
+    elif family == "kinase" and "_" in name:
+        issues.append(Issue(
+            "warning",
+            f"KLIFS kinase names are short and have no species suffix, such as "
+            f"ABL1 or CDK2; {name!r} looks like a GPCRdb entry name. Check the "
+            f"family above.",
+            "refstates_protein",
+        ))
+
+    pdb = str(cfg.get("refstates_reference_pdb") or "").strip()
+    if pdb and not re.fullmatch(r"[0-9][A-Za-z0-9]{3}", pdb):
+        issues.append(Issue(
+            "error",
+            f"{pdb!r} is not a PDB entry code: four characters, the first a "
+            f"digit.",
+            "refstates_reference_pdb",
+        ))
+
+    if cfg.get("solvent_mode") == "implicit":
+        issues.append(Issue(
+            "warning",
+            "the motif distances are measured after superposing on a core that "
+            "is defined from experimental structures in water; an implicit-"
+            "solvent trajectory can be scored, but it is not what the published "
+            "thresholds were fitted against.",
+            "use_refstates",
+        ))
+    return issues
+
+
 RULES = (
     _rule_job, _rule_input, _rule_forcefield, _rule_solvation, _rule_box,
     _rule_switching, _rule_timestep, _rule_protocol, _rule_output,
+    _rule_refstates,
 )
 
 

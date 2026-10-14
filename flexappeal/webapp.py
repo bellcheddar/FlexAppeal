@@ -604,16 +604,27 @@ def _example_option_tables(config: dict) -> list[dict]:
     here the day it is added and cannot be forgotten. Options the run left at
     their default are marked rather than hidden -- for a reference example the
     interesting fact is often that a value was NOT changed.
+
+    An option the file does not carry is listed too, and says so. The committed
+    example was run before the reference-state settings existed, and skipping
+    what it has no value for quietly undid the promise in the paragraph above:
+    five options were added and the page that is supposed to list every one of
+    them simply did not. What it must not do is print the registry's default in
+    that row, because the run did not choose it; the value is left empty and
+    the row is marked as not recorded.
     """
     defaults = opts.defaults()
     tables = []
     for group in opts.GROUPS:
         rows = []
         for opt in opts.OPTIONS:
-            if opt.group != group.id or opt.id not in config:
+            if opt.group != group.id:
                 continue
-            value = config[opt.id]
-            if isinstance(value, bool):
+            recorded = opt.id in config
+            value = config.get(opt.id)
+            if not recorded:
+                shown = "—"
+            elif isinstance(value, bool):
                 shown = "yes" if value else "no"
             elif isinstance(value, list):
                 shown = ", ".join(str(v) for v in value) or "—"
@@ -622,9 +633,10 @@ def _example_option_tables(config: dict) -> list[dict]:
             rows.append({
                 "label": opt.label,
                 "value": shown,
-                "units": opt.units or "",
+                "units": opt.units or "" if recorded else "",
                 "openmm": (opt.openmm or "").split(".")[-1],
-                "changed": value != defaults.get(opt.id),
+                "changed": recorded and value != defaults.get(opt.id),
+                "recorded": recorded,
                 "help": opt.help,
             })
         if rows:

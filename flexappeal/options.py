@@ -149,6 +149,9 @@ GROUPS: tuple[Group, ...] = (
     Group("output", "Output and reporting", "What gets written, how often, and how big it will be.", "💾"),
     Group("platform", "Platform and performance", "Which hardware back end runs the maths.", "🚀"),
     Group("analysis", "Analysis", "What the local run computes before packing the results file.", "📊"),
+    Group("refstates", "Reference states",
+          "Score each structural motif against the experimental structures of "
+          "this same protein in both of its known states.", "🎯"),
 )
 
 GROUP_ORDER: tuple[str, ...] = tuple(g.id for g in GROUPS)
@@ -1300,6 +1303,74 @@ OPTIONS: tuple[Option, ...] = (
             Choice("standard", "Standard (~25 MB)", "Metrics plus 500 protein-only frames. The recommended default."),
             Choice("full", "Full (~150 MB)", "Metrics plus 2000 frames. Enables server-side re-analysis."),
         ),
+    ),
+
+    # ------------------------------------------------------------------
+    #  Reference states
+    # ------------------------------------------------------------------
+    #
+    # What the four reference-state rows in the Runs library were measured
+    # with. They are settings for an annotation that runs after the
+    # simulation, not during it: it needs KLIFS or GPCRdb over the network and
+    # a catalogue entry for this protein, so it cannot run inside the bundle
+    # on a laptop. What the bundle does is carry the request into its results
+    # file, so the annotation can be asked for here, once, rather than
+    # reconstructed from memory afterwards.
+    Option(
+        "use_refstates", "refstates", "Score against experimental reference states",
+        "checkbox", False,
+        "Measures each structural motif as a distance from the experimental "
+        "active and inactive structures of this same protein, rather than from "
+        "its own first frame. Only for a protein one of the catalogues knows: a "
+        "kinase in KLIFS or a G-protein-coupled receptor in GPCRdb. The "
+        "reference structures are resolved when the annotation runs, so nothing "
+        "here is a residue number.",
+    ),
+    Option(
+        "refstates_family", "refstates", "Protein family", "select", "auto",
+        "Which catalogue to ask. Detected from the structure when left on "
+        "automatic, which is right whenever the fold is recognisable; set it "
+        "explicitly for a construct that detection gets wrong.",
+        choices=(
+            Choice("auto", "Detect from the structure",
+                   "A kinase domain and a seven-transmembrane bundle are "
+                   "distinguishable, and the annotation says which it chose."),
+            Choice("kinase", "Protein kinase (KLIFS)",
+                   "Pocket positions and the DFG and alphaC labels come from KLIFS."),
+            Choice("gpcr", "G-protein-coupled receptor (GPCRdb)",
+                   "Generic numbering and the state annotations come from GPCRdb."),
+        ),
+        requires="use_refstates",
+    ),
+    Option(
+        "refstates_protein", "refstates", "Catalogue name", "text", "",
+        "The name the catalogue knows this protein by: a KLIFS kinase name such "
+        "as ABL1 or CDK2, or a GPCRdb entry name such as adrb2_human. Left "
+        "empty, the annotation uses the worked example for whichever family it "
+        "detected, which is almost certainly not your protein.",
+        placeholder="ABL1  or  adrb2_human",
+        requires="use_refstates",
+    ),
+    Option(
+        "refstates_reference_pdb", "refstates", "Reference PDB entry", "text", "",
+        "A deposition whose pocket map resolves this construct's own motif "
+        "residues. Useful where the construct is numbered unlike the "
+        "catalogue's own entries. Left empty, the annotation picks one from the "
+        "ensemble.",
+        placeholder="2HYY",
+        requires="use_refstates",
+        advanced=True,
+    ),
+    Option(
+        "refstates_max_references", "refstates", "References per state", "int", 40,
+        "The most experimental structures to score against per state, best "
+        "first by the catalogue's own resolution or quality. A state score is "
+        "the distance to the nearest of them, so a well-studied kinase's three "
+        "hundredth structure costs a download and changes almost nothing. Zero "
+        "means no limit, which is what the two worked examples use.",
+        minimum=0, maximum=500, step=10,
+        requires="use_refstates",
+        advanced=True,
     ),
 )
 
