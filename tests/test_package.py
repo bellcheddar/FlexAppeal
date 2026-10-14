@@ -1861,3 +1861,42 @@ def test_the_conformation_subscore_is_pending_for_a_rigid_ligand():
     row = next(r for r in grade.meter(grade.score_one(_M()))["rows"]
                if r["key"] == "conformation")
     assert row["reason"] == "the ligand has no rotatable bond"
+
+
+def test_a_ligand_code_starting_with_a_digit_is_still_selectable():
+    """Roughly a fifth of PDB chemical component ids begin with a digit.
+
+    MDTraj reads `resname 4VO` as a number and matches nothing, without
+    raising. A mu-opioid run with BU72 completed, wrote its results file, and
+    came out with 18 panels instead of 37: no binding site, no ligand RMSD, no
+    contacts, no grade, no binding energy, and a packed trajectory holding the
+    protein alone. Nothing failed.
+    """
+    import mdtraj as md
+
+    from flexappeal.measure import resname_selection
+
+    assert resname_selection(["4VO"]) == "resname '4VO'"
+    assert resname_selection(["BEN", "STI"]) == "resname 'BEN' or resname 'STI'"
+
+    # Against a real topology, built here rather than committed.
+    rows = []
+    for serial, (name, resname, resseq) in enumerate(
+            [("N", "ALA", 1), ("CA", "ALA", 1), ("C", "ALA", 1),
+             ("O", "ALA", 1), ("C1", "4VO", 2), ("C2", "4VO", 2)], start=1):
+        rows.append(
+            f"{'ATOM  ' if resname == 'ALA' else 'HETATM'}{serial:>5d} "
+            f"{name:<4s}{resname:>4s} A{resseq:>4d}    "
+            f"{serial:8.3f}{0.0:8.3f}{0.0:8.3f}  1.00  0.00          "
+            f"{name[0]:>2s}")
+    import tempfile
+    from pathlib import Path as _Path
+
+    path = _Path(tempfile.mkdtemp()) / "digit.pdb"
+    path.write_text("\n".join(rows) + "\nEND\n")
+    topology = md.load(str(path)).topology
+
+    assert len(topology.select("resname 4VO")) == 0, (
+        "unquoted is the trap this exists for; if MDTraj ever fixes it, this "
+        "test should be revisited rather than deleted")
+    assert len(topology.select(resname_selection(["4VO"]))) == 2

@@ -492,6 +492,60 @@ def _rule_input(cfg: dict[str, Any]) -> list[Issue]:
     return issues
 
 
+# Trajectory selections that keep the lipids. Everything else drops them, and
+# the membrane metrics are measured on the trajectory rather than on the system.
+_KEEPS_LIPIDS = frozenset({"all", "custom"})
+
+
+def _rule_membrane_metrics(cfg: dict[str, Any]) -> list[Issue]:
+    """A membrane measurement needs the membrane in the trajectory.
+
+    The default selection is protein and ligands, which is right for almost
+    every run and excludes the lipids by name. Ask for the area per lipid with
+    it and the analysis runs the step, finds no lipids, and omits the key: the
+    panels are simply absent, with nothing saying why, after however many hours
+    the run took. Said here instead, while it is still a form.
+    """
+    wanted = [m for m in (cfg.get("analysis_metrics") or [])
+              if str(m).startswith("membrane_")]
+    if not wanted or not cfg.get("use_membrane"):
+        return []
+    if cfg.get("traj_selection") in _KEEPS_LIPIDS:
+        return []
+    names = ", ".join(sorted(wanted))
+    return [Issue(
+        "warning",
+        f"{names} are measured on the saved trajectory, and the trajectory "
+        f"selection above keeps the protein and ligands only. Choose "
+        f"\u201cEverything\u201d, or a custom selection that includes the "
+        f"lipids, or those panels will be absent from the results file with "
+        f"nothing to say why.",
+        "traj_selection",
+    )]
+
+
+def _rule_own_water(cfg: dict[str, Any]) -> list[Issue]:
+    """A force field that carries its own water ignores the water model.
+
+    AMOEBA is polarisable and ships its own water; loading an AMBER water model
+    beside it is a duplicate residue template and OpenMM refuses the whole
+    force field. The file list leaves it out now, which means the water model
+    chosen above does not apply, and a setting that is quietly not used is
+    worth a sentence.
+    """
+    if cfg.get("solvent_mode") != "explicit":
+        return []
+    if cfg.get("protein_ff") != "amoeba2018.xml":
+        return []
+    return [Issue(
+        "warning",
+        f"AMOEBA carries its own polarisable water, so the {cfg.get('water_model')} "
+        f"model above is not used: loading it alongside is a duplicate residue "
+        f"template that OpenMM refuses.",
+        "water_model",
+    )]
+
+
 def _rule_refstates(cfg: dict[str, Any]) -> list[Issue]:
     """The reference-state request, checked where it can be checked here.
 
@@ -560,7 +614,7 @@ def _rule_refstates(cfg: dict[str, Any]) -> list[Issue]:
 RULES = (
     _rule_job, _rule_input, _rule_forcefield, _rule_solvation, _rule_box,
     _rule_switching, _rule_timestep, _rule_protocol, _rule_output,
-    _rule_refstates,
+    _rule_refstates, _rule_own_water, _rule_membrane_metrics,
 )
 
 

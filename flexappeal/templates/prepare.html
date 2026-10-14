@@ -33,7 +33,12 @@
       {% endfor %}
 
     {% elif opt.widget == 'multiselect' %}
-      {% set choices = dynamic.get(opt.id) if opt.dynamic else active_choices(opt, cfg) %}
+      {# Every choice, including the ones another option gates, which are
+         hidden until it is set. Filtering them out here was a one-way door:
+         `app.js` can show and hide what the page contains and cannot conjure a
+         checkbox the server decided not to send, so a membrane run could not
+         ask for its own area-per-lipid or thickness at all. #}
+      {% set choices = dynamic.get(opt.id) if opt.dynamic else opt.choices %}
       <div class="md-checkgroup">
         {% if opt.dynamic and not choices %}
           <p class="md-empty">Load a structure to see what is available.</p>
@@ -42,7 +47,11 @@
           {% set cv = c.value if c.value is defined else c['value'] %}
           {% set cl = c.label if c.label is defined else c['label'] %}
           {% set ch = c.help if c.help is defined else c['help'] %}
-          <label class="md-check">
+          {% set active = (not opt.dynamic) and active_choices(opt, cfg)
+                          | map(attribute='value') | list %}
+          <label class="md-check" data-choice-for="{{ opt.id }}"
+                 data-choice="{{ cv }}"
+                 {% if active and cv not in active %}hidden{% endif %}>
             <input type="checkbox" name="{{ opt.id }}" value="{{ cv }}"
                    {% if cv in value %}checked{% endif %}>
             <span>{{ cl }}{% if ch %}<em>{{ ch }}</em>{% endif %}</span>

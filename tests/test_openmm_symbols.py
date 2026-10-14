@@ -175,3 +175,61 @@ def test_state_data_reporter_accepts_every_declared_field():
             f"StateDataReporter has no {choice.value!r} keyword; the energy-log field "
             f"list has drifted from the OpenMM API"
         )
+
+
+def test_every_offered_force_field_builds_a_membrane():
+    """The list being right is not the same as OpenMM taking it.
+
+    `amber14-all.xml` already carries the lipid17 residue templates, so loading
+    `amber14/lipid17.xml` beside it raises "Residue template DLPC with the same
+    override level 0 already exists". It is the default protein force field, so
+    every membrane run a generated bundle built failed on this, minutes in,
+    after the ligand had been parameterised.
+
+    It survived because the four membrane runs in this build were set up by
+    `tools/run_md.py` rather than by a bundle, and because the suite checked
+    the file list rather than what OpenMM does with it. This constructs each
+    one, which is the only check that would have caught it.
+    """
+    pytest.importorskip("openmm")
+    from openmm import app
+
+    from flexappeal import bundle, options as opts, schema
+
+    for choice in opts.BY_ID["protein_ff"].choices:
+        result = schema.validate({
+            "job_name": "membrane", "protein_ff": choice.value,
+            "use_membrane": "on", "lipid_type": "POPC",
+            "barostat": "MonteCarloMembrane",
+        })
+        if not schema.is_active(opts.BY_ID["use_membrane"], result.config):
+            continue
+        files = bundle._forcefield_files(result.config)
+        try:
+            app.ForceField(*files)
+        except Exception as exc:                    # noqa: BLE001
+            pytest.fail(f"{choice.value} with a membrane loads {files}, which "
+                        f"OpenMM refuses: {exc}")
+
+
+def test_every_offered_force_field_builds_in_water_too():
+    """The same check without a membrane, because one of them failed there too.
+
+    AMOEBA carries its own polarisable water, so appending an AMBER water model
+    is the same duplicate registration one step earlier: it was unbuildable for
+    every explicit-solvent run, not only the membrane ones.
+    """
+    pytest.importorskip("openmm")
+    from openmm import app
+
+    from flexappeal import bundle, options as opts, schema
+
+    for choice in opts.BY_ID["protein_ff"].choices:
+        config = schema.validate({"job_name": "water",
+                                  "protein_ff": choice.value}).config
+        files = bundle._forcefield_files(config)
+        try:
+            app.ForceField(*files)
+        except Exception as exc:                    # noqa: BLE001
+            pytest.fail(f"{choice.value} loads {files}, which OpenMM refuses: "
+                        f"{exc}")

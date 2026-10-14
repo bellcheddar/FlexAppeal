@@ -2815,3 +2815,29 @@ them, silently; it keys on the family now, as do the two other places that asked
 the same question. And a KLIFS resolution arrives as a string where the table
 formats it with `.2f`, which took out the whole references table rather than one
 cell. 4cg.
+
+### 14 October, 15:20. Four receptors through the whole product
+
+Marc asked for end-to-end runs of a GPCR with a ligand, then three more, each a
+receptor we had not tried. Beta2AR with carazolol, M2 muscarinic with QNB, the
+mu-opioid receptor with BU72, adenosine A2A with ZM-241385: built in the Prepare
+tab, simulated and analysed by their own scripts, uploaded to the Analysis tab.
+The first three failed, and none of the faults were in the reference-state code
+the exercise was meant to check.
+
+Every membrane bundle failed on its force field, because `amber14-all.xml` is the
+default and already carries lipid17; AMOEBA was unbuildable in any explicit
+solvent for the same reason one step earlier. No bundle could build a membrane on
+a Mac, because `addMembrane` relaxes on the fastest platform and Apple's OpenCL
+is single precision, which `tools/build_membrane.py` has documented since it was
+written and the generated script never knew. A structure fetched from the RCSB or
+OPM could not be simulated at all, because its waters sit in the protein's chain
+and PDBFixer then caps no terminus. A membrane run could neither ask for its own
+measurements nor, having asked, get them. And a ligand whose component id starts
+with a digit was dropped from every measurement in silence: 18 panels instead of
+37, with nothing in the output to say the ligand was gone.
+
+Nine faults, each with a test. The fourth receptor passed first time and added a
+reporting gap rather than a fault: A2A's 171-structure inactive ensemble contains
+one reference 12 angstrom from the rest, and the core table gave the number
+without the name. 4ch.

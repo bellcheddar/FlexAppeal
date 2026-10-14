@@ -209,7 +209,9 @@ def measurement_selection(topology, resnames: list[str]) -> Any:
     """
     import numpy as np  # noqa: PLC0415
 
-    wanted = ["protein"] + [f"resname {name}" for name in resnames]
+    from .measure import resname_selection
+
+    wanted = ["protein"] + [resname_selection([name]) for name in resnames]
     indices = topology.select(" or ".join(wanted))
     if len(indices) == 0 or len(indices) == topology.n_atoms:
         return None

@@ -185,7 +185,7 @@ def ligand_atoms(topology, resnames: list[str]) -> tuple[np.ndarray, np.ndarray,
     """
     if not resnames:
         raise MeasureError("no_ligand_resname")
-    selection = " or ".join(f"resname {name}" for name in resnames)
+    selection = resname_selection(resnames)
     atoms = topology.select(selection)
     if len(atoms) == 0:
         raise MeasureError("no_ligand")
@@ -429,6 +429,24 @@ def _pymbar_equilibration(series: np.ndarray) -> int | None:
         return None
     start = int(start)
     return start if 0 <= start < len(series) else None
+
+
+def resname_selection(names) -> str:
+    """An MDTraj selection matching these residue names, quoted.
+
+    A PDB chemical component id may begin with a digit, and roughly a fifth of
+    them do: 4VO, 1PE, 5GP. MDTraj's selection parser reads `resname 4VO` as a
+    number and matches nothing, without raising, so the ligand is simply absent
+    from whatever was being measured.
+
+    The cost of that is the whole reason this is a function. A mu-opioid run
+    with BU72 (4VO) completed, wrote its results file, and came out with 18
+    panels instead of 37: no binding site, no ligand RMSD, no contacts, no
+    grade, no binding energy, and a packed trajectory holding the protein
+    alone. Nothing failed. Quoting is all it takes, and it is the kind of
+    detail that has to live in one place.
+    """
+    return " or ".join(f"resname '{name}'" for name in names)
 
 
 def detect_equilibration(series: np.ndarray, *,

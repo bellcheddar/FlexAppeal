@@ -152,18 +152,43 @@ class Bundle:
 # ===========================================================================
 
 
+# Protein force fields that already carry lipid parameters, so loading
+# `amber14/lipid17.xml` beside them is a second registration of the same
+# residue templates and OpenMM refuses it: "Residue template DLPC with the same
+# override level 0 already exists."
+#
+# `amber14-all.xml` is the default, which is the part that matters: every
+# membrane run a generated bundle has ever built failed on its force field,
+# minutes in, after parameterising the ligand. It was never caught because the
+# four membrane runs in this build were set up by `tools/run_md.py` rather than
+# by a bundle, and the suite checked that the file list was right rather than
+# that OpenMM would take it. `test_every_offered_force_field_builds_a_membrane`
+# now constructs each one.
+#
+# CHARMM36 carries its own lipids, and AMOEBA carries everything.
+_CARRIES_LIPIDS = frozenset({"amber14-all.xml", "charmm36.xml",
+                             "amoeba2018.xml"})
+
+# And force fields that carry their own water, where appending an AMBER water
+# model is the same duplicate registration: "Residue template BA with the same
+# override level 0 already exists." AMOEBA has its own polarisable water and
+# was unbuildable for any explicit-solvent run, membrane or not, which is the
+# same fault one step earlier and was found by the same test.
+_CARRIES_WATER = frozenset({"amoeba2018.xml"})
+
+
 def _forcefield_files(cfg: dict[str, Any]) -> list[str]:
     """The XML files the generated script loads, in load order."""
     files = [cfg["protein_ff"]]
 
     if cfg["solvent_mode"] == "explicit":
-        water_xml, _ = opts.WATER_MODEL_XML[cfg["water_model"]]
-        files.append(water_xml)
-        if cfg.get("use_membrane"):
-            # addMembrane needs lipid parameters. CHARMM36 carries its own; an
-            # AMBER protein force field needs lipid17 loaded alongside.
-            if cfg["protein_ff"] != "charmm36.xml":
-                files.append("amber14/lipid17.xml")
+        if cfg["protein_ff"] not in _CARRIES_WATER:
+            water_xml, _ = opts.WATER_MODEL_XML[cfg["water_model"]]
+            files.append(water_xml)
+        if cfg.get("use_membrane") and cfg["protein_ff"] not in _CARRIES_LIPIDS:
+            # addMembrane needs lipid parameters, and only where the protein
+            # force field does not already have them.
+            files.append("amber14/lipid17.xml")
     elif cfg["solvent_mode"] == "implicit":
         files.append(cfg["implicit_model"])
 

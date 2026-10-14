@@ -251,8 +251,10 @@ def _solute_only(topology_pdb: Path, ligand_resnames: list[str],
     import mdtraj as md  # noqa: PLC0415
 
     loaded = md.load(str(topology_pdb))
-    names = " ".join(sorted({name for name in ligand_resnames if name}))
-    selection = "protein" + (f" or resname {names}" if names else "")
+    from .measure import resname_selection  # noqa: PLC0415
+
+    names = sorted({name for name in ligand_resnames if name})
+    selection = "protein" + (f" or {resname_selection(names)}" if names else "")
     keep = loaded.topology.select(selection)
     if len(keep) == 0:
         raise EnergyError(

@@ -1202,6 +1202,19 @@ def core_table(payload: dict[str, Any]) -> dict[str, Any] | None:
     add("Worst core RMSD", alignment.get("max_core_rmsd_a"), " Å")
     add("Rigidity reference", rigidity.get("reference"))
     add("Mean rigidity RMSD", rigidity.get("mean_rmsd_a"), " Å")
+    # Which structure the worst one is, not only how bad it is.
+    #
+    # The two worked examples never made this matter: their worst core RMSD is
+    # 1.4 angstrom and every reference is as good as every other. The adenosine
+    # A2A ensemble has 171 inactive structures in it and one of them, 5NM4,
+    # sits 12 angstrom from the rest, which the table reported as a number with
+    # nothing to act on. A reader who wants to know whether to exclude it needs
+    # its name.
+    if rigidity.get("worst") and rigidity.get("max_rmsd_a") is not None:
+        rows.append({"cells": [
+            {"text": "Worst rigidity RMSD"},
+            {"text": f"{rigidity['max_rmsd_a']:g} Å ({rigidity['worst']})"},
+        ]})
     if not rows:
         return None
     return {

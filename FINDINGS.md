@@ -5535,6 +5535,92 @@ where the table formats it with `.2f`, which took out the whole references
 table rather than one cell; it is read as a number or omitted, which is this
 build's rule for a value it cannot produce.
 
+## 4ch. Four receptors, nine faults, none of them where I was looking
+
+The reference-state work was finished and verified, so the next step was to run
+the whole product the way a reader does: build a bundle in the Prepare tab,
+simulate it, analyse it, upload the result. Four receptors, each with a ligand
+and a bilayer: beta2AR with carazolol, M2 muscarinic with QNB, the mu-opioid
+receptor with BU72, and adenosine A2A with ZM-241385. The first three failed.
+None of the faults were in the reference-state code the exercise was meant to
+check, and most of them had been reachable for months.
+
+**Every membrane bundle failed to build its force field.** `amber14-all.xml`
+already carries the lipid17 residue templates, and the generated script loaded
+`amber14/lipid17.xml` beside it, which OpenMM refuses: "Residue template DLPC
+with the same override level 0 already exists." It is the *default* protein
+force field. This survived because the suite asserted that the file list was
+right rather than that OpenMM would take it, and because the four membrane runs
+in this build were set up by `tools/run_md.py` rather than by a bundle. The test
+constructs each force field now, and found a second one in the same breath:
+AMOEBA carries its own polarisable water, so it was unbuildable for any
+explicit-solvent run at all, membrane or not.
+
+**No bundle could build a membrane on a Mac.** `addMembrane` relaxes the protein
+back into the lipid patch in a Context of its own, and with no platform given
+OpenMM takes the fastest, which here is Apple's OpenCL: single precision, and
+the relaxation dies at `integrator.step(20)` with "Particle coordinate is NaN".
+`tools/build_membrane.py` has carried that finding, its fix, and a second cause
+(a placeholder CRYST1 of 1 1 1 shrinking the box until the receptor wraps onto
+itself) in a comment since it was written. None of it had reached the generated
+script. This is the shape of fault worth naming: the repository knew, and the
+thing it ships did not.
+
+**A fetched structure could not be simulated at all.** A PDB file puts the
+crystallographic waters at the end of the chain they belong to, so PDBFixer does
+not see the last amino acid as a terminus, adds no OXT, and OpenMM later refuses
+it: "No template found for residue 437 (MET) ... missing 1 C atom. Is the chain
+missing a terminal capping group?" The message names the residue rather than the
+cause and arrives minutes in. `keep_waters` is on by default, so this was the
+default path for anything fetched from the RCSB or OPM; every earlier test used
+a prepared file and missed it. The waters get their own chain before PDBFixer
+looks for missing atoms.
+
+**A membrane run could not ask for its own measurements, and then could not get
+them.** The three membrane metrics are gated on `use_membrane`, and the form
+filtered them out of the page when the box was off: `app.js` can hide a checkbox
+and cannot conjure one, so ticking the box could never reveal them. The page
+carries every choice now and reveals them, ticked once, on the principle a kept
+ligand already established. Having asked, a run still got nothing, because they
+are measured on the saved trajectory and the default selection keeps the protein
+and ligands only: all three steps ran, found no lipids, and omitted their keys.
+That is the right behaviour for a value that cannot be produced and useless to a
+reader who has just waited for a run, so the validator says so while it is still
+a form.
+
+**And the worst one, which was silent.** A PDB chemical component id may begin
+with a digit, and roughly a fifth do. MDTraj reads `resname 4VO` as a number and
+matches nothing, without raising. The mu-opioid run with BU72 completed, wrote
+its results file, and came out with **18 panels instead of 37**: no binding
+site, no ligand RMSD, no contacts, no grade, no binding energy, and a packed
+trajectory holding the protein alone. Nothing failed, nothing warned, and the
+file looked like a clean apo run. Six places interpolated the name unquoted,
+across `measure.py`, `energy.py`, `package.py` and three sites in the generated
+analysis. They go through one helper now, with a source guard, because the
+failure mode is silence.
+
+Two smaller ones from the same run. The reference-state annotation was handed
+the file as fetched rather than the construct as prepared, so dropping a
+nanobody chain left 414 residues against 296 and `deposited_numbering` refused,
+correctly, and lost the annotation for it; it uses `prepared.pdb` now, which is
+written after repair and before solvation. And the thin-ensemble note never
+reached a bundle: GPCRdb has 29 active and 3 inactive structures for the
+mu-opioid receptor, so every inactive distance rests on three, which the command
+line has said since it was written and the bundle did not.
+
+**What the fourth receptor added** was not a fault but a reporting gap. A2A has
+171 inactive structures in GPCRdb, and one of them, 5NM4, superposes 12 angstrom
+from the rest against a mean of 1.4. The scoring is unharmed, because a score is
+a distance to the nearest reference and a misaligned structure is never the
+nearest, but the core table printed "worst core RMSD 12.5 Å" with no way to tell
+which structure it was. The two worked examples could never have shown this:
+their worst is 1.4 angstrom and every reference is as good as every other. The
+table names it now.
+
+The four runs, each against its own catalogue ensemble and none against the
+worked example: beta2AR -40.5, M2 -45.3, mu-opioid -36.4, A2A -33.7 kcal/mol,
+37 panels each. The A2A antagonist reads as inactive, which is what it is.
+
 ## 5. Production runs
 
 Tier 2 started at 17:04 on 10 October, in section 5.3's priority order: β2AR

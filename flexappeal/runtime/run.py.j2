@@ -663,6 +663,51 @@ def check_stable(simulation, stage):
 #  1. Structure preparation
 # ---------------------------------------------------------------------------
 
+def _waters_into_their_own_chain(topology):
+    """Move the crystallographic waters out of the protein's chain.
+
+    A PDB file normally puts them at the end of the chain they belong to, and
+    PDBFixer then does not see the last amino acid as a terminus: it adds no
+    OXT, and OpenMM later refuses the residue because a mid-chain template
+    needs a bond a terminus does not have. The message names the residue and
+    not the cause -- "No template found for residue 437 (MET) ... missing 1 C
+    atom. Is the chain missing a terminal capping group?" -- and it arrives at
+    system creation, minutes into a run.
+
+    Every structure fetched straight from the RCSB or OPM is laid out this way,
+    so this is the usual case rather than an odd one. Rebuilt rather than
+    edited in place, because an OpenMM topology's chains cannot be reordered.
+    """
+    rebuilt = app.Topology()
+    rebuilt.setPeriodicBoxVectors(topology.getPeriodicBoxVectors())
+    mapping = {}
+    waters = []
+    for chain in topology.chains():
+        kept = [r for r in chain.residues() if r.name not in ("HOH", "WAT")]
+        waters += [r for r in chain.residues() if r.name in ("HOH", "WAT")]
+        if not kept:
+            continue
+        new_chain = rebuilt.addChain(chain.id)
+        for residue in kept:
+            copied = rebuilt.addResidue(residue.name, new_chain,
+                                        residue.id, residue.insertionCode)
+            for atom in residue.atoms():
+                mapping[atom] = rebuilt.addAtom(atom.name, atom.element, copied,
+                                                atom.id)
+    if waters:
+        water_chain = rebuilt.addChain()
+        for residue in waters:
+            copied = rebuilt.addResidue(residue.name, water_chain,
+                                        residue.id, residue.insertionCode)
+            for atom in residue.atoms():
+                mapping[atom] = rebuilt.addAtom(atom.name, atom.element, copied,
+                                                atom.id)
+    for one, two in topology.bonds():
+        if one in mapping and two in mapping:
+            rebuilt.addBond(mapping[one], mapping[two])
+    return rebuilt
+
+
 def prepare_structure(ligands=None):
     """Repair the input structure and return an OpenMM Modeller."""
     step("preparing the structure")
@@ -734,6 +779,9 @@ def prepare_structure(ligands=None):
     # is also the only order that works: PDBFixer cannot add hydrogens to a
     # residue it has no template for.
     fixer.removeHeterogens(keepWater={{ 'True' if cfg.keep_waters else 'False' }})
+{% if cfg.keep_waters %}
+    fixer.topology = _waters_into_their_own_chain(fixer.topology)
+{% endif %}
 
 {% if cfg.add_missing_atoms %}
     fixer.findMissingAtoms()
@@ -938,6 +986,28 @@ def solvate(modeller, forcefield):
 {% if cfg.solvent_mode == 'explicit' %}
 {% if cfg.use_membrane %}
     warn("the protein must already be oriented with the membrane normal along z")
+
+    # A placeholder unit cell makes `addMembrane` size the box from the cell
+    # rather than from the protein. gemmi and several deposition tools write a
+    # CRYST1 of 1 1 1 for a structure with no cell, and `addMembrane` believes
+    # it: the box height comes out as the lipid patch, about 7 nm, rather than
+    # from a receptor that is 9.4 nm tall with its loops modelled. The receptor
+    # then wraps through the periodic boundary onto itself and the relaxation
+    # produces NaN on its first step. Dropping the cell makes `addMembrane`
+    # size z from the protein, which is what it does when none is present.
+    box = modeller.topology.getUnitCellDimensions()
+    if box is None or max(box.value_in_unit(unit.nanometer)) < 2.0:
+        modeller.topology.setUnitCellDimensions(None)
+
+    # The relaxation inside `addMembrane` runs on the CPU, deliberately.
+    #
+    # It builds its own Context to inflate the protein back into the lipid
+    # patch, and with no platform given OpenMM takes the fastest available.
+    # On a Mac that is OpenCL, which Apple implements in single precision only,
+    # and this relaxation does not survive it: it dies at `integrator.step(20)`
+    # with "Particle coordinate is NaN" while the same assembly minimises
+    # cleanly. At double precision on the CPU the same build completes. It is
+    # seconds of work either way, and it leaves the GPU free.
     spinner = Spinner("building a {{ cfg.lipid_type }} bilayer (packing lipids and solvent)")
     modeller.addMembrane(
         forcefield,
@@ -948,6 +1018,7 @@ def solvate(modeller, forcefield):
         negativeIon={{ cfg.negative_ion | tojson }},
         ionicStrength={{ cfg.ionic_strength }} * unit.molar,
         neutralize={{ 'True' if cfg.neutralize else 'False' }},
+        platform=openmm.Platform.getPlatformByName("CPU"),
     )
 {% else %}
     spinner = Spinner("solvating in a {{ cfg.box_shape }} box (packing water and ions)")

@@ -154,7 +154,7 @@ def lipid_selection(name):
     failure is silent -- every membrane metric just returns empty.
     """
     names = {name, name[:3]}
-    return " or ".join(f"resname {n}" for n in sorted(names))
+    return " or ".join(f"resname '{n}'" for n in sorted(names))
 
 
 _MDTRAJ_SELECTION = {
@@ -396,7 +396,11 @@ def compute(traj, run_dir):
 
 {% if ligand_names %}
     LIGAND_RESIDUES = {{ ligand_names | tojson }}
-    ligand_sel = " or ".join(f"resname {name}" for name in LIGAND_RESIDUES)
+    # Quoted, because a chemical component id may begin with a digit and
+    # MDTraj reads an unquoted one as a number and matches nothing. See
+    # `fxalib.measure.resname_selection`, which this mirrors for a script that
+    # may not have it.
+    ligand_sel = " or ".join(f"resname '{name}'" for name in LIGAND_RESIDUES)
     ligand_atoms = top.select(ligand_sel) if LIGAND_RESIDUES else np.array([])
 
     if "ligand_rmsd" in METRICS and len(ligand_atoms):
@@ -535,7 +539,8 @@ def decimate(traj):
     # the ligand should be.
     if tier["selection"] == "protein":
         selection = " or ".join(
-            [selection] + [f"resname {name}" for name in {{ ligand_names | tojson }}])
+            [selection]
+            + [f"resname '{name}'" for name in {{ ligand_names | tojson }}])
 {% endif %}
     indices = traj.top.select(selection)
     if len(indices) == 0:
@@ -766,8 +771,22 @@ def reference_states(run_dir, staging):
         # Every motif in the ensemble is addressed by a deposited number, so
         # without this each one would be read at the wrong residues and would
         # still return numbers that look like measurements.
-        mapping = rstraj.deposited_numbering(HERE / "{{ structure_filename }}",
-                                             loaded.topology)
+        # The construct as prepared, not the file it was fetched from.
+        #
+        # `--start` exists to restore the deposited numbering, and the mapping
+        # is positional, so it has to be the same set of residues the
+        # trajectory holds. The downloaded file is not: a reader who drops a
+        # chain, and every structure with a nanobody or a fusion partner in it
+        # invites that, leaves the two with different lengths. The mu-opioid
+        # run refused with "input.pdb has 414 residues and the trajectory has
+        # 296", correctly, and lost its reference states for it.
+        #
+        # `prepared.pdb` is written after repair and before solvation, so it
+        # has the deposited numbering and the construct that was simulated.
+        start = run_dir.parent / "prepared.pdb"
+        if not start.is_file():
+            start = HERE / "{{ structure_filename }}"
+        mapping = rstraj.deposited_numbering(start, loaded.topology)
         changed = rstraj.renumber(loaded.topology, mapping)
         info(f"{changed} residues restored to deposited numbering")
 
@@ -823,6 +842,22 @@ def reference_states(run_dir, staging):
             out["dssp"] = dssp
     except Exception as exc:                        # noqa: BLE001
         warn(f"the secondary-structure ribbon could not be computed ({exc})")
+
+    # How thin each side of the comparison is, in the file rather than left to
+    # a reader to work out from the ensemble sizes. A state score is a distance
+    # to the nearest reference, so a side with three structures is a far weaker
+    # measurement than one with forty-five: the mu-opioid receptor has 29
+    # active and 3 inactive in GPCRdb, and an inactive distance that rests on
+    # three is worth saying out loud. The command line has said so since it was
+    # written; this is the same sentence from the same threshold.
+    for state, count in sorted((payload.get("counts") or {}).items()):
+        if count and count < 5:
+            note = (f"the {state} ensemble has only {count} reference "
+                    f"{'structure' if count == 1 else 'structures'}, so every "
+                    f"{state} distance here rests on {count}; treat the scores "
+                    f"as indicative rather than measured")
+            out.setdefault("notes", []).append(note)
+            warn(note)
 
     out["ensembles"] = payload.get("ensembles", {})
     out["report"] = payload.get("report", {})

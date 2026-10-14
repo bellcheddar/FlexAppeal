@@ -2031,3 +2031,53 @@ def test_an_option_the_file_predates_is_listed_and_says_so(client):
     # example has no reference-state protein, so no catalogue name appears.
     block = html.split("Catalogue name", 1)[1][:400]
     assert "adrb2_human" not in block and "ABL1" not in block
+
+
+def test_a_gated_choice_is_sent_to_the_page_rather_than_filtered_out(client):
+    """`app.js` can hide a checkbox; it cannot conjure one.
+
+    The three membrane analysis metrics are gated on `use_membrane`, and the
+    form filtered them out at render time, when the box is off. Ticking it in
+    the browser could never reveal them, so a membrane run could not ask for
+    its own area per lipid, chain order or thickness: the end-to-end receptor
+    run produced every other panel and none of those three.
+    """
+    import io
+    import re
+
+    if not (FIXTURES / "3ptb.pdb").is_file():
+        pytest.skip("tests/fixtures/3ptb.pdb is missing")
+    _, _, body = _upload(client, "3ptb.pdb")
+
+    for value in ("membrane_scd", "membrane_apl", "membrane_thickness"):
+        assert f'data-choice="{value}"' in body, value
+        # Present but hidden, because this upload has no membrane.
+        label = re.search(r'<label[^>]*data-choice="%s"[^>]*>' % value, body)
+        assert label and "hidden" in label.group(0), value
+
+    # And the endpoint says which are available, so the page can reveal them.
+    offered = client.post("/api/estimate", json={
+        "job_name": "x", "use_membrane": "on", "lipid_type": "POPC",
+        "barostat": "MonteCarloMembrane",
+    }).get_json()["active_choices"]["analysis_metrics"]
+    assert {"membrane_scd", "membrane_apl", "membrane_thickness"} <= set(offered)
+
+    without = client.post("/api/estimate", json={"job_name": "x"}
+                          ).get_json()["active_choices"]["analysis_metrics"]
+    assert not [c for c in without if "membrane" in c]
+
+
+def test_a_revealed_choice_is_ticked_once_and_then_left_alone():
+    """The thing you asked for brings its own measurements.
+
+    Asking for a membrane and then having to find three more boxes to measure
+    it is the trap a kept ligand had. Ticked on the first reveal and
+    remembered, so unticking one does not have it put back on the next
+    keystroke.
+    """
+    from flexappeal.webapp import REPO_ROOT
+
+    script = (REPO_ROOT / "flexappeal" / "static" / "app.js").read_text()
+    assert "function applyActiveChoices" in script
+    assert "revealed.add(key)" in script
+    assert "data.active_choices" in script

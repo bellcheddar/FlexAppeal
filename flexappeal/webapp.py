@@ -394,6 +394,16 @@ def estimate():
         "errors": [{"option": i.option_id, "message": i.message} for i in result.errors],
         "warnings": [{"option": i.option_id, "message": i.message} for i in result.warnings],
         "active": [o.id for o in schema.active_options(cfg)],
+        # Which choices inside a multiselect are available, not only which
+        # fields are. A choice gated on another option was filtered out of the
+        # page at render time and nothing could put it back, so the three
+        # membrane analysis metrics were unreachable: ticking "use a membrane"
+        # in the browser cannot reveal a checkbox the server never sent.
+        "active_choices": {
+            option.id: [c.value for c in schema.active_choices(option, cfg)]
+            for option in opts.OPTIONS
+            if option.widget == "multiselect" and option.choices
+        },
     })
 
 

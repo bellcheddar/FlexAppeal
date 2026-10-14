@@ -105,6 +105,42 @@
       });
     }
 
+    /* The same thing one level down, for a choice inside a multiselect.
+     *
+     * These used to be filtered out of the page, which made them unreachable:
+     * ticking "use a membrane" cannot reveal a checkbox the server never sent,
+     * so a membrane run could not ask for its own area per lipid, chain order
+     * or thickness. The page now carries all of them and this shows the ones
+     * whose predicate holds.
+     *
+     * A choice revealed for the first time is also ticked, once. Asking for a
+     * membrane and then having to find three more boxes to measure it is the
+     * same trap a kept ligand had, and the answer is the same: the thing you
+     * asked for brings its own measurements. Ticked once and remembered, so a
+     * reader who unticks one does not have it put back on the next keystroke.
+     */
+    const revealed = new Set();
+
+    function applyActiveChoices(byOption) {
+      if (!byOption) return;
+      Object.keys(byOption).forEach(function (option) {
+        const set = new Set(byOption[option]);
+        document
+          .querySelectorAll('[data-choice-for="' + option + '"]')
+          .forEach(function (label) {
+            const value = label.dataset.choice;
+            const on = set.has(value);
+            label.hidden = !on;
+            const key = option + ':' + value;
+            if (on && !revealed.has(key)) {
+              revealed.add(key);
+              const box = label.querySelector('input[type=checkbox]');
+              if (box && !box.checked) box.checked = true;
+            }
+          });
+      });
+    }
+
     function applyIssues(errors, warnings) {
       document.querySelectorAll('.md-field-error').forEach(function (el) {
         el.hidden = true;
@@ -175,6 +211,7 @@
           }
 
           applyActive(data.active);
+      applyActiveChoices(data.active_choices);
           applyIssues(data.errors, data.warnings);
           readout.classList.remove('is-stale');
         })

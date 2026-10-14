@@ -542,15 +542,30 @@ def test_membrane_normalisation_cannot_be_overridden_by_accident(structure):
     assert cfg["barostat"] == "MonteCarloMembrane"
 
 
-def test_amber_membrane_loads_lipid_parameters(structure):
-    """CHARMM36 carries its own lipids; an AMBER force field needs lipid17."""
-    code = _code(structure, use_membrane=True, protein_ff="amber14-all.xml")
+def test_an_amber_membrane_loads_lipid_parameters_where_they_are_missing(structure):
+    """ff19SB is a protein force field on its own and needs lipid17 beside it."""
+    code = _code(structure, use_membrane=True,
+                 protein_ff="amber/protein.ff19SB.xml")
     assert "amber14/lipid17.xml" in code
 
 
-def test_charmm_membrane_does_not_double_load_lipids(structure):
-    code = _code(structure, use_membrane=True, protein_ff="charmm36.xml")
-    assert "lipid17" not in code
+def test_a_force_field_that_has_the_lipids_is_not_given_them_twice(structure):
+    """This test asserted the fault rather than the fix.
+
+    It read "an AMBER force field needs lipid17" and checked that
+    `amber14-all.xml` loaded it, which is exactly what OpenMM refuses:
+    `amber14-all.xml` already carries the lipid17 residue templates, so the
+    second registration raises "Residue template DLPC with the same override
+    level 0 already exists". It is the default protein force field, so every
+    membrane bundle failed on its force field minutes into the run.
+
+    CHARMM36 carries its own lipids and AMOEBA carries everything, and the real
+    check is `test_every_offered_force_field_builds_a_membrane`, which
+    constructs each one rather than reading the list.
+    """
+    for ff in ("amber14-all.xml", "charmm36.xml", "amoeba2018.xml"):
+        assert "lipid17" not in _code(structure, use_membrane=True,
+                                      protein_ff=ff), ff
 
 
 def test_lipid_residue_names_cover_the_pdb_truncation(structure):
@@ -1090,3 +1105,101 @@ def test_an_apo_run_can_be_scored_too(structure):
         cfg, structure, refstates=b"{}").content)["analyse.py"].decode()
     ast.parse(script)
     assert "def reference_states(" in script
+
+
+def test_a_membrane_build_does_not_hand_its_relaxation_to_the_gpu(structure):
+    """This repository already knew, and the generated script did not.
+
+    `addMembrane` builds its own Context to inflate the protein back into the
+    lipid patch, and with no platform given OpenMM takes the fastest available.
+    On a Mac that is OpenCL, which Apple implements in single precision only,
+    and the relaxation dies at `integrator.step(20)` with "Particle coordinate
+    is NaN". `tools/build_membrane.py` carries both that finding and its fix in
+    a comment; `run.py.j2` carried neither, so no bundle could build a membrane
+    on a Mac at all.
+
+    The second half is the unit cell: a placeholder CRYST1 of 1 1 1 makes
+    `addMembrane` size the box from the cell rather than from the protein, the
+    receptor wraps onto itself through the periodic boundary, and the same
+    relaxation produces the same NaN.
+    """
+    from flexappeal import schema
+
+    cfg = schema.validate({"job_name": "membrane", "use_membrane": "on",
+                           "lipid_type": "POPC",
+                           "barostat": "MonteCarloMembrane"}).config
+    script = bundle.unpack(bundle.build(cfg, structure).content)["run.py"].decode()
+
+    block = script[script.index("modeller.addMembrane("):]
+    block = block[: block.index(")\n") + 2]
+    assert 'platform=openmm.Platform.getPlatformByName("CPU")' in block
+
+    before = script[:script.index("modeller.addMembrane(")]
+    assert "setUnitCellDimensions(None)" in before, (
+        "the placeholder cell has to go before the membrane is built")
+
+    # And a run with no membrane neither needs nor mentions either.
+    plain = schema.validate({"job_name": "water"}).config
+    plain_script = bundle.unpack(
+        bundle.build(plain, structure).content)["run.py"].decode()
+    # The call, not the word: a comment about which OpenMM calls get a spinner
+    # names `addMembrane` in every script.
+    assert "modeller.addMembrane(" not in plain_script
+    assert "setUnitCellDimensions(None)" not in plain_script
+
+
+def test_a_membrane_measurement_without_the_membrane_in_the_trajectory_warns():
+    """The panels are otherwise absent with nothing to say why.
+
+    The default trajectory selection is protein and ligands, which excludes
+    lipids by name, and the membrane metrics are measured on the saved
+    trajectory rather than on the system. The end-to-end receptor run asked for
+    all three, ran all three steps, found no lipids and omitted all three keys:
+    correct behaviour for a value that cannot be produced, and useless to a
+    reader who has just waited for a run.
+    """
+    from flexappeal import schema
+
+    asked = {"job_name": "x", "use_membrane": "on", "lipid_type": "POPC",
+             "barostat": "MonteCarloMembrane",
+             "analysis_metrics": ["rmsd", "membrane_apl"]}
+
+    warned = schema.validate(asked)
+    assert warned.ok, "a selection that loses the lipids is a warning, not a refusal"
+    assert [i for i in warned.issues if i.option_id == "traj_selection"]
+
+    kept = schema.validate({**asked, "traj_selection": "all"})
+    assert not [i for i in kept.issues if i.option_id == "traj_selection"]
+
+    # And a run that asked for no membrane metric is not told about them.
+    quiet = schema.validate({**asked, "analysis_metrics": ["rmsd"]})
+    assert not [i for i in quiet.issues if i.option_id == "traj_selection"]
+
+
+def test_no_resname_selection_is_built_unquoted(structure):
+    """One unquoted interpolation is enough to lose a ligand silently.
+
+    There were six, across the package and the generated script, and a ligand
+    whose code begins with a digit fell out of every one of them: the packed
+    trajectory, the ligand metrics, the binding-site measurement and the
+    energy. The guard is on the source rather than on a behaviour, because the
+    failure is silence.
+    """
+    import re
+
+    from flexappeal import schema
+
+    import pathlib
+
+    root = pathlib.Path(__file__).resolve().parent.parent
+    roots = [root / "flexappeal" / name for name in
+             ("measure.py", "energy.py", "package.py")]
+    cfg = schema.validate({"job_name": "x", "has_ligands": True,
+                           "keep_heteroatoms": ["4VO"]}).config
+    generated = bundle.unpack(bundle.build(cfg, structure).content)
+    sources = {str(p): p.read_text() for p in roots}
+    sources["analyse.py"] = generated["analyse.py"].decode()
+
+    for where, text in sources.items():
+        bad = re.findall(r"resname \{[^}']*\}", text)
+        assert not bad, f"{where} interpolates a residue name unquoted: {bad[:3]}"
