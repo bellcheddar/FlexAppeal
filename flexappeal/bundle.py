@@ -84,6 +84,30 @@ _MUTATION_RE = re.compile(r"^([A-Za-z0-9]+):([A-Z]{3})-(\d+)-([A-Z]{3})$")
 # work. `energy.py` additionally shells out to AmberTools, which a ligand bundle
 # installs because AM1-BCC charges need it; where it is absent the energy
 # sub-score stays pending and the other five are unaffected.
+# The reference-state scoring, which is a different and much smaller set.
+#
+# Scoring a frame is numpy: superpose on the core, measure each motif against
+# coordinates the bundle already carries. `traj` and `state` are all of that,
+# and `sse` adds the DSSP ribbon, which is mdtraj and the reference profiles
+# the build-time setup already resolved. Nothing else in the package is on the
+# path, checked by blocking gemmi, requests and the vendored annotator and
+# watching what still imports.
+VENDORED_REFSTATES = ("traj.py", "state.py", "sse.py")
+
+# Where the resolved ensemble sits in the bundle, and the name `analyse.py`
+# looks for. One definition, because the writer and the reader are in different
+# files.
+REFSTATES_MEMBER = "refstates/ensemble.json"
+
+_VENDOR_REFSTATES_INIT = b"""\"\"\"The reference-state scoring, byte for byte as the build ran it.
+
+Only the two modules that score a frame. Resolving which residues a motif is
+needs KLIFS or GPCRdb, their deposited structures and gemmi, and none of that
+can be assumed on a machine that has an OpenMM environment and nothing else: it
+runs when the bundle is built, and its answer travels as `refstates/ensemble.json`.
+\"\"\"
+"""
+
 VENDORED_MODULES = ("energy.py", "fxa.py", "fxa2.py", "measure.py",
                     "options.py", "package.py")
 
@@ -388,7 +412,8 @@ def collect_ligands(cfg: dict[str, Any], report: dict[str, Any] | None = None,
 
 def build(cfg: dict[str, Any], structure_bytes: bytes,
           structure_filename: str = "input.pdb", citation: str = "",
-          ligands: dict[str, bytes] | None = None) -> Bundle:
+          ligands: dict[str, bytes] | None = None,
+          refstates: bytes | None = None) -> Bundle:
     """Build the complete self-extracting bundle.
 
     Raises BundleError for anything wrong with the configuration; the caller is
@@ -438,6 +463,14 @@ def build(cfg: dict[str, Any], structure_bytes: bytes,
     for name, payload in (ligands or {}).items():
         files[f"ligands/{name}"] = payload
 
+    # The reference-state ensemble, resolved by the caller before the bundle was
+    # built. Same arrangement as the ligand chemistry above and for the same
+    # reason: it needs a catalogue and a network, which belong where the bundle
+    # is made rather than where it runs.
+    if refstates is not None:
+        files[REFSTATES_MEMBER] = refstates
+        files.update(_vendored_refstates())
+
     # Only for a run that has a ligand. An apo run writes a version 1 .fxa and
     # that is the right and complete answer for it (spec section 0), so there is
     # nothing here for it to do and no reason to grow its bundle.
@@ -458,6 +491,25 @@ def build(cfg: dict[str, Any], structure_bytes: bytes,
         "flexappeal_version": FLEXAPPEAL_VERSION,
     }
     return Bundle(context["bundle_filename"], content, manifest)
+
+
+def _vendored_refstates() -> dict[str, bytes]:
+    """The scoring modules, as a package inside `fxalib`.
+
+    A package rather than two flat modules because `traj` imports `state` by a
+    relative import, and copying them byte for byte is the point: a bundle
+    scores with the code that built it.
+    """
+    here = Path(__file__).resolve().parent / "refstates"
+    out = {f"{VENDOR_PACKAGE}/refstates/__init__.py": _VENDOR_REFSTATES_INIT}
+    for name in VENDORED_REFSTATES:
+        source = here / name
+        if not source.is_file():                     # pragma: no cover
+            raise BundleError(
+                f"refstates/{name} is missing from the FlexAppeal package, so "
+                f"this bundle cannot carry the reference-state scoring.")
+        out[f"{VENDOR_PACKAGE}/refstates/{name}"] = source.read_bytes()
+    return out
 
 
 def _vendored() -> dict[str, bytes]:

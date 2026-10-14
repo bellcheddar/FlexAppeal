@@ -1032,14 +1032,13 @@ def test_the_reference_state_options_are_off_and_silent_by_default(structure):
     assert "## Reference states" not in files["README.md"].decode()
 
 
-def test_the_request_travels_and_comes_back_as_a_command(structure):
-    """The annotation cannot run in a bundle, so the bundle hands it over.
+def test_the_request_travels_and_is_scored_by_the_bundle(structure):
+    """The annotation is part of the run now, not a command printed after it.
 
-    It needs KLIFS or GPCRdb over the network and a FlexAppeal checkout's own
-    `tools/analyse_run.py`, and a bundle is meant to run on a machine with an
-    OpenMM environment and nothing else. What it can do is carry the answers
-    given in the Prepare tab and print them back as the command, so nothing has
-    to be remembered or retyped hours later.
+    Resolving which residues a motif is needs KLIFS or GPCRdb, their deposited
+    structures and gemmi; scoring a frame against the answer is numpy. So the
+    first half runs where the bundle is built and its answer travels, which is
+    what the ligand chemistry beside it already does.
     """
     import ast
 
@@ -1050,36 +1049,44 @@ def test_the_request_travels_and_comes_back_as_a_command(structure):
         "refstates_family": "kinase", "refstates_protein": "ABL1",
         "refstates_reference_pdb": "2HYY", "refstates_max_references": 25,
     }).config
-    files = bundle.unpack(bundle.build(cfg, structure,
-                                       structure_filename="2hyy.pdb").content)
+    files = bundle.unpack(bundle.build(
+        cfg, structure, structure_filename="2hyy.pdb",
+        refstates=b'{"version":1,"kind":"kinase"}').content)
 
     # The request is in the config the results file will carry.
     assert json.loads(files["config.json"])["config"]["refstates_protein"] == "ABL1"
+    # The resolved ensemble, and the code that scores against it.
+    assert files[bundle.REFSTATES_MEMBER] == b'{"version":1,"kind":"kinase"}'
+    assert "fxalib/refstates/traj.py" in files
 
     script = files["analyse.py"].decode()
     ast.parse(script)
-    assert "refstates annotate" in script
-    for answer in ("--family kinase", "--protein ABL1",
-                   "--reference-pdb 2HYY", "--max-references 25"):
-        assert answer in script, answer
+    assert "def reference_states(" in script
+    assert "refstates annotate" not in script, (
+        "the bundle scores this itself; a command to run afterwards would be "
+        "telling the user to do what has already been done")
 
     readme = files["README.md"].decode()
     assert "## Reference states" in readme
-    # The embedded name, which is the file that exists beside the script, and
-    # not what the user called their upload. It carries the deposited
-    # numbering, which is the whole reason `--start` is in the command:
-    # OpenMM renumbers from 1 on solvation and every motif is addressed by its
-    # deposited number.
-    assert "--start input.pdb" in readme
-    assert "deposited number" in readme
+    assert "deposited number" in readme, (
+        "the renumbering is the step a reader has to understand")
 
 
-def test_an_empty_optional_is_left_out_of_the_command(structure):
-    """Rather than passed as an empty string, which the parser would take."""
+def test_an_apo_run_can_be_scored_too(structure):
+    """Two of the four library rows are apo, and both have reference states.
+
+    The scoring step was written beside the binding energy at first, which put
+    it inside the ligand-only section of the template: a receptor simulated
+    without a ligand would have had the option and no scoring.
+    """
+    import ast
+
     from flexappeal import schema
 
-    cfg = schema.validate({"job_name": "demo", "use_refstates": "on"}).config
-    script = bundle.unpack(bundle.build(cfg, structure).content)["analyse.py"].decode()
-    assert "--protein" not in script
-    assert "--reference-pdb" not in script
-    assert "--family auto" in script
+    cfg = schema.validate({"job_name": "apo", "use_refstates": "on",
+                           "refstates_family": "gpcr"}).config
+    assert cfg["has_ligands"] is False
+    script = bundle.unpack(bundle.build(
+        cfg, structure, refstates=b"{}").content)["analyse.py"].decode()
+    ast.parse(script)
+    assert "def reference_states(" in script

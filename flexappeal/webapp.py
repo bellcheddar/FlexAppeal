@@ -36,6 +36,7 @@ from flask import (
 
 from . import options as opts
 from . import analysis, bundle, fxa, measure, plots, schema, sources, structure
+from .refstates import prepare as refstates_prepare
 from .options import FLEXAPPEAL_VERSION
 from .refstates import panels as refstates_panels
 
@@ -312,12 +313,32 @@ def build():
         # it warns that it has no definition and then fails at system creation
         # with a missing template, several minutes into somebody's run.
         ligands, ligand_warnings = bundle.collect_ligands(cfg, report_dict)
+        # The reference-state ensemble, for the same reason and in the same
+        # place as the chemistry above: resolving which residues a motif is
+        # needs KLIFS or GPCRdb, their deposited structures and gemmi, and a
+        # bundle runs on a machine that has an OpenMM environment and nothing
+        # else. Scoring a frame against the answer is numpy, so the answer
+        # travels with the bundle and the scoring happens there.
+        refstates = None
+        if cfg.get("use_refstates"):
+            refstates = refstates_prepare.dumps(
+                refstates_prepare.resolve(structure_files[0], cfg))
         built = bundle.build(
             cfg,
             structure_files[0].read_bytes(),
             saved["filename"],
             citation=saved.get("citation", ""),
             ligands=ligands,
+            refstates=refstates,
+        )
+    except refstates_prepare.PrepareError as exc:
+        # Its own branch, because this failure is about the protein rather than
+        # about the configuration: the field to correct is one of the
+        # reference-state ones, whatever the message happens to mention.
+        return _render_prepare(
+            cfg, report=report_dict, token=token,
+            issues=[schema.Issue("error", str(exc), "use_refstates")],
+            dynamic=_dynamic_from_report(report_dict),
         )
     except bundle.BundleError as exc:
         return _render_prepare(

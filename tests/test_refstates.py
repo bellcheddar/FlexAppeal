@@ -5408,7 +5408,11 @@ def _p4_now() -> dict[str, float]:
     age = artefact.stat().st_mtime
     inputs = [root / "data" / "systems", root / "tools" / "analyse_run.py"]
     inputs += [root / "flexappeal" / "refstates" / f"{name}.py" for name in
-               ("traj", "state", "ensembles", "kinase", "gpcr", "pocket")]
+               # `setup` is where the family wiring lives since it moved out of
+               # `analyse_run.py`, so it determines P4 as much as the script
+               # that used to hold it.
+               ("traj", "state", "ensembles", "kinase", "gpcr", "pocket",
+                "setup")]
     newer = []
     for item in inputs:
         if item.is_dir():
@@ -5784,3 +5788,105 @@ def test_p5_judges_a_finished_run(tmp_path: Path):
     assert rows[0]["frames_in_window"] < 500, rows[0]["frames_in_window"]
 
 
+
+
+# ---------------------------------------------------------------------------
+#  Scoring inside a generated bundle
+# ---------------------------------------------------------------------------
+
+
+def test_the_scoring_path_needs_nothing_a_bundle_does_not_have():
+    """The architectural guard for the whole arrangement.
+
+    Resolving which residues a motif is needs KLIFS or GPCRdb, their deposited
+    structures and gemmi. Scoring a frame against the answer needs none of
+    them, and that asymmetry is why the work can be split: the resolving half
+    runs where the bundle is built and the scoring half runs on a machine with
+    an OpenMM environment and nothing else.
+
+    If an import creeps into the scoring half, the symptom is a bundle that
+    builds and then fails on somebody's laptop, so it is checked here rather
+    than discovered there.
+    """
+    import subprocess
+    import sys
+
+    script = """
+import sys
+class Block:
+    BANNED = {"gemmi", "requests", "tenacity", "sse_comparison"}
+    def find_module(self, name, path=None):
+        if name.split(".")[0] in self.BANNED:
+            raise ImportError(name + " is not in a generated bundle")
+        return None
+sys.meta_path.insert(0, Block())
+from flexappeal.refstates import traj, state, sse
+assert hasattr(traj, "analyse") and hasattr(traj, "deposited_numbering")
+assert hasattr(state, "smooth") and hasattr(sse, "secondary_structure")
+assert hasattr(sse, "profiles_from_json")
+print("ok")
+"""
+    result = subprocess.run([sys.executable, "-c", script],
+                            capture_output=True, text=True,
+                            cwd=str(Path(__file__).resolve().parents[1]))
+    assert result.returncode == 0, result.stderr[-800:]
+    assert "ok" in result.stdout
+
+
+def test_the_bundle_carries_the_ensemble_and_the_scoring_only_when_asked():
+    """Off by default, and a run that did not ask pays nothing for it."""
+    from flexappeal import bundle, schema
+
+    structure = (b"ATOM      1  N   ALA A   1       0.000   0.000   0.000  "
+                 b"1.00  0.00           N\nEND\n")
+
+    plain = schema.validate({"job_name": "plain"}).config
+    files = bundle.unpack(bundle.build(plain, structure).content)
+    assert not [n for n in files if "refstates" in n]
+
+    asked = schema.validate({"job_name": "asked", "use_refstates": "on",
+                             "refstates_family": "kinase"}).config
+    files = bundle.unpack(bundle.build(asked, structure,
+                                       refstates=b'{"version":1}').content)
+    assert files[bundle.REFSTATES_MEMBER] == b'{"version":1}'
+    for name in bundle.VENDORED_REFSTATES:
+        vendored = files[f"fxalib/refstates/{name}"]
+        assert vendored == (Path(__file__).resolve().parents[1] / "flexappeal"
+                            / "refstates" / name).read_bytes(), (
+            f"{name} should travel byte for byte")
+
+
+def test_reference_profiles_survive_a_round_trip_through_json():
+    """A Counter is a dict after JSON and an int key is a string.
+
+    The ribbon simply does not draw when they come back as plain objects, with
+    every score around it correct, which is the quiet kind of failure.
+    """
+    import json
+
+    from collections import Counter
+
+    from flexappeal.refstates import sse
+
+    original = {"active": {"A-loop": {3: Counter({"H": 4, "E": 1})}},
+                "inactive": {"A-loop": {3: Counter({"E": 5})}}}
+    restored = sse.profiles_from_json(json.loads(json.dumps(original)))
+
+    assert restored["active"]["A-loop"][3].most_common(1) == [("H", 4)]
+    assert isinstance(restored["inactive"]["A-loop"][3], Counter)
+    assert sse.profiles_from_json({}) == {}
+    assert sse.profiles_from_json(None) == {}
+
+
+def test_a_structure_no_catalogue_knows_is_refused_at_build_time():
+    """With a sentence, rather than hours later on somebody's machine."""
+    from flexappeal.refstates import prepare
+
+    # Generated here: a short peptide is neither a kinase nor a receptor.
+    peptide = Path(__file__).resolve().parents[1] / "tests" / "fixtures" / "peptide12.pdb"
+    if not peptide.is_file():
+        pytest.skip("tests/fixtures/peptide12.pdb is missing")
+
+    with pytest.raises(prepare.PrepareError) as caught:
+        prepare.resolve(peptide, {"refstates_family": "auto"})
+    assert "kinase or a receptor" in str(caught.value)

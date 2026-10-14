@@ -2774,3 +2774,28 @@ produce on a laptop without KLIFS or GPCRdb.
 The run also reproduced the periodic-imaging fault from 4cc on its own, in a
 fresh 200 ps run of a 21,000-atom system, which says that fault was never
 specific to the reference-state rows. 4cf.
+
+### 14 October, 11:30. Reference states, scored by the bundle
+
+Marc asked why the annotation could not run in the analysis step. One of my
+three reasons was wrong: it does not need the vendored `sse_comparison`, which
+is reached only by `tools/build_references.py`. Checking the other two gave a
+better arrangement than the one I had been defending.
+
+Resolving which residues a motif is needs a catalogue, its structures and
+gemmi. Scoring a frame against the answer is numpy. So the two halves run in
+different places, which is what the ligand chemistry already does: the Prepare
+tab resolves the ensemble when the box is ticked, the bundle carries
+`refstates/ensemble.json` and the three modules that score it, and `analyse.py`
+writes `refstates.json` into the results file.
+
+The payload is 106 kB for ABL1 in a 198 kB bundle, which is the part I had
+assumed was prohibitive. Measured through the real Prepare routes on a real
+kinase trajectory: 50 seconds to resolve, one second to score 100 frames, final
+frame +0.206 against 19 reference structures, and three of the four panels on
+the page.
+
+Two bundle-versus-repository faults on the way, both quiet: `deposited_numbering`
+read the start structure with gemmi, which a bundle does not have, and the
+reference SSE profiles did not survive JSON, so the ribbon silently did not draw
+while every score around it was right. 4cg.

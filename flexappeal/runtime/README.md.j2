@@ -79,30 +79,22 @@ never leaves your machine.
 
 ## Reference states
 
-You asked for the reference-state annotation, which scores each structural
-motif as a distance from the experimental active and inactive structures of
-this same protein rather than from its own first frame.
+Each structural motif is scored as a distance from the experimental {% if cfg.refstates_family == 'gpcr' %}active and
+inactive structures of this receptor{% elif cfg.refstates_family == 'kinase' %}active and inactive structures of this
+kinase{% else %}active and inactive structures of this protein{% endif %}, rather than from its own first frame.
 
-It does not run here. It needs {% if cfg.refstates_family == 'gpcr' %}GPCRdb{% elif cfg.refstates_family == 'kinase' %}KLIFS{% else %}KLIFS or GPCRdb{% endif %} over the network and the
-catalogue's own structures, and this bundle is meant to run on a machine that
-has an OpenMM environment and nothing else. The settings travel in
-`config.json` and in the results file's manifest, and `analyse.py` prints the
-command with your own answers already in it when it finishes. From a FlexAppeal
-checkout:
+`analyse.py` does this as part of the run and writes it into the `.fxa`, so the
+Analysis tab draws the reference-state panels along with everything else.
 
-```bash
-python FlexAppeal.py refstates annotate \
-    --topology  {{ cfg.output_dir }}/{{ cfg.job_name }}/topology.pdb \
-    --trajectory {{ cfg.output_dir }}/{{ cfg.job_name }}/trajectory.{{ traj_extension }} \
-    --start {{ structure_filename }} \
-    --family {{ cfg.refstates_family }}{% if cfg.refstates_protein %} \
-    --protein {{ cfg.refstates_protein }}{% endif %}{% if cfg.refstates_reference_pdb %} \
-    --reference-pdb {{ cfg.refstates_reference_pdb }}{% endif %} \
-    --max-references {{ cfg.refstates_max_references }}
-```
+The part that needs a catalogue has already happened. Which residues each motif
+is, which residues the superposition core is, and the coordinates to score
+against were all resolved from {% if cfg.refstates_family == 'gpcr' %}GPCRdb{% elif cfg.refstates_family == 'kinase' %}KLIFS{% else %}KLIFS or GPCRdb{% endif %} when this bundle was built,
+and they travel in `refstates/ensemble.json`. Scoring a frame against them is
+arithmetic, so your machine needs no network and no catalogue for it.
 
-`--start` matters: OpenMM renumbers residues from 1 when it solvates, and every
-motif here is addressed by its deposited number.
+Your own residue numbering is restored from `{{ structure_filename }}` before
+anything is measured: OpenMM renumbers from 1 when it solvates, and every motif
+here is addressed by its deposited number.
 {% endif %}
 
 ## Changing something

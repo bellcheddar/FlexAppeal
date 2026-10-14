@@ -426,6 +426,50 @@ def load(topology: Path, trajectory: Path, *, stride: int = 1):
 # ===========================================================================
 
 
+def _residue_letters(path: Path) -> list[tuple[int, str]]:
+    """(residue number, one-letter code) for every amino acid in a file.
+
+    gemmi where there is gemmi, mdtraj where there is not. A generated bundle
+    has the second and not the first, and this is the one step of the
+    reference-state scoring that reads a structure file rather than an array:
+    without a path that works without gemmi, a bundle could resolve nothing and
+    the whole annotation would have to stay a repository-only step.
+
+    mdtraj's own residue codes come from the same tables and agree with gemmi's
+    on the four worked examples; a residue mdtraj cannot name comes back as X
+    and the sequence check below catches it against the other side.
+    """
+    try:
+        import gemmi  # noqa: PLC0415
+
+        structure = gemmi.read_structure(str(path))
+        structure.setup_entities()
+        out = []
+        for chain in structure[0]:
+            for residue in chain:
+                info = gemmi.find_tabulated_residue(residue.name)
+                if info is not None and info.is_amino_acid():
+                    out.append((residue.seqid.num,
+                                info.one_letter_code.upper()))
+        return out
+    except ImportError:
+        import mdtraj as md  # noqa: PLC0415
+
+        topology = md.load(str(path)).topology
+        return _topology_letters(topology)
+
+
+def _topology_letters(topology) -> list[tuple[int, str]]:
+    """The same pairs, from a topology already in memory."""
+    out = []
+    for residue in topology.residues:
+        if not residue.is_protein:
+            continue
+        letter = (residue.code or "X").upper() if hasattr(residue, "code") else "X"
+        out.append((int(residue.resSeq), letter))
+    return out
+
+
 def deposited_numbering(start_pdb: Path, topology) -> dict[int, int]:
     """Map the trajectory's residue numbers back onto the deposited ones.
 
@@ -442,25 +486,8 @@ def deposited_numbering(start_pdb: Path, topology) -> dict[int, int]:
     checked at every position and a mismatch raises rather than returns a map
     that is wrong in the middle.
     """
-    import gemmi
-
-    structure = gemmi.read_structure(str(start_pdb))
-    structure.setup_entities()
-    deposited: list[tuple[int, str]] = []
-    for chain in structure[0]:
-        for residue in chain:
-            info = gemmi.find_tabulated_residue(residue.name)
-            if info is not None and info.is_amino_acid():
-                deposited.append((residue.seqid.num,
-                                  info.one_letter_code.upper()))
-
-    trajectory: list[tuple[int, str]] = []
-    for residue in topology.residues:
-        if not residue.is_protein:
-            continue
-        info = gemmi.find_tabulated_residue(residue.name)
-        letter = info.one_letter_code.upper() if info is not None else "X"
-        trajectory.append((int(residue.resSeq), letter))
+    deposited = _residue_letters(start_pdb)
+    trajectory = _topology_letters(topology)
 
     if len(trajectory) != len(deposited):
         raise ValueError(

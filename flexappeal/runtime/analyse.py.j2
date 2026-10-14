@@ -575,6 +575,12 @@ def pack(run_dir, traj, metrics, arrays, stride):
     if (HERE / "config.json").is_file():
         config = json.loads((HERE / "config.json").read_text())
 
+{% if cfg.use_refstates %}
+    refstates_path = reference_states(run_dir, staging)
+{% else %}
+    refstates_path = None
+{% endif %}
+
     members = {
         "metrics.json": metrics_path,
         "traj.xtc": traj_path,
@@ -585,6 +591,8 @@ def pack(run_dir, traj, metrics, arrays, stride):
     for name in ("state_data.csv",):
         if (run_dir / name).is_file():
             members[name] = run_dir / name
+    if refstates_path is not None:
+        members["refstates.json"] = refstates_path
 
     manifest = {
         "fxa_version": 1,
@@ -724,6 +732,116 @@ def package_v2(run_dirs, supplied):
 {% endif %}
 
 
+{% if cfg.use_refstates %}
+def reference_states(run_dir, staging):
+    """Score every motif against the experimental reference structures.
+
+    No catalogue and no network. Which residues each motif is, which residues
+    the superposition core is, and the coordinates to score against were all
+    resolved when this bundle was built, where KLIFS or GPCRdb could be asked,
+    and they travel in `refstates/ensemble.json`. What happens here is numpy:
+    superpose each frame on the core and measure.
+
+    Returns the path to the member, or None where it could not be done, which
+    is never fatal: the rest of the results file is unaffected and the reason
+    is printed.
+    """
+    import json as json_mod
+
+    ensemble_file = HERE / "refstates" / "ensemble.json"
+    if not ensemble_file.is_file():
+        warn("the reference-state ensemble is missing from this bundle, so no "
+             "motif can be scored")
+        return None
+
+    step("reference states")
+    try:
+        from fxalib.refstates import traj as rstraj
+
+        payload = json_mod.loads(ensemble_file.read_text())
+        trajectory = sorted(run_dir.glob("trajectory.*"))[0]
+        loaded = rstraj.load(run_dir / "topology.pdb", trajectory, stride=1)
+
+        # The deposited numbering, which OpenMM renumbered away on solvation.
+        # Every motif in the ensemble is addressed by a deposited number, so
+        # without this each one would be read at the wrong residues and would
+        # still return numbers that look like measurements.
+        mapping = rstraj.deposited_numbering(HERE / "{{ structure_filename }}",
+                                             loaded.topology)
+        changed = rstraj.renumber(loaded.topology, mapping)
+        info(f"{changed} residues restored to deposited numbering")
+
+        core = rstraj.Core(residues=payload["core"]["residues"],
+                           source=payload["core"].get("source", ""),
+                           helices=payload["core"].get("helices") or {})
+        run = rstraj.analyse(
+            loaded, name=JOB_NAME, kind=payload["kind"], core=core,
+            motif_residues={k: list(v) for k, v
+                            in payload["motif_residues"].items()},
+            reference_motifs=payload["reference_motifs"],
+            frame_ps={{ cfg.traj_interval }})
+    except Exception as exc:                        # noqa: BLE001
+        warn(f"the reference-state scoring could not be completed ({exc}). "
+             f"Every other panel is unaffected.")
+        return None
+
+    out = run.as_row()
+
+    # The smoothed series the state-score panel draws, and the raw one beside
+    # it. Section 5.6 asks for a centred window for display only, with the raw
+    # values stored, so both travel and the stored numbers are never the
+    # altered ones.
+    from fxalib.refstates.state import SMOOTH_WINDOW_NS, smooth
+
+    whole = [f.whole_s for f in run.frames]
+    if any(v is not None for v in whole):
+        out["whole_s_raw"] = [None if v is None else round(v, 4) for v in whole]
+        span_ns = len(whole) * {{ cfg.traj_interval }} / 1000.0
+        if span_ns > 2.0 * SMOOTH_WINDOW_NS:
+            out["whole_s_smoothed"] = [
+                None if v is None else round(v, 4)
+                for v in smooth(whole, frame_ps={{ cfg.traj_interval }})]
+            out["smoothing_window_ns"] = SMOOTH_WINDOW_NS
+        else:
+            # A window wider than the run averages the series into one value
+            # repeated, which reads as a flat trace rather than as a window
+            # that does not apply.
+            out["smoothing_skipped"] = (
+                f"run is {span_ns:.1f} ns against a "
+                f"{SMOOTH_WINDOW_NS} ns window")
+
+    # And the DSSP ribbon, against the reference ensembles' own consensus,
+    # which the build-time setup resolved and the payload carries.
+    try:
+        from fxalib.refstates.sse import (profiles_from_json,
+                                          secondary_structure)
+
+        dssp = secondary_structure(
+            loaded, {k: list(v) for k, v in payload["motif_residues"].items()},
+            profiles_from_json((payload.get("report") or {}).get("sse_profiles")))
+        if dssp:
+            out["dssp"] = dssp
+    except Exception as exc:                        # noqa: BLE001
+        warn(f"the secondary-structure ribbon could not be computed ({exc})")
+
+    out["ensembles"] = payload.get("ensembles", {})
+    out["report"] = payload.get("report", {})
+    out["motif_residues"] = payload["motif_residues"]
+    out["core"] = payload["core"]
+    out["system_id"] = payload.get("protein") or payload["kind"]
+    path = staging / "refstates.json"
+    path.write_text(json_mod.dumps(out))
+
+    last = run.frames[-1] if run.frames else None
+    if last is not None and last.whole_s is not None:
+        ok(f"final frame scores {last.whole_s:+.3f} ({last.whole_label}) "
+           f"against {sum(payload['counts'].values())} reference structures")
+    return path
+
+
+{% endif %}
+
+
 def main():
     print()
     info(f"FlexAppeal {FLEXAPPEAL_VERSION} — analysing {JOB_NAME}")
@@ -780,33 +898,6 @@ def main():
         print()
         info(f"  {package_path}")
         info("this one is the graded package: upload it to DeepFlex")
-{% if cfg.use_refstates %}
-
-    # The reference-state annotation was asked for in the Prepare tab, and it
-    # does not run here. It needs KLIFS or GPCRdb over the network and the
-    # catalogue's own structures, and it is a FlexAppeal checkout's job rather
-    # than a bundle's: this script is meant to run on a machine that has an
-    # OpenMM environment and nothing else. What the bundle can do is carry the
-    # request and hand back the command with the answers already in it, so
-    # nothing has to be remembered or retyped.
-    print()
-    info("reference states were requested for this run. The annotation runs")
-    info("from a FlexAppeal checkout, against the trajectory this directory")
-    info("still holds:")
-    print()
-    info("  python FlexAppeal.py refstates annotate \\")
-    info(f"      --topology {run_dirs[0] / 'topology.pdb'} \\")
-    info(f"      --trajectory {run_dirs[0] / 'trajectory.xtc'} \\")
-    info("      --start {{ structure_filename }} \\")
-    info("      --family {{ cfg.refstates_family }} \\")
-{% if cfg.refstates_protein %}
-    info("      --protein {{ cfg.refstates_protein }} \\")
-{% endif %}
-{% if cfg.refstates_reference_pdb %}
-    info("      --reference-pdb {{ cfg.refstates_reference_pdb }} \\")
-{% endif %}
-    info("      --max-references {{ cfg.refstates_max_references }}")
-{% endif %}
     return 0
 
 

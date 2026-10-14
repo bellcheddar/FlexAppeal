@@ -363,6 +363,37 @@ def motif_profiles(references: dict[str, list[dict]], *,
             for state, per_motif in raw.items()}
 
 
+def profiles_from_json(obj) -> dict:
+    """Reference SSE profiles, back from a round trip through JSON.
+
+    `motif_profiles` returns {state: {motif: {residue index: Counter}}}, and a
+    results file or a bundle member can carry none of that shape: a Counter
+    becomes a plain object and an integer key becomes a string. Rebuilt here
+    rather than at the call site, because the failure is quiet in exactly the
+    wrong way -- `most_common` is missing and the ribbon simply does not draw,
+    with the scores around it all correct.
+    """
+    from collections import Counter as _Counter
+
+    if not obj:
+        return {}
+    out: dict[str, dict[str, dict[int, _Counter]]] = {}
+    for state, motifs in obj.items():
+        if not isinstance(motifs, dict):
+            continue
+        rebuilt: dict[str, dict[int, _Counter]] = {}
+        for motif, residues in motifs.items():
+            if not isinstance(residues, dict):
+                continue
+            rebuilt[motif] = {
+                int(index): (counts if isinstance(counts, _Counter)
+                             else _Counter(counts))
+                for index, counts in residues.items()
+            }
+        out[state] = rebuilt
+    return out
+
+
 def motif_agreement(frame_labels: list[str], motif: str,
                     profiles: dict[str, dict[str, dict[int, Counter]]]
                     ) -> dict[str, object]:
@@ -396,3 +427,87 @@ def motif_agreement(frame_labels: list[str], motif: str,
         found["note"] = (f"only {len(informative)} residue(s) distinguish the "
                          f"reference sets here, too few to read a state from")
     return found
+
+
+# ---------------------------------------------------------------------------
+#  The run's own secondary structure
+# ---------------------------------------------------------------------------
+#
+# Moved here from `tools/analyse_run.py` so a generated bundle can draw the
+# DSSP ribbon too. It needs mdtraj and the reference profiles the build-time
+# setup already resolved, and nothing else: no catalogue, no network.
+
+
+def secondary_structure(loaded, motif_residues: dict[str, list[int]],
+                        profiles: dict | None = None) -> dict:
+    """Per-frame DSSP, and each motif's helix and strand content (section 5.6).
+
+    Stored as the per-motif summary plus the whole-chain per-frame strings. The
+    strings are what the DSSP ribbon is drawn from and they are the bulk of it,
+    so they go in the run's JSON rather than into SQLite: section 7 puts
+    per-residue secondary structure outside the database for exactly this
+    reason, being a residues-by-frames matrix rather than a set of rows.
+
+    `simplified=False` so the eight DSSP classes survive. The three-class form
+    is derived where it is wanted; going the other way is impossible, and the
+    difference between a 3-10 helix and an alpha helix is the kind of local
+    change this is looking for.
+    """
+    try:
+        rows = dssp_rows(loaded, simplified=False)
+    except Exception as exc:                                    # noqa: BLE001
+        log(f"DSSP unavailable: {str(exc)[:80]}")
+        return {}
+    if rows is None or len(rows) == 0:
+        return {}
+
+    protein = [r for r in loaded.topology.residues if r.is_protein]
+    numbers = [int(r.resSeq) for r in protein]
+    index_of = {number: position for position, number in enumerate(numbers)}
+
+    motifs: dict[str, dict] = {}
+    for name, residues in motif_residues.items():
+        indices = [index_of[n] for n in residues if n in index_of]
+        if not indices:
+            continue
+        helix, strand = [], []
+        for frame in range(len(rows)):
+            found = motif_sse(rows[frame], name, indices,
+                                  [n for n in residues if n in index_of])
+            if found.helix_fraction is not None:
+                helix.append(found.helix_fraction)
+                strand.append(found.strand_fraction)
+        if not helix:
+            continue
+        motifs[name] = {
+            "n_residues": len(indices),
+            "helix_fraction_mean": sum(helix) / len(helix),
+            "helix_fraction_first": helix[0],
+            "helix_fraction_last": helix[-1],
+            "strand_fraction_mean": sum(strand) / len(strand),
+        }
+
+        # Section 5.6: per residue, the fraction of each reference set sharing
+        # this frame's SSE class. Taken at the last frame, which is the one a
+        # reader is asking about; the per-frame series is a motif by residue by
+        # frame cube and belongs nowhere near a page.
+        if profiles:
+            found = motif_agreement(
+                motif_sse(rows[-1], name, indices,
+                              [n for n in residues if n in index_of]).labels,
+                name, profiles)
+            if found.get("n_residues"):
+                motifs[name]["reference_agreement"] = found
+
+    return {
+        "n_frames": int(len(rows)),
+        "n_residues": len(numbers),
+        "residues": numbers,
+        # One character per residue per frame, which is only safe because every
+        # DSSP label renders to exactly one character; mdtraj writes an
+        # unassigned residue as the two-character "NA".
+        "frames": ["".join(UNASSIGNED_CHAR if c == UNASSIGNED
+                           else (c if str(c).strip() else "C")
+                           for c in row) for row in rows],
+        "motifs": motifs,
+    }

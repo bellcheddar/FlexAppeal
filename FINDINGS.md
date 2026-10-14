@@ -5464,6 +5464,62 @@ fault that took four attempts to find on the reference-state rows, which says
 it was never specific to them. The energy came out at -20.8 kcal/mol, sd 3.6,
 for benzamidine.
 
+## 4cg. The half that needs a catalogue, and the half that does not
+
+I said the reference-state annotation could not run in a generated bundle, and
+gave three reasons. One of them was wrong, and checking the other two produced
+a better arrangement than the one I was defending.
+
+**The wrong reason.** I said it needs the vendored `sse_comparison`. It does
+not. That dependency is reached only through `refs.prepare_kinase_reference`,
+whose single caller is `tools/build_references.py`, the script that builds the
+reference catalogue and evaluates the positive controls. Blocking
+`sse_comparison` from importing and loading the whole annotation path shows it
+clean, and there is now a test that does exactly that on every run.
+
+**The two real ones, and what they imply.** Resolving which residues a motif is
+needs KLIFS or GPCRdb, their deposited structures and gemmi. Scoring a frame
+against the answer needs none of them: superpose on the core, measure each
+motif, which is numpy. That asymmetry is the whole design. The resolving half
+runs where the bundle is built, which is where the network and the caches
+already are and is exactly where the ligand chemistry is already fetched, and
+its answer travels with the bundle.
+
+**And the answer is small.** The largest of the four worked examples is the
+beta2 adrenergic receptor: 100 reference structures across both states, 107
+residues of Calpha coordinates each, which is 125 kB as float32. The ABL1
+ensemble packs to 106 kB of JSON in a 198 kB bundle. The thing I had assumed
+was prohibitive is a rounding error against a 25 MB results file.
+
+So the Prepare tab resolves the ensemble when the box is ticked, the bundle
+carries `refstates/ensemble.json` and three vendored modules (`traj`, `state`,
+`sse`, 130 kB of them), and `analyse.py` scores every frame and writes
+`refstates.json` into the results file. Measured on a real kinase trajectory
+through the real Prepare routes: 50 seconds to resolve at build time, one
+second to score 100 frames, final frame +0.206 against 19 reference structures.
+
+Two things had to be fixed on the way, and both were the same shape: something
+that works in the repository and not in a bundle.
+
+**`deposited_numbering` read the start structure with gemmi.** It needs residue
+numbers and one-letter codes, and mdtraj has both; it falls back to mdtraj
+where gemmi is absent. Without this the renumbering step fails and every motif
+is read at the wrong residues, which is the failure this function exists to
+prevent.
+
+**The reference SSE profiles did not survive JSON.** They are
+`{state: {motif: {residue index: Counter}}}`, and a Counter comes back as a
+plain object and an integer key as a string. The ribbon then does not draw and
+every score around it is correct, which is the quiet kind of failure.
+`profiles_from_json` rebuilds them.
+
+**What a bundle still cannot draw.** The state map, which plots the catalogue's
+reference structures on the plane their published criterion is drawn on. That
+needs each reference measured on that plane, which the explorer database holds
+for the four systems in this build and which no bundle has. Three of the four
+panels come from a bundle now: the state score, the motif timelines and the
+DSSP ribbon, with the motif table and the superposition core beside them.
+
 ## 5. Production runs
 
 Tier 2 started at 17:04 on 10 October, in section 5.3's priority order: β2AR
