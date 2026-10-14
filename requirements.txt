@@ -46,6 +46,16 @@ scipy>=1.11
 # solved separately and may not have it.
 rdkit>=2024.3
 
+# The equilibration detection the run pages report, which is read off the
+# potential energy at render time for any results file, uploaded or kept.
+# Without it `measure.detect_equilibration` falls back to this repository's own
+# implementation of the same rule and says so in the method string, which is
+# honest but means the site and a local run can print different numbers for the
+# same file: the first deploy after this was written did exactly that, 3.6 ns
+# against 3.2. On PyPI it pulls only numexpr beyond numpy and scipy, which are
+# both already here; the conda build pulls jax and that is not what this is.
+pymbar>=4.0
+
 # Needed by the web app despite being a terminal library, because the /reanalyse
 # route spawns FlexAppeal.py as a detached subprocess (webapp.py) and the CLI
 # imports flexappeal/console.py at module scope. Its output goes to DEVNULL, so

@@ -5386,6 +5386,26 @@ already warns about. ABL1 apo is stationary from its first production frame.
 The run pages were also dropping every tile note, so "Final RMSD 1.75 Å" never
 said "mean of the last 10% of frames". The markup is the Analysis tab's now.
 
+## 4ce. The fallback that only production took
+
+`detect_equilibration` prefers pymbar and falls back to this repository's own
+implementation of the same rule, reporting which answered. The first deploy
+after that was written showed why the method string had to be there, and also
+that it was not enough on its own: pymbar was in the development environment
+and not on the droplet, so the site and a local run printed different numbers
+for the same file. b2ar_apo settles at 3.2 ns here and the site said 3.6.
+
+Neither number is wrong. They are two estimators of the same quantity and they
+disagree by a frame or two, which is what the method string exists to make
+visible. But a reader comparing a page with a local run has no reason to look
+at a method string before concluding one of them is broken, and a fallback that
+production alone takes is a fallback nobody ever checks.
+
+`pymbar` is in `requirements.txt` now, and a deploy test asserts it. On PyPI it
+pulls only numexpr beyond numpy and scipy, both of which the droplet already
+had; the conda build pulls jax, which is where the warning banner in the
+development environment comes from and is not what the server installs.
+
 ## 5. Production runs
 
 Tier 2 started at 17:04 on 10 October, in section 5.3's priority order: β2AR

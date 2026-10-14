@@ -262,6 +262,25 @@ def test_the_droplet_can_import_the_cli_it_spawns():
             f"module scope, but requirements.txt does not install it")
 
 
+def test_the_droplet_installs_what_the_run_pages_measure_with():
+    """A fallback that is never exercised locally is a fallback nobody sees.
+
+    `measure.detect_equilibration` prefers pymbar and falls back to this
+    repository's own implementation of the same rule, saying which answered in
+    the method string. That is honest and it is not enough on its own: with
+    pymbar in the development environment and not on the droplet, the site and
+    a local run printed different numbers for the same file, 3.6 ns against
+    3.2, and only the method string said why.
+    """
+    import pathlib
+
+    root = pathlib.Path(__file__).resolve().parent.parent
+    requirements = (root / "requirements.txt").read_text()
+    assert "pymbar" in requirements, (
+        "the run pages detect equilibration at render time, so the droplet "
+        "needs what they detect it with")
+
+
 def test_the_example_artefacts_are_not_gitignored():
     """The Example tab needs files that .gitignore's broad rules would exclude.
 

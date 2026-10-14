@@ -2729,3 +2729,13 @@ the ones with a ligand: the restrained phase from the manifest in one tile, and
 where pymbar says production settled in another, read off the potential energy
 and shaded on all six convergence panels. b2ar_apo: 10 ns restrained, then 3.2
 ns of production before it settles. 4cd.
+
+### 14 October, 02:55. The site used the fallback and nobody would have noticed
+
+The first deploy with the equilibration tiles on it reported b2ar_apo settling
+at 3.6 ns where this machine says 3.2, and the method string said why: pymbar is
+in the development environment and was not on the droplet, so production took
+the fallback. Two estimators of the same quantity, disagreeing by a frame or
+two, which is exactly what the method string exists to make visible and is also
+not enough on its own. `pymbar` is in `requirements.txt` now, with a deploy test
+for it. On PyPI it pulls only numexpr beyond what the box already had. 4ce.
