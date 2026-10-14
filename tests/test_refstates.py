@@ -5890,3 +5890,37 @@ def test_a_structure_no_catalogue_knows_is_refused_at_build_time():
     with pytest.raises(prepare.PrepareError) as caught:
         prepare.resolve(peptide, {"refstates_family": "auto"})
     assert "kinase or a receptor" in str(caught.value)
+
+
+def test_a_reference_with_no_resolution_is_left_without_one():
+    """KLIFS returns it as a string and the table formats with `.2f`.
+
+    A reference whose resolution cannot be read is a reference with no
+    resolution, not one at zero angstrom, and the first version of this crashed
+    the whole references table rather than omitting a cell.
+    """
+    from flexappeal.refstates import prepare
+
+    assert prepare._resolution({"resolution": "1.91"}) == {"resolution": 1.91}
+    assert prepare._resolution({"resolution": 2.4}) == {"resolution": 2.4}
+    assert prepare._resolution({"resolution": None}) == {}
+    assert prepare._resolution({"resolution": "NOT DETERMINED"}) == {}
+    assert prepare._resolution({}) == {}
+
+
+def test_the_state_map_cloud_is_carried_rather_than_recomputed():
+    """It is a property of the references, not of the trajectory.
+
+    Measuring each reference on its published criterion plane needs the
+    catalogue's own structures, and for a kinase the vendored annotator's atom
+    lookups. Both are build-time things, so the cloud travels with the ensemble
+    and `analyse.py` copies it into the results file.
+    """
+    source = (Path(__file__).resolve().parents[1] / "flexappeal" / "runtime"
+              / "analyse.py.j2").read_text()
+    block = source[source.index("def reference_states("):]
+    block = block[: block.index("\ndef ")]
+    assert 'payload.get("reference_structures")' in block
+    assert "dfg_d_alphac" not in block, (
+        "the bundle must not measure the references itself: it has neither "
+        "their structures nor the annotator")

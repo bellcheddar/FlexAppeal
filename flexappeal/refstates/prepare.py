@@ -104,6 +104,8 @@ def resolve(structure_path: Path, cfg: dict[str, Any]) -> dict[str, Any]:
     return {
         "version": PAYLOAD_VERSION,
         "kind": family,
+        "reference_structures": _reference_structures(family, name, setup,
+                                                      limit),
         "protein": name,
         "motifs": list(motifs),
         "motif_residues": {k: list(v) for k, v in motif_residues.items()},
@@ -115,6 +117,155 @@ def resolve(structure_path: Path, cfg: dict[str, Any]) -> dict[str, Any]:
         "report": _plain(report),
         "counts": counts,
     }
+
+
+def _resolution(entry: dict) -> dict[str, Any]:
+    """The resolution as a number, or not at all.
+
+    KLIFS returns it as a string and GPCRdb as a number, and the table that
+    prints it formats with `.2f`. Omitted rather than passed through where it
+    cannot be read, which is this build's rule for a value it cannot produce:
+    a reference with no resolution is a reference with no resolution, not one
+    at zero angstrom.
+    """
+    raw = entry.get("resolution")
+    try:
+        return {"resolution": float(raw)}
+    except (TypeError, ValueError):
+        return {}
+
+
+def _reference_structures(family: str, name: str, setup,
+                          limit: int | None) -> list[dict[str, Any]]:
+    """Each reference measured on the plane its published criterion is drawn on.
+
+    This is the state map: the catalogue's own structures as a cloud, with the
+    run's path across it. The cloud is a property of the references rather than
+    of the trajectory, so it is measured here, once, and carried.
+
+    It is the one part of this payload that needs the vendored annotator, and
+    only for a kinase: the two DFG anchor distances are measured by
+    `sse_comparison`'s own atom lookups, which carry its handling of a missing
+    atom and of the ring falling back through CZ, CE1 and CD1. Wrapping rather
+    than reimplementing is the rule, and it costs nothing here because this
+    runs where that code is.
+
+    Returns an empty list rather than raising. The other panels are the
+    measurement; this one is the context for it, and a run that cannot have it
+    is better off without it than refused.
+    """
+    import tempfile
+
+    from . import refs
+    from .setup import GPCRDB_CACHE, KLIFS_CACHE
+
+    try:
+        if family == "kinase":
+            return _kinase_references(name or "ABL1", KLIFS_CACHE,
+                                      Path(tempfile.mkdtemp()), refs, limit)
+        return _gpcr_references(name or "adrb2_human", GPCRDB_CACHE, setup,
+                                refs, limit)
+    except Exception:                               # noqa: BLE001
+        return []
+
+
+def _kinase_references(name: str, cache_dir: Path, work_dir: Path,
+                       refs, limit: int | None) -> list[dict[str, Any]]:
+    """The DFG plane, from the catalogue's own entries.
+
+    Capped the same way the scoring ensemble is. CDK2 has 337 active entries
+    and each one costs a structure read and an annotation, so an uncapped cloud
+    would turn a form submission into a quarter of an hour. The cap is per
+    state, so the default of 40 draws up to 80 points, which is a cloud.
+    """
+    import sys
+
+    from . import Catalogue, kinase_id, kinase_references
+
+    sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "vendor"
+                           / "boltzmaker"))
+    from sse_comparison.annotators.klifs import KLIFSAnnotator
+
+    catalogue = Catalogue(cache_dir)
+    ensembles_by_state = kinase_references(catalogue,
+                                           kinase_id(catalogue, name=name))
+    annotator = KLIFSAnnotator()
+    rows: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for state, ensemble in ensembles_by_state.items():
+        entries = list(getattr(ensemble, "entries", []))
+        for entry in (entries[:limit] if limit else entries):
+            code = str(entry["pdb"]).upper()
+            if code in seen:
+                continue
+            seen.add(code)
+            prepared = refs.prepare_kinase_reference(
+                entry, cache_dir=cache_dir, work_dir=work_dir,
+                annotator=annotator, kinase_name=name)
+            if prepared.dfg_d_alphac is None or prepared.dfg_d_lys is None:
+                continue
+            rows.append({
+                "pdb": prepared.pdb, "chain": prepared.chain,
+                "source": "KLIFS", "source_state": state,
+                "our_state": prepared.our_dfg or "",
+                **_resolution(entry),
+                "metrics": {"dfg_d_alphac": prepared.dfg_d_alphac,
+                            "dfg_d_lys": prepared.dfg_d_lys,
+                            "our_dfg": prepared.our_dfg,
+                            "their_dfg": prepared.their_dfg},
+            })
+    return rows
+
+
+def _gpcr_references(name: str, cache_dir: Path, setup,
+                     refs, limit: int | None) -> list[dict[str, Any]]:
+    """The TM3-TM6 and NPxxY plane, from the catalogue's own entries.
+
+    No vendored annotator here: the receptor's axes are a distance between two
+    generic-numbered Calphas and a motif RMSD this build already computed while
+    assembling the ensemble.
+    """
+    import gemmi
+
+    from . import Catalogue, receptor_references, receptor_residues
+    from .gpcr import build_numbering, tm3_tm6_distance
+
+    npxxy = ((setup[4] or {}).get("map_axis") or {}).get("values") or {}
+    catalogue = Catalogue(cache_dir)
+    # `receptor_residues` returns the catalogue's rows; the lookup the distance
+    # needs is built from them.
+    numbering = build_numbering(receptor_residues(catalogue, name))
+    rows: list[dict[str, Any]] = []
+    for state, ensemble in receptor_references(catalogue, name).items():
+        entries = list(getattr(ensemble, "entries", []))
+        for entry in (entries[:limit] if limit else entries):
+            # GPCRdb calls it `pdb_code` where KLIFS calls it `pdb`, which is
+            # why this reads one key and the kinase path above reads another.
+            code = str(entry.get("pdb_code") or entry.get("pdb") or "").upper()
+            chain = str(entry.get("preferred_chain") or "")[:1]
+            if not code:
+                continue
+            try:
+                structure = gemmi.read_structure(
+                    str(refs.fetch_mmcif(code, cache_dir)))
+                structure.setup_entities()
+                structure.remove_alternative_conformations()
+            except Exception:                       # noqa: BLE001
+                continue
+            target = next((c for c in structure[0] if c.name == chain),
+                          structure[0][0] if len(structure[0]) else None)
+            distance = (tm3_tm6_distance(target, numbering)
+                        if target is not None else None)
+            if distance is None or code not in npxxy:
+                continue
+            rows.append({
+                "pdb": code, "chain": chain, "source": "GPCRdb",
+                "source_state": state, "our_state": "",
+                **_resolution(entry),
+                "metrics": {"tm3_tm6": distance,
+                            "npxxy_to_inactive": npxxy[code]},
+            })
+    return rows
 
 
 def detect_family(structure_path: Path) -> str:

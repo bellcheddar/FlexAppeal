@@ -826,6 +826,11 @@ def reference_states(run_dir, staging):
 
     out["ensembles"] = payload.get("ensembles", {})
     out["report"] = payload.get("report", {})
+    # The state map's cloud: each reference measured on the plane its published
+    # criterion is drawn on, which is a property of the references rather than
+    # of this trajectory and so was measured when the bundle was built.
+    if payload.get("reference_structures"):
+        out["reference_structures"] = payload["reference_structures"]
     out["motif_residues"] = payload["motif_residues"]
     out["core"] = payload["core"]
     out["system_id"] = payload.get("protein") or payload["kind"]

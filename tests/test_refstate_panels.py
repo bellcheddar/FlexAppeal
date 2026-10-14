@@ -1234,3 +1234,39 @@ def test_the_packer_keeps_the_analysis_output_even_when_it_succeeds():
     assert "-analyse.log" in block
     assert "analysis warning" in block, (
         "a warning from the pass should reach the packer's own log")
+
+
+def test_the_state_map_picks_its_axes_by_family_not_by_name():
+    """`system_id == "abl1"` is true for one kinase and false for the rest.
+
+    The two worked examples were the only runs that ever reached this panel, so
+    a CDK2 run would have had its references plotted on the receptor's axes,
+    labelled with the receptor's units, and nothing would have said so. It only
+    became reachable when a bundle could score an arbitrary protein.
+    """
+    kinase = {
+        "kind": "kinase", "frames": [],
+        "reference_structures": [
+            {"pdb": "4FNY", "source_state": "active",
+             "metrics": {"dfg_d_alphac": 6.7, "dfg_d_lys": 13.1}},
+            {"pdb": "1IEP", "source_state": "inactive",
+             "metrics": {"dfg_d_alphac": 11.2, "dfg_d_lys": 8.4}},
+        ],
+    }
+    figure = panels.state_map(kinase)
+    assert figure is not None
+    assert "DFG-Phe" in figure["layout"]["xaxis"]["title"]["text"]
+
+    # The same payload under a name this build has never simulated.
+    renamed = dict(kinase, system_id="cdk2")
+    assert (panels.state_map(renamed)["layout"]["xaxis"]["title"]["text"]
+            == figure["layout"]["xaxis"]["title"]["text"])
+
+    receptor = {
+        "kind": "gpcr", "frames": [],
+        "reference_structures": [
+            {"pdb": "3SN6", "source_state": "active",
+             "metrics": {"tm3_tm6": 15.4, "npxxy_to_inactive": 2.79}},
+        ],
+    }
+    assert "TM3-TM6" in panels.state_map(receptor)["layout"]["xaxis"]["title"]["text"]

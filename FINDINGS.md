@@ -5513,12 +5513,27 @@ plain object and an integer key as a string. The ribbon then does not draw and
 every score around it is correct, which is the quiet kind of failure.
 `profiles_from_json` rebuilds them.
 
-**What a bundle still cannot draw.** The state map, which plots the catalogue's
-reference structures on the plane their published criterion is drawn on. That
-needs each reference measured on that plane, which the explorer database holds
-for the four systems in this build and which no bundle has. Three of the four
-panels come from a bundle now: the state score, the motif timelines and the
-DSSP ribbon, with the motif table and the superposition core beside them.
+**And the state map, which took one more step.** It plots the catalogue's own
+structures on the plane their published criterion is drawn on, with the run's
+path across it. That cloud is a property of the references rather than of the
+trajectory, so it belongs with everything else that is resolved once: the
+kinase plane is measured with the vendored annotator's atom lookups, which are
+a build-time thing, and the receptor plane is a distance between two
+generic-numbered Calphas plus a motif RMSD this build already computes while
+assembling the ensemble. Both are measured when the bundle is built and carried
+in the same member, capped per state the same way the scoring ensemble is:
+CDK2 has 337 active entries and each costs a structure read, so an uncapped
+cloud would turn a form submission into a quarter of an hour.
+
+All four panels come from a bundle now, and two faults turned up in the last
+hundred metres. The panel chose its axes on `system_id == "abl1"`, which is
+true for the one kinase this build simulated and false for every other one: a
+CDK2 run would have been plotted on the receptor's axes and labelled with the
+receptor's units, silently. It keys on the family now, as do the two other
+places that asked the same question. And KLIFS returns a resolution as a string
+where the table formats it with `.2f`, which took out the whole references
+table rather than one cell; it is read as a number or omitted, which is this
+build's rule for a value it cannot produce.
 
 ## 5. Production runs
 

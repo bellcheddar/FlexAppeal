@@ -473,12 +473,20 @@ def state_map(payload: dict[str, Any]) -> dict[str, Any] | None:
     build's, so the cloud is the thing being agreed with rather than a picture
     of this build agreeing with itself.
     """
-    system = payload.get("system_id") or ""
     references = payload.get("reference_structures") or []
     if not references:
         return None
 
-    if system == "abl1":
+    # On the family, not on the system's name.
+    #
+    # This read `system_id == "abl1"`, which is true for the one kinase this
+    # build simulated and false for every other one: a CDK2 run would have had
+    # its references plotted on the receptor's axes and labelled with them,
+    # with no error anywhere. The two worked examples are the only systems that
+    # ever reached this panel, so the fault could not show until a bundle could
+    # score an arbitrary protein.
+    is_kinase = (payload.get("kind") or "").lower() == "kinase"
+    if is_kinase:
         keys = ("dfg_d_alphac", "dfg_d_lys")
         # The unit symbol and the Greek letters, not ASCII transliterations.
         # The same convention as every other label on the page, which is what
@@ -552,7 +560,7 @@ def state_map(payload: dict[str, Any]) -> dict[str, Any] | None:
         looked complete, which is what made it worth a function with a name.
         """
         found = frame.get("measurements") or {}
-        if system == "abl1":
+        if is_kinase:
             plane = found.get("dfg_plane") or {}
             return plane.get("d_alphac_a"), plane.get("d_lys_a")
         x = (found.get("micro_switches") or {}).get("tm3_tm6_a")
@@ -610,7 +618,7 @@ def state_map(payload: dict[str, Any]) -> dict[str, Any] | None:
     # drawn over.
     shapes: list[dict[str, Any]] = []
     annotations: list[dict[str, Any]] = []
-    if system == "abl1":
+    if is_kinase:
         from .kinase import DFG_PUBLISHED_A
 
         value, said = DFG_PUBLISHED_A, f"published {DFG_PUBLISHED_A:.1f} Å"
@@ -1091,7 +1099,9 @@ def references_table(payload: dict[str, Any]) -> dict[str, Any] | None:
     references = payload.get("reference_structures") or []
     if not references:
         return None
-    system = payload.get("system_id") or ""
+    # The family rather than the system's name, for the reason `state_map`
+    # gives: `abl1` is one kinase and the columns here are every kinase's.
+    is_kinase = (payload.get("kind") or "").lower() == "kinase"
     ensembles = payload.get("ensembles") or {}
     in_ensemble = {str(pdb).upper()
                    for state in ("active", "inactive")
@@ -1104,7 +1114,7 @@ def references_table(payload: dict[str, Any]) -> dict[str, Any] | None:
         pdb = reference.get("pdb", "")
         catalogue = reference.get("source_state") or ""
         ours = reference.get("our_state") or ""
-        if system == "abl1":
+        if is_kinase:
             # KLIFS annotates the DFG and the alphaC separately, and P1 and P2
             # are those two labels. The spatial label is in the same column so
             # the two sit side by side rather than in two tables.
@@ -1136,7 +1146,7 @@ def references_table(payload: dict[str, Any]) -> dict[str, Any] | None:
             {"text": "scored" if pdb.upper() in in_ensemble else "not used"},
         ]})
 
-    if system == "abl1":
+    if is_kinase:
         columns = ["PDB", "Chain", "Resolution (Å)", "KLIFS state", "Our state",
                    "KLIFS DFG", "Our DFG", "Agreement", "In the ensemble"]
         control = (f"P1 and P2: our spatial DFG and alphaC labels agree with "

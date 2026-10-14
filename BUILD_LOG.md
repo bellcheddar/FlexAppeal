@@ -2799,3 +2799,19 @@ Two bundle-versus-repository faults on the way, both quiet: `deposited_numbering
 read the start structure with gemmi, which a bundle does not have, and the
 reference SSE profiles did not survive JSON, so the ribbon silently did not draw
 while every score around it was right. 4cg.
+
+### 14 October, 11:50. The fourth panel
+
+The state map draws from a bundle too. The cloud is a property of the references
+rather than of the trajectory, so it is measured when the bundle is built, with
+the vendored annotator for the kinase plane and plain geometry for the
+receptor's, and carried in the same member. Capped per state like the scoring
+ensemble, because CDK2 has 337 active entries and each one costs a structure
+read.
+
+Two faults on the way. The panel chose its axes on `system_id == "abl1"`, so any
+other kinase would have been plotted on the receptor's axes and labelled with
+them, silently; it keys on the family now, as do the two other places that asked
+the same question. And a KLIFS resolution arrives as a string where the table
+formats it with `.2f`, which took out the whole references table rather than one
+cell. 4cg.
