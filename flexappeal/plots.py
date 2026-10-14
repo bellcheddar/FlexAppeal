@@ -202,12 +202,59 @@ def parse_state_data(raw: bytes) -> dict[str, list[float]]:
     return columns
 
 
+def equilibration(columns: dict[str, list[float]]) -> dict[str, Any]:
+    """Where the production run became stationary, and what said so.
+
+    pymbar's `detect_equilibration` on the potential energy, which is the
+    series this is conventionally read off: it is the one that falls as the
+    system relaxes and then fluctuates about a mean, and it is recorded for
+    every run whether or not there is a ligand in it.
+
+    This is not the restrained equilibration that ran before production. That
+    phase is reported separately, from the manifest, because it is a protocol
+    setting rather than a measurement. This is the measurement: how much of the
+    production trajectory is still relaxing.
+
+    Returns an empty dict where there is no series to read or no answer to
+    give, which is the rule for this file: a key that cannot be produced is
+    omitted rather than filled with a zero that reads as "none needed".
+    """
+    series = columns.get("Potential Energy (kJ/mole)") or []
+    time = columns.get("Time (ps)") or []
+    finite = [v for v in series if math.isfinite(v)]
+    if len(finite) < 8 or len(time) != len(series):
+        return {}
+
+    import numpy as np  # noqa: PLC0415
+
+    from . import measure  # noqa: PLC0415
+
+    start, method = measure.detect_equilibration(np.asarray(finite, dtype=float))
+    if start <= 0:
+        # Stationary from the first frame. That is an answer and it is worth
+        # saying, so it is reported rather than omitted.
+        return {"start_index": 0, "ns": 0.0, "fraction": 0.0, "method": method}
+    index = min(int(start), len(time) - 1)
+    span = float(time[-1]) - float(time[0])
+    return {
+        "start_index": index,
+        "ns": (float(time[index]) - float(time[0])) / 1000.0,
+        "fraction": ((float(time[index]) - float(time[0])) / span
+                     if span > 0 else 0.0),
+        "method": method,
+    }
+
+
 def convergence(columns: dict[str, list[float]]) -> list[dict[str, Any]]:
     """One figure per measure -- small multiples, never a shared axis.
 
     Potential energy is ~10^5 kJ/mol, temperature ~10^2 K, density ~1 g/mL.
     Putting any two of those on one plot with two y-scales would make their
     alignment arbitrary and the apparent correlation fictional.
+
+    Each carries the same shaded head: the part of production that `pymbar`
+    says is still relaxing, read off the potential energy and drawn on all six
+    so that a reader comparing them is comparing the same window.
     """
     if not columns:
         return []
@@ -216,6 +263,9 @@ def convergence(columns: dict[str, list[float]]) -> list[dict[str, Any]]:
     x_label = "Time (ps)" if "Time (ps)" in columns else "Step"
     if not time:
         return []
+
+    settled = equilibration(columns)
+    band = _equil_band(settled.get("start_index", 0), time) if settled else []
 
     figures = []
     for index, (key, (label, unit)) in enumerate(_STATE_COLUMNS.items()):
@@ -234,7 +284,8 @@ def convergence(columns: dict[str, list[float]]) -> list[dict[str, Any]]:
                 [_line(thinned_time, thinned, label, colour,
                        hover=f"%{{y:.4g}} {unit}<extra></extra>")],
                 _layout(f"{label}  ({unit})", x_label, unit,
-                        margin={"l": 66, "r": 14, "t": 38, "b": 44}),
+                        margin={"l": 66, "r": 14, "t": 38, "b": 44},
+                        shapes=band),
             ),
         })
     return figures
@@ -608,7 +659,8 @@ def bilayer_thickness(metrics: dict[str, Any]) -> dict[str, Any] | None:
 # ===========================================================================
 
 
-def tiles(summary: dict[str, Any], metrics: dict[str, Any]) -> list[dict[str, Any]]:
+def tiles(summary: dict[str, Any], metrics: dict[str, Any],
+          settled: dict[str, Any] | None = None) -> list[dict[str, Any]]:
     out: list[dict[str, Any]] = []
 
     def add(label, value, unit="", note=""):
@@ -657,6 +709,29 @@ def tiles(summary: dict[str, Any], metrics: dict[str, Any]) -> list[dict[str, An
     wall = summary.get("wall_hours")
     if wall:
         add("Wall time", f"{wall:,.1f}", "h")
+
+    # Two different facts, and only one of them is a measurement.
+    #
+    # `equilibration_ns` is the restrained phase the protocol ran before
+    # production, which is a setting; the tile beside it is where pymbar says
+    # the production trajectory itself stopped relaxing, read off the potential
+    # energy. A run can have a long restrained phase and still take a while to
+    # settle, which is exactly what the apo receptor does, so reporting one as
+    # though it were the other would hide the thing worth knowing.
+    equilibrated = summary.get("equilibration_ns")
+    if equilibrated:
+        add("Equilibrated", f"{equilibrated:,.0f}" if equilibrated >= 1
+            else f"{equilibrated:.2f}", "ns", "restrained, before production")
+
+    if settled:
+        by = settled["method"].split("->")[0]
+        # Zero is the measurement here, not a missing answer: the series was
+        # stationary from the first production frame. It says so in words,
+        # because a tile reading "0.0 ns" beside a note reading "0%" invites a
+        # reader to think the test did not run.
+        add("Settles after", f"{settled['ns']:,.1f}", "ns",
+            f"stationary from the first frame, by {by}" if not settled["ns"]
+            else f"{settled['fraction']:.0%} of production, by {by}")
 
     # What a run was, rather than what it measured. These were a subtitle under
     # the page's title, in a line that also repeated the duration the first

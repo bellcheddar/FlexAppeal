@@ -1199,3 +1199,38 @@ def test_no_panel_prints_its_own_heading_twice():
             f"{panel['id']} still carries an in-figure title")
         # And the space the title took goes back to the plot.
         assert panel["figure"]["layout"]["margin"]["t"] == 12
+
+
+def test_the_packer_sends_the_ligand_chemistry_into_the_bundle():
+    """Without it there is no binding energy, and nothing said so.
+
+    `bundle.build` takes the SDFs from its caller. The web app has called
+    `collect_ligands` before `build` since the ligand path was written; this
+    packer is the second caller and did not, so it built bundles with an empty
+    `ligands/` directory. The analysis pass then declined MM/GBSA with "holds
+    no .sdf, so the ligand cannot be parameterised", on stdout that was thrown
+    away unless the pass failed, and both ligand runs went to the site reading
+    "no binding energy in this file".
+    """
+    source = (Path(__file__).resolve().parents[1]
+              / "tools" / "pack_run_fxa.py").read_text(encoding="utf-8")
+    assert "bundle.collect_ligands(cfg)" in source
+    assert "ligands=ligands" in source
+    collect = source.index("bundle.collect_ligands(cfg)")
+    assert collect < source.index("bundle.build("), (
+        "the chemistry has to be fetched before the bundle is built")
+
+
+def test_the_packer_keeps_the_analysis_output_even_when_it_succeeds():
+    """A step that declines to run is what the log is for.
+
+    The output was printed only when the pass exited non-zero, so a pass that
+    succeeded while skipping the energy said nothing at all.
+    """
+    source = (Path(__file__).resolve().parents[1]
+              / "tools" / "pack_run_fxa.py").read_text(encoding="utf-8")
+    block = source[source.index("def _analyse("):]
+    block = block[: block.index("\ndef ")]
+    assert "-analyse.log" in block
+    assert "analysis warning" in block, (
+        "a warning from the pass should reach the packer's own log")

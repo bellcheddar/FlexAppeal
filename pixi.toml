@@ -38,6 +38,13 @@ openff-toolkit = "*"
 mdtraj = "*"
 numpy = "*"
 scipy = "*"
+# The equilibration detection itself, rather than a reimplementation of it.
+# `flexappeal/measure.py` carried its own copy of Chodera's rule for a while and
+# said so in its docstring; the rule is pymbar's and the reference numbers every
+# reader will compare against are pymbar's, so the dependency is the honest
+# answer. The import is lazy and optional, because the same function ships
+# inside a generated bundle, where the environment is the user's.
+pymbar = "*"
 # Declared rather than added: rdkit already arrives with openff-toolkit, so this
 # changes nothing about the solve. flexappeal/measure.py uses it for the MMFF94
 # ligand strain in an .fxa version 2 package, and the same reasoning as rich and

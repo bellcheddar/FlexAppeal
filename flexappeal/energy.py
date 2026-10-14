@@ -174,6 +174,104 @@ def _unconstrained_system(topology, forcefield):
         constraints=None, rigidWater=False, removeCMMotion=False)
 
 
+# Single-bond covalent radii in angstrom, Cordero et al. (2008), for the
+# elements a small-molecule force field covers. Used only to rebuild a ligand's
+# own bonds where the file did not carry them; everything else keeps the bonds
+# it arrived with.
+_COVALENT_RADII_A = {
+    "H": 0.31, "C": 0.76, "N": 0.71, "O": 0.66, "F": 0.57, "P": 1.07,
+    "S": 1.05, "Cl": 1.02, "Br": 1.20, "I": 1.39, "B": 0.84, "Si": 1.11,
+}
+# How much longer than the sum of two covalent radii still counts as a bond.
+_BOND_TOLERANCE_A = 0.4
+
+
+def _bond_the_ligands(loaded, ligand_resnames: list[str]) -> int:
+    """Give a ligand its bonds back where the file could not carry them.
+
+    A PDB atom serial is five columns, so a system of more than 99,999 atoms
+    cannot write CONECT records that resolve, and a reader that tries gets
+    nothing. The receptor run here is 187,848 atoms and its carazolol arrived
+    with no bonds at all, while the kinase run at 48,185 kept all 72 of its
+    imatinib's; the template generator matches a residue by its graph, so with
+    no edges there is no match, and OpenMM reports it as "no template found"
+    against the nearest amino acid it can think of.
+
+    Only for a residue that has none: a ligand whose bonds were read is left
+    exactly as it was read, so this can add a graph and never change one.
+
+    Returns how many bonds were added. Distance against the sum of the two
+    covalent radii, which for a topology written from a simulated frame is not
+    a guess: the geometry is a minimised, equilibrated one and the nearest
+    non-bonded contact is far outside the tolerance.
+    """
+    import itertools  # noqa: PLC0415
+
+    import numpy as np  # noqa: PLC0415
+
+    wanted = {name for name in ligand_resnames if name}
+    added = 0
+    for residue in loaded.topology.residues:
+        if residue.name not in wanted:
+            continue
+        atoms = list(residue.atoms)
+        if any(bond[0].residue is residue or bond[1].residue is residue
+               for bond in loaded.topology.bonds):
+            continue
+        xyz = loaded.xyz[0] * 10.0
+        for first, second in itertools.combinations(atoms, 2):
+            one = _COVALENT_RADII_A.get(first.element.symbol)
+            two = _COVALENT_RADII_A.get(second.element.symbol)
+            if one is None or two is None:
+                continue
+            if first.element.symbol == "H" and second.element.symbol == "H":
+                continue
+            distance = float(np.linalg.norm(xyz[first.index] - xyz[second.index]))
+            if distance <= one + two + _BOND_TOLERANCE_A:
+                loaded.topology.add_bond(first, second)
+                added += 1
+    return added
+
+
+def _solute_only(topology_pdb: Path, ligand_resnames: list[str],
+                 work: Path) -> tuple[Path, Any, int]:
+    """The protein and its ligands, written out without the solvent.
+
+    Returns the topology to build the system from, the atom indices to read the
+    trajectory with (None where nothing was removed), and how many atoms went.
+
+    GB is the solvent model, so explicit water in the topology is wrong before
+    it is anything else, and the force field has no template for most of what a
+    solvated box carries. A bundle writes a topology already subset-matched to
+    its trajectory and nothing is removed here; a run packed from a queue's own
+    solvated system carries the whole box, and the first of those failed with
+    "No template found for residue 263 (HOH)", which names the water rather
+    than the mistake.
+    """
+    import mdtraj as md  # noqa: PLC0415
+
+    loaded = md.load(str(topology_pdb))
+    names = " ".join(sorted({name for name in ligand_resnames if name}))
+    selection = "protein" + (f" or resname {names}" if names else "")
+    keep = loaded.topology.select(selection)
+    if len(keep) == 0:
+        raise EnergyError(
+            f"nothing in {topology_pdb.name} matched {selection!r}, so there is "
+            f"no complex to score")
+    stripped = int(loaded.n_atoms - len(keep))
+    solute = loaded if not stripped else loaded.atom_slice(keep)
+    bonded = _bond_the_ligands(solute, ligand_resnames)
+    if not stripped and not bonded:
+        # A bundle's own topology, with its solvent already left out and its
+        # ligand already bonded. Nothing to do, and the file it arrived in is
+        # the one to use.
+        return topology_pdb, None, 0
+
+    out = work / "solute.pdb"
+    solute.save_pdb(str(out))
+    return out, (keep if stripped else None), stripped
+
+
 def _write_topologies(work: Path, topology, system, positions,
                       ligand_resnames: list[str]) -> list[str]:
     """Write complex, receptor and ligand Amber topologies into `work`.
@@ -252,6 +350,70 @@ def _difference_block(text: str) -> dict[str, list[float]]:
     return terms
 
 
+# Below this, a complex's interaction terms are not small but absent, which is
+# what a ligand scored in the wrong periodic image looks like.
+_CONTACT_TOLERANCE = 0.5
+
+
+def _image_ligand(traj, ligand_resnames: list[str]) -> float:
+    """Put each ligand in the periodic copy nearest the receptor.
+
+    A ligand is its own molecule, so whole-molecule wrapping is free to leave it
+    in whichever periodic copy it drifted into, and for the receptor run here it
+    did: carazolol's centroid sits 101.7 angstrom from the receptor's in a box
+    122 by 128 by 116, while imatinib's is 8.9 angstrom from its kinase's and
+    needed nothing. The two ran through identical code and one of them scored a
+    complex whose halves never touched, which is not an error anywhere: every
+    interaction term simply comes back zero.
+
+    One shift per ligand per frame, from its own centroid, so the molecule moves
+    whole. Returns the largest shift applied, for the warning.
+    """
+    import numpy as np  # noqa: PLC0415
+
+    if traj.unitcell_lengths is None:
+        return 0.0
+    protein = traj.topology.select("protein")
+    wanted = {name for name in ligand_resnames if name}
+    groups = [np.array([atom.index for atom in residue.atoms])
+              for residue in traj.topology.residues if residue.name in wanted]
+    if len(protein) == 0 or not groups:
+        return 0.0
+
+    largest = 0.0
+    for frame in range(traj.n_frames):
+        box = np.asarray(traj.unitcell_lengths[frame]) * 10.0
+        xyz = traj.xyz[frame] * 10.0
+        centre = xyz[protein].mean(axis=0)
+        for group in groups:
+            offset = xyz[group].mean(axis=0) - centre
+            shift = box * np.round(offset / box)
+            if np.any(shift):
+                traj.xyz[frame, group] -= (shift / 10.0).astype("float32")
+                largest = max(largest, float(np.linalg.norm(shift)))
+    return largest
+
+
+def _check_contact(terms: dict[str, list[float]]) -> None:
+    """Refuse a result in which nothing interacted.
+
+    The bonded terms cancelling is necessary and not sufficient: a ligand a box
+    away from its receptor cancels those perfectly and every interaction term
+    with them, and the answer comes back as a clean, well-formatted zero. There
+    is no complex with no van der Waals and no electrostatics, so this is read
+    as a failure rather than as a weak binder.
+    """
+    reach = sum(abs(terms[term][0]) for term in ("VDWAALS", "EEL")
+                if term in terms)
+    if reach < _CONTACT_TOLERANCE:
+        raise EnergyError(
+            f"the complex has no interaction energy at all "
+            f"({reach:.3f} kcal/mol of van der Waals and electrostatics "
+            f"together), which means the receptor and the ligand were never in "
+            f"contact in the frames scored. Refusing the energy rather than "
+            f"reporting a zero.")
+
+
 def _check_cancellation(terms: dict[str, list[float]]) -> None:
     """Refuse a result whose bonded terms did not cancel.
 
@@ -307,6 +469,28 @@ def mmgbsa(topology_pdb: Path, trajectory: Path, *, ligand_resnames: list[str],
     try:
         if progress is not None:
             progress("building the Amber topologies")
+        # The solute, and only the solute.
+        #
+        # GB *is* the solvent model, so explicit water in the topology is both
+        # wrong physics and, before it gets that far, a wall of residues the
+        # protein force field has no template for. A bundle writes a
+        # topology.pdb already subset-matched to its trajectory, so for a run
+        # that came through one there is nothing here to strip; a run packed
+        # from a solvated system straight off a queue carries the whole box,
+        # and the first of those failed with "No template found for residue 263
+        # (HOH)" rather than with anything about solvent.
+        #
+        # Protein plus the named ligands: that is the complex the three
+        # topologies are split from, so water, ions and lipids all go the same
+        # way without each needing naming.
+        full_topology = topology_pdb
+        topology_pdb, keep, stripped = _solute_only(
+            topology_pdb, ligand_resnames, work)
+        if stripped:
+            warnings.append(
+                f"{stripped:,} solvent, ion and lipid atoms were stripped "
+                f"before the energy: MM/GBSA treats solvent implicitly and the "
+                f"topology carried it explicitly")
         pdb = app.PDBFile(str(topology_pdb))
         system = _unconstrained_system(pdb.topology, forcefield)
         warnings.extend(_write_topologies(
@@ -317,7 +501,11 @@ def mmgbsa(topology_pdb: Path, trajectory: Path, *, ligand_resnames: list[str],
         # phase before it, so there is no discarded head in this trajectory.
         total = len(md.open(str(trajectory)))
         stride = max(1, -(-(total - start_frame) // max_frames))
-        traj = md.load(str(trajectory), top=str(topology_pdb), stride=stride)
+        # Read against the topology the trajectory was written with, and cut to
+        # the same atoms the solute topology above was cut to, so the two are
+        # one selection however much solvent the file carried.
+        traj = md.load(str(trajectory), top=str(full_topology), stride=stride,
+                       atom_indices=keep)
         if start_frame:
             traj = traj[max(0, start_frame // stride):]
         if traj.n_atoms != pdb.topology.getNumAtoms():
@@ -329,6 +517,14 @@ def mmgbsa(topology_pdb: Path, trajectory: Path, *, ligand_resnames: list[str],
                 f"only {traj.n_frames} frame(s) to score, below the "
                 f"{MIN_ENERGY_FRAMES} needed for a usable mean and spread"]
 
+        # Into one periodic image before anything is measured off it, which is
+        # the step that makes the two halves of the complex a complex.
+        shifted = _image_ligand(traj, ligand_resnames)
+        if shifted:
+            warnings.append(
+                f"the ligand was in a different periodic copy from its "
+                f"receptor, by up to {shifted:.0f} angstrom, and was imaged "
+                f"back before the energy was computed")
         traj.save_netcdf(str(work / "traj.nc"))
         if stride > 1:
             warnings.append(
@@ -368,6 +564,7 @@ def mmgbsa(topology_pdb: Path, trajectory: Path, *, ligand_resnames: list[str],
 
         terms = _difference_block(text)
         _check_cancellation(terms)
+        _check_contact(terms)
         total_term = terms["DELTA TOTAL"]
 
         return Energies(

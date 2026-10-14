@@ -485,7 +485,34 @@ def test_equilibration_is_detected_where_it_actually_happens():
     settled = 4.0 + rng.normal(0.0, 0.05, 140)
     start, method = measure.detect_equilibration(np.concatenate([drifting, settled]))
     assert 20 <= start <= 100, start
+    assert method == "pymbar.detect_equilibration"
+
+
+def test_the_rule_is_pymbars_and_the_file_says_which_computed_it():
+    """Two files are never silently compared across two implementations.
+
+    The reimplementation stays as the fallback for an environment without
+    pymbar, which a generated bundle for an apo run is. It answers the same
+    question and the method string says it did, rather than both answers
+    arriving under one name.
+    """
+    rng = np.random.default_rng(2)
+    series = np.concatenate([np.linspace(5.0, 0.0, 200),
+                             rng.normal(0.0, 1.0, 800)])
+
+    assert measure._pymbar_equilibration(series) is not None, (
+        "pymbar is declared in pixi.toml and should answer here")
+    assert measure.detect_equilibration(series)[1] == "pymbar.detect_equilibration"
+
+    # Without it, the same question, answered by the copy, under its own name.
+    original = measure._pymbar_equilibration
+    try:
+        measure._pymbar_equilibration = lambda _series: None
+        start, method = measure.detect_equilibration(series)
+    finally:
+        measure._pymbar_equilibration = original
     assert method == "detect_equilibration"
+    assert 0 < start < len(series) // 2
 
 
 def test_a_series_that_never_settles_reports_the_ceiling():

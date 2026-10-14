@@ -32,7 +32,14 @@
       {% for t in tiles %}
         <div class="md-tile">
           <dt>{{ t.label }}</dt>
-          <dd>{{ t.value }}{% if t.unit %}<span class="md-tile-unit">{{ t.unit }}</span>{% endif %}</dd>
+          {# The note goes inside the <dd>: a <div> inside a <dl> may contain
+             only dt and dd, and a sibling <p> is a serious definition-list
+             violation. It was left out here entirely, so the run pages printed
+             "Final RMSD 1.75 Å" without "mean of the last 10% of frames" and
+             "Settles after 3.2 ns" without what measured it. #}
+          <dd>{{ t.value }}{% if t.unit %}<span class="md-tile-unit">{{ t.unit }}</span>{% endif %}
+            {% if t.note %}<p class="md-tile-note">{{ t.note }}</p>{% endif %}
+          </dd>
         </div>
       {% endfor %}
     </dl>

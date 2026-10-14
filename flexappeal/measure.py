@@ -404,6 +404,33 @@ def statistical_inefficiency(series: np.ndarray) -> float:
     return max(1.0, g)
 
 
+def _pymbar_equilibration(series: np.ndarray) -> int | None:
+    """pymbar's own answer, or None where pymbar is not installed.
+
+    Imported here rather than at module scope for two reasons. This module is
+    vendored into a generated bundle as `fxalib.measure` and runs in the user's
+    environment, where pymbar is declared only for a run with a ligand; and
+    importing `pymbar.timeseries` prints a paragraph about JAX and a caution
+    about inherent timescales to stdout, which in a bundle lands in the middle
+    of a progress bar. Both are reasons to pay for it once, when it is wanted.
+    """
+    import contextlib  # noqa: PLC0415
+    import io  # noqa: PLC0415
+
+    try:
+        with contextlib.redirect_stdout(io.StringIO()), \
+                contextlib.redirect_stderr(io.StringIO()):
+            from pymbar import timeseries  # noqa: PLC0415
+
+            start, _, _ = timeseries.detect_equilibration(np.asarray(series))
+    except Exception:
+        # Absent, or refused this series. Either way the fallback below answers
+        # the same question and says that it did.
+        return None
+    start = int(start)
+    return start if 0 <= start < len(series) else None
+
+
 def detect_equilibration(series: np.ndarray, *,
                          candidates: int = 50) -> tuple[int, str]:
     """The first frame to score from, and how it was chosen.
@@ -411,15 +438,24 @@ def detect_equilibration(series: np.ndarray, *,
     Chodera's rule: take the truncation that leaves the most *effectively
     uncorrelated* samples, `(N - t) / g(t)`. Discarding more frames lowers the
     sample count and also lowers the correlation, and this is where those two
-    trade off. It is pymbar's `detect_equilibration` without the dependency
-    rather than a cheaper substitute for it: the same quantity is maximised.
+    trade off.
 
-    Evaluated at about fifty candidate truncations rather than at every frame.
-    The curve is smooth, and the search is otherwise cubic in the frame count,
-    which on a 2,000-frame run costs minutes to produce one frame index.
+    pymbar computes it. This module carried its own implementation of the same
+    rule for a while, on the grounds that it avoided a dependency, and the
+    docstring said as much; but the rule is pymbar's, the numbers a reader will
+    check against are pymbar's, and a reimplementation that agrees on the runs
+    it was tried on is not the same thing as the reference. The implementation
+    is still here, as the fallback for an environment without pymbar, and the
+    method string says which one answered so that two files are never silently
+    compared across the two.
 
-    Capped at half the run. Over the cap the method is reported as `ceiling`,
-    which DeepFlex renders as `capped` on the page: honest rather than hidden.
+    The fallback evaluates about fifty candidate truncations rather than every
+    frame: the curve is smooth, and the search is otherwise cubic in the frame
+    count, which on a 2,000-frame run costs minutes to produce one frame index.
+
+    Capped at half the run either way. Over the cap the method is reported as
+    `ceiling`, which DeepFlex renders as `capped` on the page: honest rather
+    than hidden.
     """
     n = len(series)
     if n < 8:
@@ -427,24 +463,28 @@ def detect_equilibration(series: np.ndarray, *,
         # rather than discard a fifth of eight frames on no evidence.
         return 0, "all_frames"
 
-    # Searched unconstrained and clamped afterwards, rather than searched inside
-    # the cap. Clamping a search that was already bounded cannot tell a run that
-    # equilibrated just under the cap from one that never equilibrated at all,
-    # and those two deserve different words on the page.
-    step = max(1, (n - 8) // candidates)
-    best_start, best_effective = 0, -1.0
-    for start in range(0, n - 4, step):
-        tail = series[start:]
-        if len(tail) < 4:
-            break
-        effective = len(tail) / statistical_inefficiency(tail)
-        if effective > best_effective:
-            best_effective, best_start = effective, start
+    name = "pymbar.detect_equilibration"
+    best_start = _pymbar_equilibration(series)
+    if best_start is None:
+        name = "detect_equilibration"
+        # Searched unconstrained and clamped afterwards, rather than searched
+        # inside the cap. Clamping a search that was already bounded cannot
+        # tell a run that equilibrated just under the cap from one that never
+        # equilibrated at all, and those two deserve different words.
+        step = max(1, (n - 8) // candidates)
+        best_start, best_effective = 0, -1.0
+        for start in range(0, n - 4, step):
+            tail = series[start:]
+            if len(tail) < 4:
+                break
+            effective = len(tail) / statistical_inefficiency(tail)
+            if effective > best_effective:
+                best_effective, best_start = effective, start
 
     ceiling = max(1, int(n * EQUIL_CEILING_FRACTION))
     if best_start > ceiling:
-        return ceiling, "detect_equilibration->ceiling"
-    return best_start, "detect_equilibration"
+        return ceiling, f"{name}->ceiling"
+    return best_start, name
 
 
 # ===========================================================================

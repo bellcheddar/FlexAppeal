@@ -345,8 +345,27 @@ def _stage(row: str, cfg: dict[str, Any], work: Path, interval_ps: float,
     if not start.is_file():
         raise SystemExit(f"{row}: no start structure at {start}")
 
+    # The ligand's chemistry, which is what the binding energy needs.
+    #
+    # `bundle.build` takes the SDFs from its caller, and this one did not pass
+    # any, so the bundle it built carried an empty `ligands/` directory. The
+    # analysis pass then declined the MM/GBSA step with "holds no .sdf, so the
+    # ligand cannot be parameterised", on its own stdout, which nothing kept:
+    # both ligand runs went to the site with the energy sub-score reading "no
+    # binding energy in this file" while the energy was implemented and working.
+    # The web app has called `collect_ligands` before `build` since the ligand
+    # path was written; this is the second caller and it had not.
+    #
+    # Bond orders and hydrogens from the RCSB chemical definition, which a PDB
+    # HETATM record does not carry. They go into the bundle's own directory,
+    # which is deleted with the rest of the work tree once the results file is
+    # written, and never into a member of it.
+    ligands, ligand_notes = bundle.collect_ligands(cfg)
+    for note in ligand_notes:
+        log(f"  {note}")
     built = bundle.build(cfg, start.read_bytes(),
-                         structure_filename=f"{ROWS[row]['pdb']}.pdb")
+                         structure_filename=f"{ROWS[row]['pdb']}.pdb",
+                         ligands=ligands)
     files = bundle.unpack(built.content)
 
     if work.exists():
@@ -434,11 +453,28 @@ def _analyse(work: Path, output: Path, row: str) -> Path:
         cwd=str(work), capture_output=True, text=True, check=False)
     elapsed = time.time() - started
     tail = "\n".join((result.stdout or "").strip().splitlines()[-25:])
+    # Kept whatever happens, and the warnings repeated into this log.
+    #
+    # The output used to be printed only when the pass failed, so a pass that
+    # succeeded while skipping a step said nothing at all: the MM/GBSA energy
+    # was absent from two ligand runs for a day because `fxalib` had failed to
+    # import inside the bundle, and the only record of it was a line of stdout
+    # nobody kept. A step that declines to run is exactly what this log is for.
+    #
+    # Beside the other build logs rather than in the work directory, which is
+    # deleted as soon as the results file is written.
+    kept = MD_ROOT / f"{row}-analyse.log"
+    kept.write_text(
+        (result.stdout or "") + "\n--- stderr ---\n" + (result.stderr or ""),
+        encoding="utf-8")
     if result.returncode != 0:
         print(tail)
         print((result.stderr or "").strip()[-2000:], file=sys.stderr)
         raise SystemExit(f"{row}: the analysis pass exited {result.returncode}")
-    log(f"{row}: analysed in {elapsed / 60:.1f} min")
+    for line in (result.stdout or "").splitlines():
+        if "⚠" in line or line.lstrip().startswith("!!"):
+            log(f"  analysis warning: {line.strip()}")
+    log(f"{row}: analysed in {elapsed / 60:.1f} min, log in {kept}")
 
     written = sorted(output.glob("*.fxa"))
     # The version 2 package is a different artefact for a different reader, and

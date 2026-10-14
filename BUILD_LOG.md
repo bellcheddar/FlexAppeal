@@ -2692,3 +2692,40 @@ viewport is hidden until its camera has settled and revealed once, and the camer
 is pointed before the bilayer is fetched. Measured in a browser: 1.25 s hidden on
 a membrane run, 1.0 on a kinase, 0.5 where there is no packed camera to wait for.
 4ca.
+
+### 14 October, 02:25. The energy was never switched on, and the rule is pymbar's now
+
+Marc asked why the two ligand runs read "no binding energy in this file" when
+MM/GBSA is implemented, and why there were no equilibration figures.
+
+The energy was three faults deep. The packer called `bundle.build` without
+`ligands=`, so every bundle it built had an empty `ligands/` directory and the
+analysis declined the step for want of an SDF; the message went to stdout the
+packer discarded unless the pass failed, which is why it survived a day; and
+with the chemistry supplied it then failed on a water template, because the
+packed run directory holds the queue's own solvated box and GB is the solvent
+model. `energy.mmgbsa` cuts to protein plus the named ligands first now, 43,862
+atoms of 48,185 on the kinase run. ABL1 with imatinib: -60.9 kcal/mol, sd 3.5
+over 167 frames, bonded terms cancelling to zero. The analysis log is kept at
+`data/md/<row>-analyse.log` whatever the exit code.
+
+The receptor run then needed two more. Its carazolol reached OpenMM with no
+bonds at all, because a PDB atom serial is five columns and that system is
+187,848 atoms, so its CONECT records cannot resolve; the kinase at 48,185 kept
+all 72 of its imatinib's, which is why one of the two worked. And with the graph
+rebuilt it ran the whole calculation and returned a perfect zero, because the
+ligand was 101.7 angstrom from its receptor in a 122 by 128 by 116 box. That is
+the third time this build has paid for whole-molecule imaging, after the ghosts
+in 4bw and the bilayer in 4bz. Both fixed, and the zero is now refused rather
+than reported: under half a kcal/mol of van der Waals and electrostatics
+together is a complex that never touched, not a weak binder. b2AR with
+carazolol: -39.5 kcal/mol, sd 3.2. 4cc.
+
+The equilibration detection was Chodera's rule reimplemented here to avoid the
+dependency, and the docstring said so. It calls pymbar now, with the copy kept
+as the fallback for a bundle environment without it and the method string saying
+which answered. On top of that every run reports equilibration rather than only
+the ones with a ligand: the restrained phase from the manifest in one tile, and
+where pymbar says production settled in another, read off the potential energy
+and shaded on all six convergence panels. b2ar_apo: 10 ns restrained, then 3.2
+ns of production before it settles. 4cd.

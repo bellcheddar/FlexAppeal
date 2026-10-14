@@ -5272,6 +5272,120 @@ it. The reference-state builder took the title the same way and did not blank
 it. Five charts: the state score, the motif timelines, the DSSP ribbon, the
 state map and the bilayer QC.
 
+## 4cc. Two ligand runs went to the site with the energy switched off
+
+A reader asked why the two runs with a ligand in them said "no binding energy
+in this file" when MM/GBSA is implemented and the committed example reports a
+number. Three faults, in the order they had to be peeled off.
+
+**The bundle carried no chemistry.** `bundle.build` takes the ligand SDFs from
+its caller, and the packer did not pass any, so every bundle it built had an
+empty `ligands/` directory. The analysis pass then declined the energy step
+with "holds no .sdf, so the ligand cannot be parameterised". The web app has
+called `collect_ligands` before `build` since the ligand path was written; the
+packer is the second caller of `build` in this repository and it was the one
+that did not know.
+
+**And nothing said so.** The pass's output was printed only when it exited
+non-zero, so a pass that succeeded while skipping a step produced no record at
+all. It is kept now, at `data/md/<row>-analyse.log`, whatever the exit code,
+and any warning line is repeated into the packer's own log. This is the fault
+behind the fault: the first one would have been a five-minute fix on the day it
+happened if the message had been anywhere a reader could find it.
+
+**Then the energy saw the whole box.** With the chemistry supplied it got one
+step further and failed with "No template found for residue 263 (HOH)", which
+names the water rather than the mistake. A bundle writes a `topology.pdb`
+subset-matched to its trajectory, so for a run that came through one there is
+no solvent in it; the packer stages the queue's own solvated system, which is
+the whole box, and 43,862 of the kinase run's 48,185 atoms are solvent, ions
+and lipid. GB *is* the solvent model, so this was wrong before it was a missing
+template. `energy.mmgbsa` now cuts to protein plus the named ligands before it
+builds anything, reads the trajectory through the same indices, and reports in
+a warning how many atoms went. For a bundle's own topology nothing is removed
+and the file is passed through untouched.
+
+ABL1 with imatinib comes out at **-60.9 kcal/mol, sd 3.5 over 167 frames**, the
+bonded terms cancelling to zero as a single-trajectory calculation requires.
+Read it as a rank and not as a prediction: there is no entropy term, which is
+in the recipe the calculation writes and is why the number is several times the
+experimental free energy of binding.
+
+**And the receptor run failed differently, on a five-column field.** With all
+of the above fixed, β2AR still reported "No template found for residue 322
+(CAU)", which names the ligand this time. A PDB atom serial is five columns
+wide, so past 99,999 atoms a CONECT record cannot name the atoms it means. The
+receptor system is 187,848 atoms and its carazolol arrived with **no bonds at
+all**; the kinase system is 48,185 and kept all 72 of its imatinib's, which is
+why one of the two worked. A template generator matches a residue by its graph,
+and a graph with no edges matches nothing, so OpenMM fell back to reporting the
+nearest amino acid it could think of and the real problem was two steps away
+from the message.
+
+The ligand's bonds are rebuilt where the file could not carry them, from the
+sum of the two covalent radii plus 0.4 angstrom, and only for a residue that
+has none: a ligand whose bonds were read is left exactly as it was read, so
+this can add a graph and never change one. On a topology written from a
+minimised, equilibrated frame this is not a guess, and carazolol comes back
+with the 46 bonds it should have.
+
+**And then it reported a perfect zero.** The receptor run now ran the whole
+calculation, without an error anywhere, and every term of the difference block
+came back as 0.0: van der Waals -0.0001, electrostatics -0.021, total -0.0.
+Carazolol's centroid is 101.7 angstrom from its receptor's in a box 122 by 128
+by 116, because a ligand is its own molecule and whole-molecule wrapping is
+free to leave it in whichever periodic copy it drifted into. Imatinib's is 8.9
+angstrom from its kinase's and needed nothing, which is why two runs through
+identical code gave one real number and one zero.
+
+This is the third time this build has paid for the same fact. The ghosts were
+50 angstrom out because the superposition included a ligand in another image
+(4bw); the bilayer was torn across the box by per-atom imaging (4bz); and now
+MM/GBSA has scored a complex whose halves never touched. The ligand is imaged
+into the receptor's copy before the trajectory is written, one shift per ligand
+per frame from its own centroid.
+
+The zero was not caught by the guard that exists for exactly this class of
+mistake. `_check_cancellation` refuses a result whose bonded terms did not
+cancel, on the grounds that a mis-split mask produces a plausible number rather
+than a failure; a ligand a box away cancels those *perfectly*, and every
+interaction term with them. There is no complex with no van der Waals and no
+electrostatics, so that is checked now too: under half a kcal/mol of the two
+together is read as a failure rather than as a weak binder.
+
+## 4cd. The equilibration was pymbar's rule without pymbar
+
+`measure.detect_equilibration` carried this repository's own implementation of
+Chodera's rule, and its docstring said so: "pymbar's `detect_equilibration`
+without the dependency rather than a cheaper substitute for it". That was a
+defensible trade and it is not the one to keep. The rule is pymbar's, the
+numbers anybody checking this will compare against are pymbar's, and a
+reimplementation that agrees on the series it was tried on is not the same
+thing as the reference.
+
+pymbar computes it now. The implementation stays as the fallback for an
+environment without it, which a generated bundle for an apo run is, and the
+method string says which one answered, so two files are never silently compared
+across the two. `pymbar.timeseries` prints a paragraph about JAX and a caution
+about inherent timescales on import, which in a bundle would land in the middle
+of a progress bar, so the import is deferred and its output discarded.
+
+The reader's other half of the question was that the four runs showed no
+equilibration figures at all. The scored window the binding panels shade is a
+property of a ligand, and two of the four have none. Every run records a
+potential energy, so that is what this is read off: production is measured for
+where it stops relaxing, the head is shaded on all six convergence panels, and
+two tiles report it. They are deliberately two. `Equilibrated` is the restrained
+phase the protocol ran beforehand, which is a setting; `Settles after` is where
+pymbar says the production trajectory itself became stationary, which is a
+measurement. The apo receptor makes the distinction: 10 ns of restrained
+equilibration, and then another 3.2 ns of production before it settles, which
+is the receptor relaxing away from a ligand-bound crystal pose that section 7
+already warns about. ABL1 apo is stationary from its first production frame.
+
+The run pages were also dropping every tile note, so "Final RMSD 1.75 Å" never
+said "mean of the last 10% of frames". The markup is the Analysis tab's now.
+
 ## 5. Production runs
 
 Tier 2 started at 17:04 on 10 October, in section 5.3's priority order: β2AR

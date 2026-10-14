@@ -332,6 +332,61 @@ def test_tiles_degrade_when_metrics_are_absent():
     assert all(t["value"] is not None for t in tiles)
 
 
+def test_the_production_run_reports_where_it_settled():
+    """The measurement a reader asked for, from the series it is read off.
+
+    pymbar on the potential energy, which every run records whether or not it
+    has a ligand in it: the four reference-state runs had no equilibration
+    figure of any kind on the page, and two of them have no ligand, so the
+    scored window the binding panels shade could never have supplied one.
+    """
+    import math
+
+    rows = ['#"Step","Time (ps)","Potential Energy (kJ/mole)"']
+    # Falls for 200 frames, then fluctuates about a mean for 800.
+    for index in range(1000):
+        value = (-1000.0 + 500.0 * math.exp(-index / 40.0)
+                 + 0.5 * math.sin(index))
+        rows.append(f"{index},{index * 10.0},{value}")
+    columns = plots.parse_state_data("\n".join(rows).encode())
+
+    settled = plots.equilibration(columns)
+    assert settled["method"].startswith("pymbar."), settled
+    assert 0 < settled["start_index"] < 500, settled
+    assert settled["ns"] == pytest.approx(settled["start_index"] * 10.0 / 1000.0)
+    assert 0 < settled["fraction"] < 0.5
+
+    # And every convergence panel shades the same head, so a reader comparing
+    # two of them is comparing one window.
+    bands = [figure["figure"]["layout"].get("shapes")
+             for figure in plots.convergence(columns)]
+    assert bands and all(band == bands[0] for band in bands)
+    assert bands[0][0]["x1"] == pytest.approx(settled["start_index"] * 10.0)
+
+
+def test_a_series_with_nothing_to_read_reports_nothing():
+    """Omitted rather than zeroed: a run that was not measured must not read
+    as a run that needed no equilibration."""
+    assert plots.equilibration({}) == {}
+    assert plots.equilibration({"Time (ps)": [0.0, 1.0]}) == {}
+
+
+def test_the_two_equilibration_tiles_are_different_facts():
+    """One is a protocol setting, the other a measurement of production."""
+    tiles = plots.tiles({"duration_ns": 50.0, "equilibration_ns": 10.0}, {},
+                        {"start_index": 32, "ns": 3.2, "fraction": 0.064,
+                         "method": "pymbar.detect_equilibration"})
+    by_label = {t["label"]: t for t in tiles}
+    assert by_label["Equilibrated"]["value"] == "10"
+    assert "restrained" in by_label["Equilibrated"]["note"]
+    assert by_label["Settles after"]["value"] == "3.2"
+    assert "pymbar" in by_label["Settles after"]["note"]
+
+    # A file with neither gets neither tile rather than a pair of zeroes.
+    plain = {t["label"] for t in plots.tiles({"duration_ns": 50.0}, {})}
+    assert "Equilibrated" not in plain and "Settles after" not in plain
+
+
 def test_nan_becomes_a_gap_not_a_spike():
     """An exploded frame writes nan; plotting it as 0 would be a lie."""
     metrics = {"time_ns": [0, 1, 2], "rmsd_nm": [0.1, float("nan"), 0.3]}

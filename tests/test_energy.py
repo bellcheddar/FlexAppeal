@@ -299,3 +299,174 @@ def test_the_committed_example_gives_a_physical_binding_energy():
     # And the signature of a single-trajectory calculation.
     for term in energy.CANCELLING_TERMS:
         assert abs(gb[term][0]) < energy.CANCELLATION_TOLERANCE, term
+
+
+# ---------------------------------------------------------------------------
+#  The solute, and only the solute
+# ---------------------------------------------------------------------------
+
+
+def _solvated_pdb(path, waters: int = 30):
+    """A two-residue peptide, one ligand, and some water. Written here, not
+    committed: a fixture is generated in the test."""
+    lines = []
+    serial = 0
+
+    def atom(record, name, resname, resseq, element, xyz):
+        nonlocal serial
+        serial += 1
+        lines.append(
+            f"{record:<6s}{serial:>5d} {name:<4s}{resname:>4s} A{resseq:>4d}"
+            f"    {xyz[0]:8.3f}{xyz[1]:8.3f}{xyz[2]:8.3f}  1.00  0.00"
+            f"          {element:>2s}")
+
+    for index, (resname, names) in enumerate(
+            [("ALA", ("N", "CA", "C", "O")), ("GLY", ("N", "CA", "C", "O"))], 1):
+        for offset, name in enumerate(names):
+            atom("ATOM", name, resname, index, name[0],
+                 (index * 3.0 + offset * 0.5, 0.0, 0.0))
+    for offset, name in enumerate(("C1", "C2", "C3")):
+        atom("HETATM", name, "BEN", 3, "C", (10.0 + offset * 0.5, 1.0, 0.0))
+    for index in range(waters):
+        atom("HETATM", "O", "HOH", 100 + index, "O",
+             (20.0 + index * 3.0, 5.0, 0.0))
+    # The ligand's bonds, the way a file under 99,999 atoms carries them. A
+    # topology that has them is left alone; one that lost them to the serial
+    # limit is the case `_bond_the_ligands` exists for.
+    lines += ["CONECT    9   10", "CONECT   10    9   11", "CONECT   11   10"]
+    path.write_text("\n".join(lines) + "\nEND\n")
+    return path
+
+
+def test_the_solvent_is_stripped_before_the_energy(tmp_path):
+    """GB is the solvent model, so explicit water is wrong before it is
+    anything else.
+
+    A bundle writes a topology already subset-matched to its trajectory and
+    nothing is removed. A run packed from a queue's own solvated system carries
+    the whole box, and the first of those failed with "No template found for
+    residue 263 (HOH)", which names the water rather than the mistake: 43,862
+    of its 48,185 atoms were solvent.
+    """
+    pytest.importorskip("mdtraj")
+
+    solvated = _solvated_pdb(tmp_path / "topology.pdb")
+    out, keep, stripped = energy._solute_only(solvated, ["BEN"], tmp_path)
+
+    assert stripped == 30, "every water should go"
+    assert out != solvated, "the original file is never rewritten"
+    assert len(keep) == 11, "eight protein atoms and three of the ligand"
+
+    import mdtraj as md
+
+    kept = md.load(str(out))
+    assert sorted({r.name for r in kept.topology.residues}) == ["ALA", "BEN", "GLY"]
+
+
+def test_a_solute_topology_is_passed_through_untouched(tmp_path):
+    """The usual case: a bundle's own topology.pdb, with nothing to remove."""
+    pytest.importorskip("mdtraj")
+
+    solute = _solvated_pdb(tmp_path / "topology.pdb", waters=0)
+    out, keep, stripped = energy._solute_only(solute, ["BEN"], tmp_path)
+
+    assert (out, keep, stripped) == (solute, None, 0)
+
+
+def test_a_topology_with_no_complex_in_it_says_so(tmp_path):
+    """Rather than scoring whatever happens to be left."""
+    pytest.importorskip("mdtraj")
+
+    water_only = _solvated_pdb(tmp_path / "water.pdb", waters=5)
+    import mdtraj as md
+
+    loaded = md.load(str(water_only))
+    water = loaded.atom_slice(loaded.topology.select("water"))
+    water.save_pdb(str(tmp_path / "justwater.pdb"))
+
+    with pytest.raises(energy.EnergyError, match="no complex to score"):
+        energy._solute_only(tmp_path / "justwater.pdb", ["BEN"], tmp_path)
+
+
+def test_a_ligand_that_lost_its_bonds_gets_them_back(tmp_path):
+    """A PDB atom serial is five columns wide.
+
+    Past 99,999 atoms a CONECT record cannot name the atoms it means, so a
+    reader gets nothing from it. The receptor run here is 187,848 atoms and its
+    carazolol arrived with no bonds at all, while the kinase run at 48,185 kept
+    all 72 of its imatinib's. The template generator matches a residue by its
+    graph, so with no edges there was no match and OpenMM reported it as "no
+    template found for residue 322 (CAU)", against the nearest amino acid it
+    could think of.
+    """
+    pytest.importorskip("mdtraj")
+
+    import mdtraj as md
+
+    # Three carbons in a row at 1.5 Å, which is a bond, and a fourth atom 5 Å
+    # away, which is not.
+    pdb = tmp_path / "ligand.pdb"
+    rows = []
+    for serial, (name, x) in enumerate(
+            [("C1", 0.0), ("C2", 1.5), ("C3", 3.0), ("C4", 8.0)], start=1):
+        rows.append(
+            f"HETATM{serial:>5d} {name:<4s} BEN A   1    "
+            f"{x:8.3f}{0.0:8.3f}{0.0:8.3f}  1.00  0.00           C")
+    pdb.write_text("\n".join(rows) + "\nEND\n")
+
+    loaded = md.load(str(pdb))
+    assert len(list(loaded.topology.bonds)) == 0, "the fixture starts bondless"
+
+    added = energy._bond_the_ligands(loaded, ["BEN"])
+    assert added == 2, "C1-C2 and C2-C3, and nothing to the atom 5 Å away"
+
+    # And a second pass changes nothing: a ligand whose bonds were read is left
+    # exactly as it was read.
+    assert energy._bond_the_ligands(loaded, ["BEN"]) == 0
+
+
+def test_a_complex_whose_halves_never_touched_is_refused():
+    """A clean zero is the signature of a ligand in the wrong periodic copy.
+
+    The bonded terms cancel perfectly in that case, so the check that exists
+    for a mis-split mask passes it: carazolol sat 101.7 angstrom from its
+    receptor in a 122 by 128 by 116 box and MM/GBSA reported every term as
+    zero, with no error anywhere. There is no complex with no van der Waals
+    and no electrostatics.
+    """
+    with pytest.raises(energy.EnergyError, match="never in contact"):
+        energy._check_contact({"VDWAALS": [-0.0001, 0.0001, 0.0],
+                               "EEL": [-0.021, 0.1019, 0.0079]})
+
+    # A real one passes.
+    energy._check_contact({"VDWAALS": [-74.0046, 3.36, 0.26],
+                           "EEL": [-35.0976, 5.10, 0.39]})
+
+
+def test_a_ligand_in_the_next_periodic_copy_is_imaged_back(tmp_path):
+    """One shift per ligand per frame, from its own centroid."""
+    pytest.importorskip("mdtraj")
+
+    import mdtraj as md
+    import numpy as np
+
+    solute = _solvated_pdb(tmp_path / "topology.pdb", waters=0)
+    traj = md.load(str(solute))
+    box = np.array([30.0, 30.0, 30.0])
+    traj.unitcell_lengths = np.array([box / 10.0])
+    traj.unitcell_angles = np.array([[90.0, 90.0, 90.0]])
+
+    ligand = traj.topology.select("resname BEN")
+    protein = traj.topology.select("protein")
+    before = float(np.linalg.norm(traj.xyz[0][ligand].mean(axis=0)
+                                 - traj.xyz[0][protein].mean(axis=0))) * 10.0
+    # One box along x, which is where whole-molecule wrapping leaves it.
+    traj.xyz[0, ligand] += np.array([3.0, 0.0, 0.0], dtype="float32")
+    assert energy._image_ligand(traj, ["BEN"]) == pytest.approx(30.0)
+
+    after = float(np.linalg.norm(traj.xyz[0][ligand].mean(axis=0)
+                                - traj.xyz[0][protein].mean(axis=0))) * 10.0
+    assert after == pytest.approx(before, abs=1e-3), "back where it started"
+
+    # And a ligand already in the right copy is left exactly alone.
+    assert energy._image_ligand(traj, ["BEN"]) == 0.0

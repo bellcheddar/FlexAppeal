@@ -42,6 +42,13 @@ ambertools = "*"
 # environment solve for nothing.
 mdtraj = "*"
 scipy = "*"
+{% if cfg.has_ligands %}
+# Equilibration detection for the scored window, used by the vendored
+# `fxalib.measure`. Without it that code falls back to its own implementation of
+# the same rule and says which one it used, so this is about agreeing with the
+# reference rather than about being able to run at all.
+pymbar = "*"
+{% endif %}
 
 # Console output. rich draws the progress bars and tables; psutil supplies the
 # memory and swap readout beside them. Both are pure-Python and small next to

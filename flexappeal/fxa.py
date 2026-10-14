@@ -341,6 +341,11 @@ def summarise(results: Results) -> dict[str, Any]:
         "timestep": config.get("timestep"),
         "platform": run.get("platform", ""),
         "ns_per_day": run.get("achieved_ns_per_day"),
+        # The restrained phase before production, where the run recorded one.
+        # A setting rather than a measurement, and omitted rather than zeroed
+        # where the file does not carry it: a run that did equilibrate and did
+        # not say so must not read as a run that did not.
+        "equilibration_ns": run.get("equilibration_ns"),
         "wall_hours": (round(run["wall_seconds"] / 3600, 2)
                        if isinstance(run.get("wall_seconds"), (int, float)) else None),
         "openmm_version": run.get("openmm_version", ""),

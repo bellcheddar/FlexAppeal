@@ -646,19 +646,23 @@ def _results_context(results, content: bytes, token: str) -> dict[str, Any]:
     given them. One builder, three callers.
     """
     summary = fxa.summarise(results)
+    # Parsed once and used twice: the convergence panels shade the head and the
+    # tiles print where it ends, and the two reading the file separately is how
+    # a page ends up shading one window and naming another.
+    state = (plots.parse_state_data(results.members["state_data.csv"])
+             if "state_data.csv" in results.members else {})
+    settled = plots.equilibration(state)
     return {
         "results": results,
         "summary": summary,
         "token": token,
-        "tiles": plots.tiles(summary, results.metrics),
+        "tiles": plots.tiles(summary, results.metrics, settled),
         "binding": _binding_panels(results, content, results.job_name),
         "mobility_bands": MOBILITY_BANDS,
         "mobility_ceiling": MOBILITY_CEILING,
         "panels": plots.build_all(results)["panels"],
-        "convergence": plots.convergence(
-            plots.parse_state_data(results.members["state_data.csv"])
-            if "state_data.csv" in results.members else {}
-        ),
+        "convergence": plots.convergence(state),
+        "settled": settled,
         "has_viewer": bool(results.topology_pdb),
         "warnings": results.warnings,
         "reanalysis_metrics": analysis.METRICS,
