@@ -364,6 +364,44 @@ def test_the_production_run_reports_where_it_settled():
     assert bands[0][0]["x1"] == pytest.approx(settled["start_index"] * 10.0)
 
 
+def test_the_equilibration_is_computed_once_per_file():
+    """It runs on every view of a run page and it is not cheap.
+
+    The committed example writes a state row every 10 ps for 100 ns, and 10,000
+    points cost 1.2 seconds here and about 3 on the droplet, which took that
+    page from 0.44 seconds to 3. Thinning the series was the first answer and
+    it is the wrong one: at one point in five the example's own answer moved
+    from 0.52 ns to nothing at all, so the cheaper number is a different
+    number.
+    """
+    import math
+    import time as clock
+
+    rows = ['#"Step","Time (ps)","Potential Energy (kJ/mole)"']
+    for index in range(4000):
+        value = -1000.0 + 500.0 * math.exp(-index / 40.0) + 0.5 * math.sin(index)
+        rows.append(f"{index},{index * 10.0},{value}")
+    columns = plots.parse_state_data("\n".join(rows).encode())
+
+    plots._EQUIL_CACHE.clear()
+    started = clock.perf_counter()
+    first = plots.equilibration(columns)
+    cold = clock.perf_counter() - started
+
+    started = clock.perf_counter()
+    second = plots.equilibration(columns)
+    warm = clock.perf_counter() - started
+
+    assert first == second, "the cached answer is the computed one"
+    assert warm < cold / 10, f"cold {cold:.3f}s, warm {warm:.3f}s"
+
+    # Keyed on the series, so a different file is a different answer.
+    other = plots.parse_state_data(
+        "\n".join(rows[:1] + rows[1:2000]).encode())
+    assert plots.equilibration(other)["start_index"] is not None
+    assert len(plots._EQUIL_CACHE) == 2
+
+
 def test_a_series_with_nothing_to_read_reports_nothing():
     """Omitted rather than zeroed: a run that was not measured must not read
     as a run that needed no equilibration."""

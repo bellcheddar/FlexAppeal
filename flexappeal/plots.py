@@ -34,6 +34,7 @@ Two hard constraints that shape the figures:
 from __future__ import annotations
 
 import csv
+import hashlib
 import io
 import math
 from typing import Any
@@ -202,6 +203,19 @@ def parse_state_data(raw: bytes) -> dict[str, list[float]]:
     return columns
 
 
+# Answers already computed, keyed by the series they were computed from. The
+# detection is superlinear in the point count and runs on every view of a run
+# page: the committed example writes a state row every 10 ps for 100 ns, and
+# 10,000 points cost 1.2 seconds here and about 3 on the droplet, which took
+# that page from 0.44 seconds to 3.
+#
+# Thinning the series was the first answer and it is the wrong one: at one
+# point in five the example's own answer moved from 0.52 ns to nothing at all,
+# so the cheaper number is a different number. The work is done once per file
+# instead, and `deploy.sh` warms every run page, so a reader never pays it.
+_EQUIL_CACHE: dict[str, dict[str, Any]] = {}
+
+
 def equilibration(columns: dict[str, list[float]]) -> dict[str, Any]:
     """Where the production run became stationary, and what said so.
 
@@ -225,24 +239,31 @@ def equilibration(columns: dict[str, list[float]]) -> dict[str, Any]:
     if len(finite) < 8 or len(time) != len(series):
         return {}
 
-    import numpy as np  # noqa: PLC0415
-
     from . import measure  # noqa: PLC0415
 
-    start, method = measure.detect_equilibration(np.asarray(finite, dtype=float))
+    values = np.asarray(finite, dtype=float)
+    key = hashlib.sha256(values.tobytes()).hexdigest()
+    if key in _EQUIL_CACHE:
+        return _EQUIL_CACHE[key]
+
+    start, method = measure.detect_equilibration(values)
     if start <= 0:
         # Stationary from the first frame. That is an answer and it is worth
         # saying, so it is reported rather than omitted.
-        return {"start_index": 0, "ns": 0.0, "fraction": 0.0, "method": method}
-    index = min(int(start), len(time) - 1)
-    span = float(time[-1]) - float(time[0])
-    return {
-        "start_index": index,
-        "ns": (float(time[index]) - float(time[0])) / 1000.0,
-        "fraction": ((float(time[index]) - float(time[0])) / span
-                     if span > 0 else 0.0),
-        "method": method,
-    }
+        answer = {"start_index": 0, "ns": 0.0, "fraction": 0.0,
+                  "method": method}
+    else:
+        index = min(int(start), len(time) - 1)
+        span = float(time[-1]) - float(time[0])
+        answer = {
+            "start_index": index,
+            "ns": (float(time[index]) - float(time[0])) / 1000.0,
+            "fraction": ((float(time[index]) - float(time[0])) / span
+                         if span > 0 else 0.0),
+            "method": method,
+        }
+    _EQUIL_CACHE[key] = answer
+    return answer
 
 
 def convergence(columns: dict[str, list[float]]) -> list[dict[str, Any]]:

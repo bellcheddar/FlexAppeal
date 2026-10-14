@@ -2739,3 +2739,11 @@ the fallback. Two estimators of the same quantity, disagreeing by a frame or
 two, which is exactly what the method string exists to make visible and is also
 not enough on its own. `pymbar` is in `requirements.txt` now, with a deploy test
 for it. On PyPI it pulls only numexpr beyond what the box already had. 4ce.
+
+The same deploy then showed the example page at three seconds against 0.44
+before it. The detection runs on every view and is superlinear in the point
+count, and the example writes a state row every 10 ps for 100 ns. Thinning the
+series was the first fix and it was wrong: at one point in five the example's
+own answer moved from 0.52 ns to nothing at all. Computed once per file and
+kept instead, 1.1977 seconds cold against 0.0004 warm, with deploy.sh warming
+every run page. Suite green at 1082.

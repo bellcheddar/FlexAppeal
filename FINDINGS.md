@@ -5406,6 +5406,18 @@ pulls only numexpr beyond numpy and scipy, both of which the droplet already
 had; the conda build pulls jax, which is where the warning banner in the
 development environment comes from and is not what the server installs.
 
+**And then the example page took three seconds.** The detection runs on every
+view of a run page and is superlinear in the point count. The committed example
+writes a state row every 10 ps for 100 ns, so 10,000 points: 1.2 seconds here,
+about 3 on the droplet, against 0.44 for the whole page before.
+
+Thinning the series was the first answer and it is the wrong one. At one point
+in five the example's own answer moved from 0.52 ns to nothing at all, which is
+the shape of mistake worth naming: a cheaper number that is a different number
+is not a cheaper number. The work is done once per file and kept, keyed on the
+series it was computed from, and `deploy.sh` warms every run page, so a reader
+never pays for it. 1.1977 seconds cold, 0.0004 warm.
+
 ## 5. Production runs
 
 Tier 2 started at 17:04 on 10 October, in section 5.3's priority order: β2AR
